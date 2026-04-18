@@ -86,6 +86,8 @@ export const account = pgTable("account", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// No index on expires_at: at <1k rows/day and 300 concurrent users,
+// a seq scan during cleanup is cheap. Revisit if row count crosses ~100k.
 export const verification = pgTable("verification", {
   id: text("id").primaryKey(),
   identifier: text("identifier").notNull(),
@@ -300,6 +302,8 @@ export const attachment = pgTable(
   {
     id: text("id").primaryKey(),
     // Null during upload (step 1), set on send (step 2).
+    // TODO(S3-GC): sweep rows with messageId IS NULL older than 1h + delete
+    // the orphaned file under UPLOAD_DIR. Tracked in docs/FOLLOWUPS.md (S3).
     messageId: text("message_id").references(() => message.id, { onDelete: "cascade" }),
     roomId: text("room_id")
       .notNull()
