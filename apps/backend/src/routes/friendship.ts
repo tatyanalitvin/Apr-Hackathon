@@ -165,8 +165,40 @@ export async function friendshipRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(201).send({ id: randomUUID(), status: "pending" });
       }
 
-      const id = randomUUID();
+      // R6 / REQ-055 — duplicate semantics on unique (fromId, toId).
+      // pending  → UPDATE message + createdAt, return 200 same id
+      // accepted → 409 already_friends
+      // rejected → 409 request_declined (Q5a: decline is terminal)
       const messageText = body.message ?? null;
+      const [existing] = await db
+        .select({
+          id: friendRequest.id,
+          status: friendRequest.status,
+        })
+        .from(friendRequest)
+        .where(
+          and(
+            eq(friendRequest.fromId, ctx.userId),
+            eq(friendRequest.toId, targetId),
+          ),
+        )
+        .limit(1);
+
+      if (existing) {
+        if (existing.status === "accepted") {
+          return reply.status(409).send({ error: "already_friends" });
+        }
+        if (existing.status === "rejected") {
+          return reply.status(409).send({ error: "request_declined" });
+        }
+        await db
+          .update(friendRequest)
+          .set({ message: messageText, createdAt: new Date() })
+          .where(eq(friendRequest.id, existing.id));
+        return reply.status(200).send({ id: existing.id, status: "pending" });
+      }
+
+      const id = randomUUID();
       await db.insert(friendRequest).values({
         id,
         fromId: ctx.userId,
