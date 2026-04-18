@@ -60,7 +60,7 @@ describe("REQ-006 duplicate email rejected", () => {
 - [ ] **R12 (REQ-016)**: The logged-out cookie, even if replayed by a client that cached it, no longer authenticates — the DB row is gone.
 - [x] **R13 (REQ-017, v3.docx §2.2.4)**: `GET /api/v1/sessions` returns `[{ id, userAgent, ipAddress, createdAt, expiresAt, current: boolean }]` for the logged-in user's non-expired sessions.
 - [x] **R14 (REQ-018, v3.docx §2.2.4)**: `DELETE /api/v1/sessions/:id` revokes a single session the caller owns. Revoking someone else's session returns 403. Revoking the caller's current session is allowed and behaves like logout.
-- [ ] **R15 (REQ-019)**: `POST /api/auth/forget-password` with `{ email }` returns 200 regardless of whether the email exists (no enumeration). The endpoint currently **logs the reset token to stdout instead of sending email** — marked with a `TODO(S3)` and captured in §7.
+- [x] **R15 (REQ-019)**: `POST /api/auth/request-password-reset` with `{ email }` returns 200 regardless of whether the email exists (no enumeration — better-auth does this itself via a dummy verification lookup, see `password.mjs:51-62`). The endpoint currently **logs the reset token to stdout instead of sending email** — marked with a `TODO(S3)` and captured in §7.
 - [ ] **R18 (v3.docx §2.1.5)**: `POST /api/auth/delete-user` (source-verified: method is `POST`, not `DELETE` despite Context7 docs suggesting otherwise — see §10 entry) with `{ password }` on an authenticated session permanently deletes the `user` row and FK-cascades `session` + `account` rows. A subsequent `GET /api/v1/sessions` using the same cookie returns 401. Wrong password returns 4xx; unauthenticated returns 4xx. Room-level cascade ("owner's rooms + their messages/files deleted") is **deferred to S2** via a `TODO(S2-rooms)` in the `beforeDelete` hook — rooms don't exist in S1.
 - [ ] **R16 (transverse)**: Session cookie attributes are `HttpOnly; SameSite=Lax; Path=/; Secure` (the `Secure` flag depends on `NODE_ENV=production`, per better-auth defaults). Verified by asserting `Set-Cookie` headers in an integration test.
 - [ ] **R17 (transverse)**: `SESSION_SECRET` is validated at boot by `src/env.ts` and must be ≥16 chars (we'll require ≥32 in prod per v3.docx §2.2). App fails to start otherwise.
@@ -90,7 +90,7 @@ better-auth mounts under `/api/auth/*` (bridged into Fastify via `auth.handler`)
 | `POST /api/auth/sign-in/email` | Login (body takes `rememberMe`) | REQ-010–014 |
 | `POST /api/auth/sign-out` | Logout current session | REQ-015, REQ-016 |
 | `GET /api/auth/get-session` | Who am I? (used everywhere downstream) | session plumbing |
-| `POST /api/auth/forget-password` | Request reset (STUB, logs token) | REQ-019 |
+| `POST /api/auth/request-password-reset` | Request reset (STUB, logs token) | REQ-019 |
 | `POST /api/auth/reset-password` | Consume reset token (STUB usable from logs) | REQ-019 |
 
 Custom routes we own — thin wrappers around better-auth's native session APIs, only because v3.docx §2.2.4 wants a `current: boolean` flag on the listing:
@@ -107,7 +107,7 @@ Implementation: `GET` calls `auth.api.listSessions({ headers })` + `auth.api.get
 - `/register` — form wired to `authClient.signUp.email({...})`
 - `/login` — form wired to `authClient.signIn.email({..., rememberMe})`
 - `/account/sessions` — table of active sessions, revoke button per row, calls `DELETE /api/v1/sessions/:id`
-- `/forgot-password` — form that POSTs to `/api/auth/forget-password`; always shows "if that email exists, a reset link was sent"
+- `/forgot-password` — form that POSTs to `/api/auth/request-password-reset`; always shows "if that email exists, a reset link was sent"
 
 ### Validation
 
@@ -122,7 +122,7 @@ The Fastify bridge validates the body with these schemas **before** delegating t
 ### Security posture
 
 - **Password hashing**: better-auth's built-in (scrypt-based, no extra deps). We explicitly do NOT add argon2 or bcrypt. ADR-0001 already supersedes the v4 markdown that mentioned bcrypt cost-12.
-- **Rate limiting**: better-auth `rateLimit` (enabled by default, in-memory storage). Task #10 verifies the default `window: 10s, max: 100` triggers a 429 on `/sign-in/email` inside the REQ-014 "10 failed attempts" budget; if not, we pin explicit `customRules` on sign-in / sign-up / forget-password. S3 may move the storage to Redis — noted in §7.
+- **Rate limiting**: better-auth `rateLimit` (enabled by default, in-memory storage). Task #10 verifies the default `window: 10s, max: 100` triggers a 429 on `/sign-in/email` inside the REQ-014 "10 failed attempts" budget; if not, we pin explicit `customRules` on sign-in / sign-up / request-password-reset. S3 may move the storage to Redis — noted in §7.
 - **CSRF**: better-auth uses same-site cookies + origin check against `trustedOrigins: [env.WEB_ORIGIN]`. S3 will layer the double-submit token per REQ-146 — out of scope for S1.
 - **Cookies**: `HttpOnly`, `SameSite=Lax`, `Secure` in prod, `Path=/`. Set by better-auth; we assert in tests (R16).
 - **CORS**: Fastify registers `@fastify/cors` with `origin: env.WEB_ORIGIN, credentials: true` — already configured, just needs the auth routes mounted under the same server.
