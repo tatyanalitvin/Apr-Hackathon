@@ -489,13 +489,28 @@ export async function friendshipRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  // R12 / REQ-059 — DELETE /api/v1/friends/:userId
+  // R12 / REQ-059 — DELETE /api/v1/friends/:userId. Either side can call.
+  // The friendship table is normalized userAId < userBId (enforced by the
+  // migration 0003 CHECK), so we sort caller + target here and DELETE the
+  // single row. Idempotent: 204 even if no row matched — that way the
+  // caller can't enumerate real pairings by probing for 404s.
   app.delete<{ Params: { userId: string } }>(
     "/friends/:userId",
     async (request, reply) => {
       const ctx = await requireFriendshipAuth(request, reply);
       if (!ctx) return;
-      return notImplemented(reply);
+
+      const target = request.params.userId;
+      const [userAId, userBId] =
+        ctx.userId < target ? [ctx.userId, target] : [target, ctx.userId];
+
+      await db
+        .delete(friendship)
+        .where(
+          and(eq(friendship.userAId, userAId), eq(friendship.userBId, userBId)),
+        );
+
+      return reply.status(204).send();
     },
   );
 
