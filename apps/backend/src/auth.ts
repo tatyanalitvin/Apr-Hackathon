@@ -24,6 +24,25 @@ export const auth = betterAuth({
     additionalFields: {
       username: { type: "string", required: true, input: true },
     },
+    // Task #7 (v3.docx §2.1.5 "Account Removal"). `deleteUser.enabled: true`
+    // exposes better-auth's built-in `POST /api/auth/delete-user` (verified
+    // POST in update-user.mjs:215 — Context7 docs say DELETE; docs are wrong),
+    // which accepts `{ password }` in the body for re-auth. FK-level
+    // `onDelete: "cascade"` on `session.userId` and `account.userId`
+    // (schema.ts) does the auth-surface cleanup; `beforeDelete` is the hook
+    // where v3 §2.1.5's room-level cascade WILL live in S2 (currently a
+    // no-op — rooms don't exist yet). See §10 "before task #7" and
+    // "task #7 — method" for rationale.
+    deleteUser: {
+      enabled: true,
+      beforeDelete: async (_u: unknown) => {
+        // TODO(S2-rooms): enumerate rooms owned by the user, delete them
+        // and their messages+attachments. v3.docx §2.1.5 mandates this;
+        // schema's `room.ownerId` is `onDelete: "set null"` today, which
+        // would leave orphaned rooms behind — flip to cascade OR do it
+        // here. Deferred until rooms ship.
+      },
+    },
   },
   // Redis-backed KV for rate-limit counters (and any future session-cache
   // opt-in). See src/secondary-storage.ts and s1-auth.md §10 decision log —
