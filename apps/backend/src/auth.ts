@@ -4,12 +4,17 @@
 //   import { drizzleAdapter } from "better-auth/adapters/drizzle"
 // Provider "pg" maps to the postgres tables in packages/shared/schema.
 
+import { randomUUID } from "node:crypto";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { eq } from "drizzle-orm";
+import { room, roomMember } from "@ai-herders/shared/schema";
 import { db } from "./db";
 import { env } from "./env";
 import { logger } from "./lib/logger";
 import { secondaryStorage } from "./secondary-storage";
+
+const GENERAL_ROOM_ID = "general";
 
 export const auth = betterAuth({
   database: drizzleAdapter(db, { provider: "pg" }),
@@ -95,6 +100,55 @@ export const auth = betterAuth({
     storage: "secondary-storage",
     customRules: {
       "/sign-in/email": { window: 60, max: 5 },
+    },
+  },
+  // Hotfix (REQ-022 partial, demo gate): auto-enroll every newly created user
+  // into the seeded 'general' room so a fresh signup can immediately post to
+  // /api/v1/rooms/general/messages without a separate join step. Full REQ-022
+  // (rooms catalog + self-join UI) is S2; this is the minimum wiring for the
+  // S1 demo. Hook API verified in
+  // node_modules/.pnpm/@better-auth+core@1.6.5/.../types/init-options.d.mts
+  // lines 1059-1077 (`databaseHooks.user.create.after`). The hook fires AFTER
+  // the user row is written, regardless of sign-up surface (HTTP or internal
+  // `auth.api.signUpEmail` from scripts/seed.ts). Silent-skip when the room
+  // is not seeded (e.g. dev DB without `pnpm db:seed`) — a throw here would
+  // fail the whole sign-up, which is much worse than a user who has to join
+  // a room manually.
+  databaseHooks: {
+    user: {
+      create: {
+        after: async (newUser) => {
+          try {
+            const [general] = await db
+              .select({ id: room.id })
+              .from(room)
+              .where(eq(room.id, GENERAL_ROOM_ID))
+              .limit(1);
+            if (!general) {
+              logger.warn(
+                { userId: newUser.id },
+                "auto-enroll skipped: 'general' room not seeded",
+              );
+              return;
+            }
+            await db
+              .insert(roomMember)
+              .values({
+                id: randomUUID(),
+                userId: newUser.id,
+                roomId: general.id,
+              })
+              .onConflictDoNothing({
+                target: [roomMember.userId, roomMember.roomId],
+              });
+          } catch (err) {
+            logger.warn(
+              { err, userId: newUser.id },
+              "auto-enroll into 'general' failed (non-fatal)",
+            );
+          }
+        },
+      },
     },
   },
   secret: env.SESSION_SECRET,
