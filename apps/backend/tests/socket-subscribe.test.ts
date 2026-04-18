@@ -1,4 +1,4 @@
-// REQ-034 + REQ-040 — Socket.IO room.subscribe/unsubscribe + message.new
+// REQ-036 + REQ-040 — Socket.IO room.subscribe/unsubscribe + message.new
 // broadcast. Task 7 per docs/specs/s1-chat.md.
 //
 // Strategy: boot buildApp() and let it listen on a random high port so
@@ -95,7 +95,7 @@ async function connectClient(baseUrl: string, cookieHeader: string): Promise<Typ
   return client;
 }
 
-describe("REQ-034/REQ-040 Socket.IO room.subscribe + message.new broadcast", () => {
+describe("REQ-036/REQ-040 Socket.IO room.subscribe + message.new broadcast", () => {
   let app: FastifyInstance;
   let baseUrl: string;
 
@@ -148,7 +148,7 @@ describe("REQ-034/REQ-040 Socket.IO room.subscribe + message.new broadcast", () 
     }
   });
 
-  test("REQ-034 subscribed client receives message.new on POST", async () => {
+  test("REQ-036 subscribed client receives message.new on POST", async () => {
     const alice = await registerAgent(app, "ws-a-34@example.com", "ws_a_34");
     const bob = await registerAgent(app, "ws-b-34@example.com", "ws_b_34");
     const roomId = "r-ws-34-broadcast";
@@ -193,7 +193,7 @@ describe("REQ-034/REQ-040 Socket.IO room.subscribe + message.new broadcast", () 
     }
   });
 
-  test("REQ-034 unsubscribed client does NOT receive message.new", async () => {
+  test("REQ-036 unsubscribed client does NOT receive message.new", async () => {
     const alice = await registerAgent(app, "ws-a-unsub@example.com", "ws_a_unsub");
     const bob = await registerAgent(app, "ws-b-unsub@example.com", "ws_b_unsub");
     const roomId = "r-ws-unsub";
