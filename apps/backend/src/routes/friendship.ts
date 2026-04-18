@@ -18,7 +18,7 @@ import type {
 } from "fastify";
 import { randomUUID } from "node:crypto";
 import { z, type ZodType } from "zod";
-import { and, eq, gt } from "drizzle-orm";
+import { and, eq, gt, or } from "drizzle-orm";
 import { sendFriendRequestSchema, type SendFriendRequestInput } from "@ai-herders/shared/dto";
 import { friendRequest, friendship, user, userBlock } from "@ai-herders/shared/schema";
 
@@ -401,13 +401,91 @@ export async function friendshipRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  // R10 / REQ-057 block from request
+  // R10 / REQ-057 block-from-request — caller must be toId. One transaction:
+  //   (a) the specified :id row → 'rejected'
+  //   (b) any other pending friend_request between the pair (either
+  //       direction) → 'rejected' — prevents an outgoing-from-target sneaking
+  //       past the block (spec §4 R10)
+  //   (c) user_block(byId=caller, targetId=fromId) — ON CONFLICT DO NOTHING
+  //   (d) any friendship row for the normalized pair DELETEd defensively
+  // Idempotent: the second call re-flips already-rejected rows to rejected
+  // (no-op) and the ON CONFLICT keeps the single user_block row.
   app.post<{ Params: { id: string } }>(
     "/friends/requests/:id/block",
     async (request, reply) => {
       const ctx = await requireFriendshipAuth(request, reply);
       if (!ctx) return;
-      return notImplemented(reply);
+
+      const [row] = await db
+        .select({
+          id: friendRequest.id,
+          fromId: friendRequest.fromId,
+          toId: friendRequest.toId,
+        })
+        .from(friendRequest)
+        .where(eq(friendRequest.id, request.params.id))
+        .limit(1);
+
+      if (!row || row.toId !== ctx.userId) {
+        return reply.status(404).send({ error: "not_found" });
+      }
+
+      const blockerId = ctx.userId;
+      const blockedId = row.fromId;
+      const [userAId, userBId] =
+        blockerId < blockedId ? [blockerId, blockedId] : [blockedId, blockerId];
+      const now = new Date();
+
+      await db.transaction(async (tx) => {
+        // (a) + (b) — rewrite any pending row between the pair to rejected;
+        // this covers the :id row AND any reverse pending. Accepted/rejected
+        // rows are left alone here so we don't accidentally resurrect a past
+        // accept into a reject — the friendship DELETE below is what
+        // actually severs an accepted pairing.
+        await tx
+          .update(friendRequest)
+          .set({ status: "rejected", respondedAt: now })
+          .where(
+            and(
+              eq(friendRequest.status, "pending"),
+              or(
+                and(
+                  eq(friendRequest.fromId, blockerId),
+                  eq(friendRequest.toId, blockedId),
+                ),
+                and(
+                  eq(friendRequest.fromId, blockedId),
+                  eq(friendRequest.toId, blockerId),
+                ),
+              ),
+            ),
+          );
+        // The specific :id row: spec says unconditionally → rejected, even
+        // if it was already accepted/rejected when the caller hit block.
+        await tx
+          .update(friendRequest)
+          .set({ status: "rejected", respondedAt: now })
+          .where(eq(friendRequest.id, row.id));
+
+        // (c) idempotent block insertion.
+        await tx
+          .insert(userBlock)
+          .values({
+            id: randomUUID(),
+            byId: blockerId,
+            targetId: blockedId,
+          })
+          .onConflictDoNothing();
+
+        // (d) defensive friendship teardown on the normalized pair.
+        await tx
+          .delete(friendship)
+          .where(
+            and(eq(friendship.userAId, userAId), eq(friendship.userBId, userBId)),
+          );
+      });
+
+      return reply.status(200).send({ status: "blocked" });
     },
   );
 
