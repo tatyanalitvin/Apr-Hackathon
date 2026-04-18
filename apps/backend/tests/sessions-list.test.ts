@@ -1,4 +1,4 @@
-// Task #6a (REQ-017, v3.docx §2.2.4) — GET /api/v1/sessions.
+// Task #6a (REQ-018, v3.docx §2.2.4) — GET /api/v1/sessions.
 //
 // Thin wrapper over better-auth's auth.api.listSessions({ headers }), with two
 // value-adds that justify owning our own route:
@@ -8,10 +8,10 @@
 //      list endpoint that echoes it defeats HttpOnly.
 //
 // Coverage:
-//   - REQ-017 happy path: single session, `current: true`, no `token` field.
-//   - REQ-017 two-session listing: second sign-in from a fresh agent creates a
+//   - REQ-018 happy path: single session, `current: true`, no `token` field.
+//   - REQ-018 two-session listing: second sign-in from a fresh agent creates a
 //     second session row; the listing shows exactly one `current: true`.
-//   - REQ-017 unauthenticated: no cookie → 401.
+//   - REQ-018 unauthenticated: no cookie → 401.
 
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import request from "supertest";
@@ -26,7 +26,7 @@ const seed = {
   name: "Sessions Anna",
 };
 
-describe("REQ-017 GET /api/v1/sessions lists caller's sessions (task #6a)", () => {
+describe("REQ-018 GET /api/v1/sessions lists caller's sessions (task #6a)", () => {
   let app: FastifyInstance;
   beforeAll(async () => {
     app = await buildApp();
@@ -36,12 +36,12 @@ describe("REQ-017 GET /api/v1/sessions lists caller's sessions (task #6a)", () =
     await app.close();
   });
 
-  test("REQ-017 unauthenticated request → 401", async () => {
+  test("REQ-018 unauthenticated request → 401", async () => {
     const res = await request(app.server).get("/api/v1/sessions");
     expect(res.status).toBe(401);
   });
 
-  test("REQ-017 single session: one row, current: true, no token in body", async () => {
+  test("REQ-018 single session: one row, current: true, no token in body", async () => {
     const agent = request.agent(app.server);
     await agent.post("/api/auth/sign-up/email").send(seed).expect(200);
 
@@ -76,7 +76,7 @@ describe("REQ-017 GET /api/v1/sessions lists caller's sessions (task #6a)", () =
     );
   });
 
-  test("REQ-017 two sessions: exactly one is flagged current: true", async () => {
+  test("REQ-018 two sessions: exactly one is flagged current: true", async () => {
     // Agent A registers (session A). Agent B signs in with same creds from a
     // separate cookie jar — better-auth creates session B. Listing from
     // agent A must show BOTH, with `current: true` only on session A.
