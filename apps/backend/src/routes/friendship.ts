@@ -330,11 +330,12 @@ export async function friendshipRoutes(app: FastifyInstance): Promise<void> {
       const [userAId, userBId] =
         row.fromId < row.toId ? [row.fromId, row.toId] : [row.toId, row.fromId];
       const friendshipId = randomUUID();
+      const acceptedAt = new Date();
 
       await db.transaction(async (tx) => {
         await tx
           .update(friendRequest)
-          .set({ status: "accepted", respondedAt: new Date() })
+          .set({ status: "accepted", respondedAt: acceptedAt })
           .where(eq(friendRequest.id, row.id));
         await tx.insert(friendship).values({
           id: friendshipId,
@@ -342,6 +343,20 @@ export async function friendshipRoutes(app: FastifyInstance): Promise<void> {
           userBId,
         });
       });
+
+      // R11 / REQ-058 — at-most-once best-effort notification to the
+      // requester's per-user room. No watermark, no replay on reconnect;
+      // ADR-0003's ordering contract is scoped to room messages. Emit AFTER
+      // the txn commits so a failed insert can't leak a phantom event.
+      request.server.io
+        .to(`user:${row.fromId}`)
+        .emit("friend.request.accepted", {
+          type: "friend.request.accepted",
+          requestId: row.id,
+          friendId: ctx.userId,
+          friendUsername: ctx.username,
+          acceptedAt: acceptedAt.toISOString(),
+        });
 
       return reply.status(200).send({ status: "accepted", friendshipId });
     },
