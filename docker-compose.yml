@@ -4,12 +4,17 @@
 # Services:
 #   postgres — chat persistence
 #   redis    — Socket.IO adapter + rate-limit counters
+#   migrate  — one-shot drizzle-kit migrate; backend waits for it to exit 0
 #   backend  — Fastify (:4000): auth, mutations, Socket.IO, file upload/download
 #   app      — Next.js (:3000): UI
 #
 # First run:
 #   docker compose up --build
 # Open http://localhost:3000
+#
+# Seed demo fixture (REQ-049) after the stack is healthy:
+#   docker compose exec backend pnpm db:seed
+# See docs/SMOKE.md for the full copy-paste verification sequence.
 
 services:
   postgres:
@@ -41,6 +46,28 @@ services:
     ports:
       - "6379:6379"
 
+  # Runs drizzle-kit migrate once, then exits. Backend gates on
+  # service_completed_successfully so the app never serves traffic against
+  # an empty schema on a fresh `docker compose up`. REDIS_URL is set because
+  # env.ts zod-validates it at module import; drizzle-kit itself only uses
+  # DATABASE_URL. SESSION_SECRET is unused here but required by the same env
+  # schema, so we pass the compose default to avoid a startup crash.
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://chat:chat@postgres:5432/chat
+      REDIS_URL: redis://redis:6379
+      SESSION_SECRET: ${SESSION_SECRET:-change-me-in-prod-32-char-min-xxxxxx}
+      WEB_ORIGIN: http://localhost:3000
+    command: ["pnpm", "db:migrate"]
+    restart: "no"
+
   backend:
     build:
       context: .
@@ -50,6 +77,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       NODE_ENV: production
       PORT: 4000
