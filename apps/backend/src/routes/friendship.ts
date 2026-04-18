@@ -11,8 +11,11 @@
 // gate; bodies default to 501 until each R-task's test-first cycle fills them.
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { eq } from "drizzle-orm";
+import { friendship, user } from "@ai-herders/shared/schema";
 
 import { auth } from "../auth";
+import { db } from "../db";
 import { toFetchHeaders } from "../lib/fetch-headers";
 
 export interface FriendshipAuthContext {
@@ -45,7 +48,42 @@ export async function friendshipRoutes(app: FastifyInstance): Promise<void> {
   app.get("/friends", async (request, reply) => {
     const ctx = await requireFriendshipAuth(request, reply);
     if (!ctx) return;
-    return notImplemented(reply);
+
+    // Friendship rows normalize userAId < userBId; the caller can be on either
+    // side. Two branches (caller=A joins B; caller=B joins A) unioned in JS so
+    // each column-pair gets an indexed lookup path.
+    const asA = await db
+      .select({
+        friendId: friendship.userBId,
+        friendedAt: friendship.createdAt,
+        username: user.username,
+        name: user.name,
+      })
+      .from(friendship)
+      .innerJoin(user, eq(user.id, friendship.userBId))
+      .where(eq(friendship.userAId, ctx.userId));
+
+    const asB = await db
+      .select({
+        friendId: friendship.userAId,
+        friendedAt: friendship.createdAt,
+        username: user.username,
+        name: user.name,
+      })
+      .from(friendship)
+      .innerJoin(user, eq(user.id, friendship.userAId))
+      .where(eq(friendship.userBId, ctx.userId));
+
+    const friends = [...asA, ...asB]
+      .map((r) => ({
+        userId: r.friendId,
+        username: r.username,
+        name: r.name,
+        friendedAt: r.friendedAt.toISOString(),
+      }))
+      .sort((x, y) => (x.friendedAt > y.friendedAt ? -1 : x.friendedAt < y.friendedAt ? 1 : 0));
+
+    return reply.status(200).send({ friends });
   });
 
   // R2/R4/R5/R6 / REQ-051..055 — POST /api/v1/friends/requests
