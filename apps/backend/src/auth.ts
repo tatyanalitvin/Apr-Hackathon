@@ -24,15 +24,18 @@ export const auth = betterAuth({
     additionalFields: {
       username: { type: "string", required: true, input: true },
     },
-    // Task #7 (v3.docx §2.1.5 "Account Removal"). `deleteUser.enabled: true`
+    // Task #11 (v3.docx §2.1.5 "Account Removal"). `deleteUser.enabled: true`
     // exposes better-auth's built-in `POST /api/auth/delete-user` (verified
     // POST in update-user.mjs:215 — Context7 docs say DELETE; docs are wrong),
     // which accepts `{ password }` in the body for re-auth. FK-level
     // `onDelete: "cascade"` on `session.userId` and `account.userId`
     // (schema.ts) does the auth-surface cleanup; `beforeDelete` is the hook
     // where v3 §2.1.5's room-level cascade WILL live in S2 (currently a
-    // no-op — rooms don't exist yet). See §10 "before task #7" and
-    // "task #7 — method" for rationale.
+    // no-op — rooms don't exist yet). See §10 "before task #11" and
+    // "task #11 — method" for rationale. NOTE: commit 38679e1's subject line
+    // says "task #7" — that was written before the collision was spotted and
+    // is an immutable git-history artifact; current §6 + §10 numbering treats
+    // account deletion as task #11.
     deleteUser: {
       enabled: true,
       beforeDelete: async (_u: unknown) => {

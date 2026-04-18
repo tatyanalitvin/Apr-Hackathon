@@ -1,9 +1,13 @@
-// Task #7 (v3.docx §2.1.5) — POST /api/auth/delete-user.
+// Task #11 (v3.docx §2.1.5) — POST /api/auth/delete-user.
+//
+// (Commit 38679e1 title says "task #7" — that landed before the numbering
+// collision was resolved. Current §6 + §10 + code comments treat account
+// deletion as task #11 throughout.)
 //
 // Method is POST, not DELETE. Verified by source-read of
 // node_modules/better-auth/dist/api/routes/update-user.mjs:215
 // (`createAuthEndpoint("/delete-user", { method: "POST", ... })`). Context7
-// docs show DELETE; they are wrong for 1.6.5. See §10 "task #7 — method"
+// docs show DELETE; they are wrong for 1.6.5. See §10 "task #11 — method"
 // entry for why this wasn't just "trust the docs".
 //
 // better-auth 1.6.5 ships a native delete-user endpoint; we only flip
@@ -20,7 +24,7 @@
 //
 // Why password reconfirm: irreversible op, standard practice, not forbidden
 // by v3.docx. better-auth supports `{ password }` in the delete body (see
-// §10 "before task #7" entry for why we chose this over a token-verify
+// §10 "before task #11" entry for why we chose this over a token-verify
 // flow).
 //
 // Explicitly deferred to S2 (TODO(S2-rooms)): the v3 §2.1.5 room-level
@@ -43,7 +47,7 @@ const seed = {
   name: "Delete Anna",
 };
 
-describe("v3.docx §2.1.5 DELETE /api/auth/delete-user (task #7)", () => {
+describe("v3.docx §2.1.5 POST /api/auth/delete-user (task #11)", () => {
   let app: FastifyInstance;
   beforeAll(async () => {
     app = await buildApp();
