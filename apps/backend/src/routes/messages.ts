@@ -67,6 +67,7 @@ type SendBody = {
   body: string;
   replyToId?: string;
   attachmentIds?: string[];
+  clientMessageId?: string;
 };
 
 export async function messagesRoutes(app: FastifyInstance): Promise<void> {
@@ -98,25 +99,30 @@ export async function messagesRoutes(app: FastifyInstance): Promise<void> {
         });
       }
 
-      const { message: inserted, roomHeadSeq } = await allocateAndInsertMessage({
-        messageId: randomUUID(),
-        roomId,
-        authorId: ctx.userId,
-        body: normalized,
-        replyToId: request.body.replyToId ?? null,
-      });
+      const { message: inserted, roomHeadSeq, deduped } =
+        await allocateAndInsertMessage({
+          messageId: randomUUID(),
+          roomId,
+          authorId: ctx.userId,
+          body: normalized,
+          replyToId: request.body.replyToId ?? null,
+          clientMessageId: request.body.clientMessageId ?? null,
+        });
 
       const payload = toMessagePayload(inserted);
-      // REQ-034 watermark broadcast. For a fresh send, seq === roomHeadSeq
-      // (the allocator advances the head by one and hands back both).
-      const evt: MessageNewEvent = {
-        type: "message.new",
-        roomId,
-        seq: payload.seq,
-        roomHeadSeq: roomHeadSeq.toString(),
-        message: payload,
-      };
-      request.server.io.to(roomId).emit("message.new", evt);
+      if (!deduped) {
+        // REQ-034 watermark broadcast. For a fresh send, seq === roomHeadSeq.
+        // On dedup we intentionally skip the emit — subscribers already saw
+        // this message on its first commit.
+        const evt: MessageNewEvent = {
+          type: "message.new",
+          roomId,
+          seq: payload.seq,
+          roomHeadSeq: roomHeadSeq.toString(),
+          message: payload,
+        };
+        request.server.io.to(roomId).emit("message.new", evt);
+      }
 
       return reply.status(201).send(payload);
     },

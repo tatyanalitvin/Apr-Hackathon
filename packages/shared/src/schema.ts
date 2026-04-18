@@ -220,6 +220,9 @@ export const message = pgTable(
     seq: bigint("seq", { mode: "bigint" }).notNull(),
     // §2.5.2 up to 3 KB UTF-8, enforced in DTO.
     body: text("body").notNull(),
+    // REQ-033 idempotency: client-generated UUID. Partial unique index below
+    // keeps NULLs unconstrained so legacy / non-idempotent sends don't collide.
+    clientMessageId: text("client_message_id"),
     replyToId: text("reply_to_id"),
     // §2.5.4 "edited" indicator
     editedAt: timestamp("edited_at", { withTimezone: true }),
@@ -229,6 +232,11 @@ export const message = pgTable(
   },
   (t) => ({
     roomSeqUq: uniqueIndex("message_room_seq_uq").on(t.roomId, t.seq),
+    // Partial unique index — enforces dedup when clientMessageId is present
+    // without forcing NULLs to collide.
+    roomClientMsgUq: uniqueIndex("message_room_client_msg_uq")
+      .on(t.roomId, t.clientMessageId)
+      .where(sql`${t.clientMessageId} IS NOT NULL`),
     roomCreatedIdx: index("message_room_created_idx").on(t.roomId, t.createdAt),
     authorIdx: index("message_author_idx").on(t.authorId),
   }),

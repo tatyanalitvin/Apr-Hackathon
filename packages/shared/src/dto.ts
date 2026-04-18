@@ -40,6 +40,10 @@ export const sendMessageSchema = z.object({
   body: messageBodySchema,
   replyToId: z.string().optional(),
   attachmentIds: z.array(z.string()).max(10).optional(),
+  // REQ-033 idempotency key — if present, a duplicate submission returns the
+  // original row without a new insert. UUID format to keep it free of ambient
+  // meaning; enforced via partial unique index (roomId, clientMessageId).
+  clientMessageId: z.uuid().optional(),
 });
 export type SendMessageInput = z.infer<typeof sendMessageSchema>;
 
