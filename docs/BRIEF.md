@@ -18,10 +18,10 @@ One public room, plain-text messaging, two-browser live demo, persistent history
 
 Scope:
 
-- Register (REQ-001 … REQ-009): email + username + confirm-password, case-insensitive uniqueness, 12-char min password, bcrypt cost-12 hash (we deviate from argon2id — ADR-0001 captures why: GoTrue default).
-- Login (REQ-010 … REQ-019): keep-me-signed-in, 10-fail lockout, session list, single-session revoke, all-sessions-revoke on password change.
+- Register (REQ-001 … REQ-009): email + username + password (≥8 chars), case-insensitive uniqueness, better-auth's built-in scrypt hash (ADR-0001 captures the pivot from bcrypt/argon2id — better-auth 1.6.5 default).
+- Login (REQ-010 … REQ-019): keep-me-signed-in, IP rate-limited sign-in (v4 "10-fail lockout" satisfied by better-auth `rateLimit`), session list, single-session revoke, all-sessions-revoke on password change.
 - Rooms (REQ-021 … REQ-028): public only in S1, 1000-member cap, catalog with search + cursor pagination.
-- Messages (REQ-029 … REQ-037): plain text 1–4096 bytes, NFC-normalized, monotonic `seq` per room, clientMessageId dedup, broadcast over Supabase Realtime.
+- Messages (REQ-029 … REQ-037): plain text ≤3072 bytes (v3 §2.5.2), NFC-normalized, monotonic `seq` per room (ADR-0003 watermark protocol), clientMessageId dedup, broadcast over Socket.IO (+ Redis adapter for horizontal scale).
 - Realtime (REQ-038 … REQ-041): WebSocket auth + heartbeat + subscriptions; binary online/offline presence.
 - Frontend (REQ-042 … REQ-048): `/register`, `/login`, `/rooms`, `/rooms/:id`; three-column ≥1024px, collapses below; Enter sends, Shift+Enter newline, autoscroll, infinite-scroll up.
 - Deployment (REQ-049): docker compose, seed script with `alice`/`bob`/`carol` + `general` room, CI green.
