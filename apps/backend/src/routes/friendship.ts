@@ -514,13 +514,67 @@ export async function friendshipRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  // R16 / REQ-073 — POST /api/v1/users/:id/block
+  // R16 / REQ-073 — POST /api/v1/users/:id/block. Three transactional
+  // effects (effect 2 "DM freeze" is a read-time predicate in s2-dms.md):
+  //   1. INSERT user_block ON CONFLICT DO NOTHING — idempotent
+  //   2. DELETE friendship row for the normalized pair
+  //   3. UPDATE any pending friend_request in either direction → rejected
+  //      (defensive against a concurrent R2 from the target)
+  // 400 on self-block; 204 otherwise regardless of whether any rows
+  // actually mutated — callers shouldn't learn whether the pair already
+  // had history.
   app.post<{ Params: { id: string } }>(
     "/users/:id/block",
     async (request, reply) => {
       const ctx = await requireFriendshipAuth(request, reply);
       if (!ctx) return;
-      return notImplemented(reply);
+
+      const targetId = request.params.id;
+      if (targetId === ctx.userId) {
+        return reply.status(400).send({ error: "self_block" });
+      }
+
+      const [userAId, userBId] =
+        ctx.userId < targetId ? [ctx.userId, targetId] : [targetId, ctx.userId];
+      const now = new Date();
+
+      await db.transaction(async (tx) => {
+        await tx
+          .insert(userBlock)
+          .values({
+            id: randomUUID(),
+            byId: ctx.userId,
+            targetId,
+          })
+          .onConflictDoNothing();
+
+        await tx
+          .delete(friendship)
+          .where(
+            and(eq(friendship.userAId, userAId), eq(friendship.userBId, userBId)),
+          );
+
+        await tx
+          .update(friendRequest)
+          .set({ status: "rejected", respondedAt: now })
+          .where(
+            and(
+              eq(friendRequest.status, "pending"),
+              or(
+                and(
+                  eq(friendRequest.fromId, ctx.userId),
+                  eq(friendRequest.toId, targetId),
+                ),
+                and(
+                  eq(friendRequest.fromId, targetId),
+                  eq(friendRequest.toId, ctx.userId),
+                ),
+              ),
+            ),
+          );
+      });
+
+      return reply.status(204).send();
     },
   );
 
