@@ -8,27 +8,12 @@
 //   - Rate limiter via @fastify/rate-limit + Redis (S3)
 //   - CSP/HSTS headers (S3)
 
-import Fastify from "fastify";
-import cors from "@fastify/cors";
+import { buildApp } from "./app";
 import { env } from "./env";
 import { createSocketIO } from "./socket";
 
 async function main() {
-  const app = Fastify({
-    logger: { level: env.LOG_LEVEL },
-    trustProxy: true,
-  });
-
-  await app.register(cors, {
-    origin: env.WEB_ORIGIN,
-    credentials: true,
-  });
-
-  app.get("/health", async () => ({
-    status: "ok",
-    service: "backend",
-    env: env.NODE_ENV,
-  }));
+  const app = await buildApp();
 
   // Attach Socket.IO to Fastify's underlying HTTP server BEFORE listen().
   // `app.ready()` ensures plugins are loaded; then we grab the raw node server.
@@ -47,7 +32,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  // eslint-disable-next-line no-console
   console.error("[backend] fatal:", err);
   process.exit(1);
 });
