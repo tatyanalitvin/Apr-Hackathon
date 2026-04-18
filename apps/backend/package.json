@@ -35,6 +35,7 @@
     "@types/pg": "^8.11.10",
     "@types/supertest": "^6.0.2",
     "drizzle-kit": "^0.31.5",
+    "socket.io-client": "^4.8.1",
     "supertest": "^7.0.0",
     "testcontainers": "^11.14.0",
     "tsx": "^4.19.2",

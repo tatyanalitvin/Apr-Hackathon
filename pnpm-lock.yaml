@@ -78,6 +78,9 @@ importers:
       drizzle-kit:
         specifier: ^0.31.5
         version: 0.31.10
+      socket.io-client:
+        specifier: ^4.8.1
+        version: 4.8.3
       supertest:
         specifier: ^7.0.0
         version: 7.2.2
