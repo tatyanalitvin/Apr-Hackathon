@@ -18,14 +18,19 @@ export function MessageList({ messages, hasMoreOlder, onLoadOlder, firstItemInde
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [unreadCount, setUnreadCount] = useState(0);
   const lastMessageCountRef = useRef(messages.length);
+  const lastFirstIndexRef = useRef(firstItemIndex);
   const ref = useRef<VirtuosoHandle>(null);
 
-  // When new messages arrive while user is NOT at bottom, bump unreadCount.
+  // Only *appended* messages count as unread — prepended older-page loads
+  // shift firstItemIndex down (Virtuoso contract) and must not inflate the pill.
   useEffect(() => {
-    const delta = messages.length - lastMessageCountRef.current;
-    if (delta > 0 && !isAtBottom) setUnreadCount((n) => n + delta);
+    const totalDelta = messages.length - lastMessageCountRef.current;
+    const prependedDelta = lastFirstIndexRef.current - firstItemIndex;
+    const appendedDelta = totalDelta - prependedDelta;
+    if (appendedDelta > 0 && !isAtBottom) setUnreadCount((n) => n + appendedDelta);
     lastMessageCountRef.current = messages.length;
-  }, [messages.length, isAtBottom]);
+    lastFirstIndexRef.current = firstItemIndex;
+  }, [messages.length, firstItemIndex, isAtBottom]);
 
   const handleAtBottomStateChange = useCallback((atBottom: boolean) => {
     setIsAtBottom(atBottom);
