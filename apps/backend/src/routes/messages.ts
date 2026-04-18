@@ -18,10 +18,15 @@ import type {
 } from "fastify";
 import { randomUUID } from "node:crypto";
 import type { ZodType } from "zod";
-import { sendMessageSchema } from "@ai-herders/shared/dto";
-import type { Message } from "@ai-herders/shared/schema";
-import type { MessagePayload } from "@ai-herders/shared/protocol";
+import { and, asc, eq, gte, isNull, lte } from "drizzle-orm";
+import { historyQuerySchema, sendMessageSchema } from "@ai-herders/shared/dto";
+import { message, messageSeq, type Message } from "@ai-herders/shared/schema";
+import type {
+  HistorySliceResponse,
+  MessagePayload,
+} from "@ai-herders/shared/protocol";
 
+import { db } from "../db";
 import { requireRoomMember } from "../lib/message-auth";
 import { normalizeBody } from "../lib/message-text";
 import { allocateAndInsertMessage } from "../lib/seq-allocator";
@@ -105,6 +110,89 @@ export async function messagesRoutes(app: FastifyInstance): Promise<void> {
       // on the Fastify instance (see spec §5 "io plumbing").
 
       return reply.status(201).send(toMessagePayload(inserted));
+    },
+  );
+
+  app.get<{ Params: { id: string } }>(
+    "/:id/messages",
+    async (
+      request: FastifyRequest<{ Params: { id: string } }>,
+      reply: FastifyReply,
+    ) => {
+      const parsed = historyQuerySchema.safeParse(request.query);
+      if (!parsed.success) {
+        return reply.status(400).send({
+          error: "validation",
+          issues: parsed.error.issues.map((i) => ({
+            path: i.path,
+            message: i.message,
+            code: i.code,
+          })),
+        });
+      }
+
+      const roomId = request.params.id;
+      const ctx = await requireRoomMember(request, reply, roomId);
+      if (!ctx) return;
+
+      const [seqRow] = await db
+        .select({ seq: messageSeq.seq })
+        .from(messageSeq)
+        .where(eq(messageSeq.roomId, roomId))
+        .limit(1);
+      const roomHeadSeq = seqRow?.seq ?? 0n;
+
+      const limit = BigInt(parsed.data.limit);
+      // Compute the [fromSeq, toSeq] window. If the caller passed an explicit
+      // slice we honour it verbatim; otherwise we return the newest `limit`
+      // messages ending at the current head.
+      let fromSeq: bigint;
+      let toSeq: bigint;
+      if (parsed.data.fromSeq !== undefined && parsed.data.toSeq !== undefined) {
+        fromSeq = parsed.data.fromSeq;
+        toSeq = parsed.data.toSeq;
+      } else if (parsed.data.fromSeq !== undefined) {
+        fromSeq = parsed.data.fromSeq;
+        toSeq = roomHeadSeq;
+      } else if (parsed.data.toSeq !== undefined) {
+        toSeq = parsed.data.toSeq;
+        fromSeq = toSeq - limit + 1n;
+        if (fromSeq < 1n) fromSeq = 1n;
+      } else {
+        toSeq = roomHeadSeq;
+        if (roomHeadSeq === 0n) {
+          fromSeq = 0n;
+        } else {
+          fromSeq = roomHeadSeq - limit + 1n;
+          if (fromSeq < 1n) fromSeq = 1n;
+        }
+      }
+
+      const rows =
+        roomHeadSeq === 0n
+          ? []
+          : await db
+              .select()
+              .from(message)
+              .where(
+                and(
+                  eq(message.roomId, roomId),
+                  gte(message.seq, fromSeq),
+                  lte(message.seq, toSeq),
+                  isNull(message.deletedAt),
+                ),
+              )
+              .orderBy(asc(message.seq))
+              .limit(parsed.data.limit);
+
+      const response: HistorySliceResponse = {
+        roomId,
+        fromSeq: fromSeq.toString(),
+        toSeq: toSeq.toString(),
+        roomHeadSeq: roomHeadSeq.toString(),
+        messages: rows.map(toMessagePayload),
+      };
+      return reply.status(200).send(response);
     },
   );
 }
