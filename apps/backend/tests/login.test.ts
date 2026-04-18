@@ -1,8 +1,8 @@
 // Task #4 — login integration tests.
 // R7 (REQ-010, REQ-011): sign-in happy path + cookie authenticates get-session.
 // R8 (REQ-012): rememberMe toggles the session-cookie persistence attribute.
-// R9, R10 land in follow-up commits per the execution order recorded in
-// docs/specs/s1-auth.md §6 task #4.
+// R9 (REQ-013): wrong-email and wrong-password return identical payload+status.
+// R10 lands in a follow-up commit, after task #10 pins rateLimit.customRules.
 //
 // Runs against the Testcontainers harness (ADR-0005). Each test starts with a
 // freshly TRUNCATEd DB — the register call at the top of every test seeds its
@@ -129,4 +129,50 @@ describe("REQ-012 rememberMe cookie-attribute contract (R8)", () => {
   // ("Keep me signed in" checkbox) requires the frontend to always send a
   // boolean, so server behaviour for the omitted case is implementation-
   // defined. Documented in docs/specs/s1-auth.md §10 decision log.
+});
+
+describe("REQ-013 wrong-email and wrong-password return identical response (R9)", () => {
+  // Regression fence over better-auth's user-enumeration defence. Source-read
+  // of better-auth/dist/api/routes/sign-in.mjs confirms both branches throw
+  //   APIError.from("UNAUTHORIZED", BASE_ERROR_CODES.INVALID_EMAIL_OR_PASSWORD)
+  // and the not-found branch calls password.hash() to equalise timing. If a
+  // future better-auth release diverges the two branches, this test catches it
+  // before the enumeration vulnerability ships. No ±50ms latency assertion
+  // (v4-MD invention — see docs/specs/s1-auth.md §10).
+  let app: FastifyInstance;
+  beforeAll(async () => {
+    app = await buildApp();
+    await app.ready();
+  });
+  afterAll(async () => {
+    await app.close();
+  });
+
+  test("REQ-013 identical HTTP status + body for non-existent email vs wrong password", async () => {
+    // Seed a real user so the "wrong password for a real email" branch hits
+    // the password-verify path rather than the not-found path.
+    await request(app.server)
+      .post("/api/auth/sign-up/email")
+      .send(seed)
+      .expect(200);
+
+    const notFound = await request(app.server)
+      .post("/api/auth/sign-in/email")
+      .send({ email: "nobody@example.com", password: "password1234" });
+
+    const wrongPw = await request(app.server)
+      .post("/api/auth/sign-in/email")
+      .send({ email: seed.email, password: "wrong-password-xyz" });
+
+    // Status must match — enumeration leaks via either status OR body.
+    expect(notFound.status).toBe(wrongPw.status);
+    // Unauthenticated credential failure must not return 200 or 5xx.
+    expect(notFound.status).toBeGreaterThanOrEqual(400);
+    expect(notFound.status).toBeLessThan(500);
+
+    // Body shape identity. Deep equality, not substring — if better-auth ever
+    // includes `email` or `userFound: true/false` in the payload, the test
+    // fails loudly and we can decide whether to rewrite or patch.
+    expect(notFound.body).toStrictEqual(wrongPw.body);
+  });
 });
