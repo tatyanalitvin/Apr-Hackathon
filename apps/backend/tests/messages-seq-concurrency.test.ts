@@ -1,5 +1,5 @@
 // Task 4 (s1-chat §6) — seq allocator correctness under concurrency.
-// Covers REQ-030/REQ-037 (seq advances by 1, strictly increasing) and
+// Covers REQ-032 (seq advances by 1, strictly increasing) and
 // REQ-032 (atomic allocation under 100-way parallel load).
 //
 // Tests the allocator at the library level so the invariant is pinned BEFORE
@@ -40,12 +40,12 @@ async function seedRoomAndAuthor(): Promise<void> {
   await db.insert(messageSeq).values({ roomId: ROOM_ID, seq: 0n });
 }
 
-describe("REQ-030/REQ-037 seq advances by 1 and is strictly increasing", () => {
+describe("REQ-032 seq advances by 1 and is strictly increasing", () => {
   beforeEach(async () => {
     await seedRoomAndAuthor();
   });
 
-  test("REQ-030/REQ-037 sequential inserts produce seq 1, 2, 3, …", async () => {
+  test("REQ-032 sequential inserts produce seq 1, 2, 3, …", async () => {
     const seqs: bigint[] = [];
     for (let i = 0; i < 5; i++) {
       const { message: row, roomHeadSeq } = await allocateAndInsertMessage({
