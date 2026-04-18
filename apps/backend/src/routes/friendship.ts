@@ -293,13 +293,57 @@ export async function friendshipRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  // R8 / REQ-057 accept
+  // R8 / REQ-057 accept — caller must be toId. Pending→accepted flips status,
+  // stamps respondedAt, and inserts a normalized friendship row. Accepted and
+  // rejected are terminal (accepted=409 already_friends; rejected=409
+  // request_declined per Q5a). Missing rows and rows targeted at someone else
+  // both return 404 — we don't distinguish to avoid leaking existence.
   app.post<{ Params: { id: string } }>(
     "/friends/requests/:id/accept",
     async (request, reply) => {
       const ctx = await requireFriendshipAuth(request, reply);
       if (!ctx) return;
-      return notImplemented(reply);
+
+      const [row] = await db
+        .select({
+          id: friendRequest.id,
+          fromId: friendRequest.fromId,
+          toId: friendRequest.toId,
+          status: friendRequest.status,
+        })
+        .from(friendRequest)
+        .where(eq(friendRequest.id, request.params.id))
+        .limit(1);
+
+      if (!row || row.toId !== ctx.userId) {
+        return reply.status(404).send({ error: "not_found" });
+      }
+      if (row.status === "accepted") {
+        return reply.status(409).send({ error: "already_friends" });
+      }
+      if (row.status === "rejected") {
+        return reply.status(409).send({ error: "request_declined" });
+      }
+
+      // Normalize pair: userAId < userBId (spec §5 convention; migration 0003
+      // enforces with CHECK constraint, so bad sort here would blow up the txn).
+      const [userAId, userBId] =
+        row.fromId < row.toId ? [row.fromId, row.toId] : [row.toId, row.fromId];
+      const friendshipId = randomUUID();
+
+      await db.transaction(async (tx) => {
+        await tx
+          .update(friendRequest)
+          .set({ status: "accepted", respondedAt: new Date() })
+          .where(eq(friendRequest.id, row.id));
+        await tx.insert(friendship).values({
+          id: friendshipId,
+          userAId,
+          userBId,
+        });
+      });
+
+      return reply.status(200).send({ status: "accepted", friendshipId });
     },
   );
 
