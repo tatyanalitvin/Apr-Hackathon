@@ -70,7 +70,24 @@ async function getRedis(): Promise<RedisClientType> {
   return redis;
 }
 
+// Refuse to truncate anything that doesn't look like a Testcontainers-managed
+// Postgres. Testcontainers binds on a random high port; the dev compose stack
+// uses 5432. This guard is the "2am DATABASE_URL mistake" insurance called out
+// in docs/adr/0005-test-db-harness.md §Reasoning point 3.
+function assertTestDatabaseUrl(url: string | undefined): asserts url is string {
+  if (!url) throw new Error("truncateAll(): DATABASE_URL not set");
+  const portMatch = url.match(/@[^/:]+:(\d+)\//);
+  const port = portMatch ? Number(portMatch[1]) : NaN;
+  if (!Number.isFinite(port) || port === 5432) {
+    throw new Error(
+      `truncateAll(): refusing to run against DATABASE_URL with port=${portMatch?.[1] ?? "unknown"}. ` +
+        `Testcontainers binds a random high port; 5432 is the dev compose Postgres.`,
+    );
+  }
+}
+
 export async function truncateAll(): Promise<void> {
+  assertTestDatabaseUrl(process.env.DATABASE_URL);
   const names = ALL_TABLES.map((t) => `"${getTableName(t)}"`).join(", ");
   await getTestPool().query(
     `TRUNCATE ${names} RESTART IDENTITY CASCADE`,
@@ -80,15 +97,4 @@ export async function truncateAll(): Promise<void> {
 export async function flushRedis(): Promise<void> {
   const client = await getRedis();
   await client.flushDb();
-}
-
-export async function closeTestConnections(): Promise<void> {
-  if (redis) {
-    await redis.quit();
-    redis = undefined;
-  }
-  if (pool) {
-    await pool.end();
-    pool = undefined;
-  }
 }

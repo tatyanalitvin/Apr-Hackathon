@@ -2,8 +2,8 @@
 // Injects container URLs from globalSetup BEFORE src/env.ts is imported by any
 // test module; primes remaining env; registers isolation hooks.
 
-import { afterAll, beforeEach, inject } from "vitest";
-import { closeTestConnections, flushRedis, truncateAll } from "./db-helpers";
+import { beforeEach, inject } from "vitest";
+import { flushRedis, getTestPool, truncateAll } from "./db-helpers";
 
 // MUST happen before any test-file import of src/db.ts or src/env.ts.
 // inject() returns values provided by tests/global-setup.ts.
@@ -18,11 +18,17 @@ process.env.WEB_ORIGIN ??= "http://localhost:3000";
 process.env.SESSION_SECRET ??= "test-session-secret-32-chars-min!!";
 process.env.UPLOAD_DIR ??= "./infra/uploads";
 
+// `pg_advisory_unlock_all()` before TRUNCATE: insurance against a session-scoped
+// advisory lock leaking from a previous test (docs/adr/0005-test-db-harness.md
+// §"Advisory-lock discipline"). Without this, a stray lock can make the next
+// TRUNCATE block and the suite hang at 15s hookTimeout.
+//
+// Pool/Redis teardown is deliberately NOT registered here: `setupFiles` modules
+// re-register top-level hooks per test file, so an `afterAll` here would thrash
+// the singletons between files. With `singleFork: true`, the fork exits cleanly
+// and the OS reaps sockets; `.withReuse()` keeps the containers alive.
 beforeEach(async () => {
+  await getTestPool().query("SELECT pg_advisory_unlock_all()");
   await truncateAll();
   await flushRedis();
-});
-
-afterAll(async () => {
-  await closeTestConnections();
 });
