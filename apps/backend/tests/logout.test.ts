@@ -1,8 +1,8 @@
 // Task #5 — logout integration tests (R11, R12) + cookie attributes (R16).
 //
-// R11 (REQ-015): POST /api/auth/sign-out deletes the session row from Postgres
+// R11 (REQ-013): POST /api/auth/sign-out deletes the session row from Postgres
 //   and clears the session cookie. get-session immediately after returns null.
-// R12 (REQ-016): The pre-logout cookie, replayed against get-session after
+// R12 (REQ-013): The pre-logout cookie, replayed against get-session after
 //   sign-out has run, no longer authenticates — the DB row is gone. This is
 //   stronger than "the browser forgot the cookie"; it's "the server doesn't
 //   honour it even if a malicious client kept a copy".
@@ -37,7 +37,7 @@ const seed = {
   name: "Logout Anna",
 };
 
-describe("REQ-015 R11 sign-out deletes session row + clears cookie", () => {
+describe("REQ-013 R11 sign-out deletes session row + clears cookie", () => {
   let app: FastifyInstance;
   beforeAll(async () => {
     app = await buildApp();
@@ -47,7 +47,7 @@ describe("REQ-015 R11 sign-out deletes session row + clears cookie", () => {
     await app.close();
   });
 
-  test("REQ-015 sign-out 200 and session row removed from DB", async () => {
+  test("REQ-013 sign-out 200 and session row removed from DB", async () => {
     const agent = request.agent(app.server);
     await agent.post("/api/auth/sign-up/email").send(seed).expect(200);
 
@@ -63,7 +63,7 @@ describe("REQ-015 R11 sign-out deletes session row + clears cookie", () => {
     expect(after).toHaveLength(0);
   });
 
-  test("REQ-015 get-session immediately after sign-out returns null", async () => {
+  test("REQ-013 get-session immediately after sign-out returns null", async () => {
     const agent = request.agent(app.server);
     await agent.post("/api/auth/sign-up/email").send(seed).expect(200);
     await agent.post("/api/auth/sign-out").send({}).expect(200);
@@ -71,7 +71,7 @@ describe("REQ-015 R11 sign-out deletes session row + clears cookie", () => {
     const me = await agent.get("/api/auth/get-session");
     // better-auth returns null JSON for unauthenticated get-session (not 401).
     // Source: auth/base.mjs — the endpoint is public and resolves to null
-    // when no valid session is attached. REQ-015's "null / 401" wording in
+    // when no valid session is attached. REQ-013's "null / 401" wording in
     // the spec covers both shapes; pin the actual library behaviour here
     // so a future bump that changes it is caught in CI.
     expect(me.status).toBe(200);
@@ -79,7 +79,7 @@ describe("REQ-015 R11 sign-out deletes session row + clears cookie", () => {
   });
 });
 
-describe("REQ-016 R12 post-logout cookie replay does not authenticate", () => {
+describe("REQ-013 R12 post-logout cookie replay does not authenticate", () => {
   let app: FastifyInstance;
   beforeAll(async () => {
     app = await buildApp();
@@ -89,7 +89,7 @@ describe("REQ-016 R12 post-logout cookie replay does not authenticate", () => {
     await app.close();
   });
 
-  test("REQ-016 cached cookie replayed after sign-out → get-session returns null", async () => {
+  test("REQ-013 cached cookie replayed after sign-out → get-session returns null", async () => {
     // Simulates an attacker who captured the session cookie (e.g., via a
     // since-patched XSS) and keeps trying to use it after the legitimate
     // user signed out. The cookie's HMAC still verifies (same
@@ -131,7 +131,7 @@ describe("REQ-016 R12 post-logout cookie replay does not authenticate", () => {
   });
 });
 
-describe("R16 session cookie attributes (transverse, REQ-015/016 gate)", () => {
+describe("R16 session cookie attributes (transverse, REQ-013 gate)", () => {
   let app: FastifyInstance;
   beforeAll(async () => {
     app = await buildApp();
