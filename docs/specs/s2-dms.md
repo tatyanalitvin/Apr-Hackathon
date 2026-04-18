@@ -111,6 +111,10 @@ Placement: `apps/backend/src/lib/dm-freeze.ts`, a pure-DB-call helper that takes
 1. `POST /api/v1/rooms/:id/messages` send handler — one of the first checks after `requireRoomMember`. Only invoked when `room.kind='dm'` (the membership helper already loaded the room record).
 2. `GET /api/v1/dms` listing handler — to populate `frozen` / `frozenReason` per DM.
 
+**`user_deleted` is a listing-layer reason, not a helper output** (Q6 option (a) path — the recommended one). The helper returns only `'not_friends' | 'blocked'`. In R11's listing, `frozenReason='user_deleted'` is computed from `other.deleted` directly, bypassing the helper for that row. If Q6 flips to (b), extend the helper's return type to include `'user_deleted'` and move the branch into `dm-freeze.ts` — one call-site change.
+
+**Reason priority** (listing + helper both): `user_deleted > blocked > not_friends`. Rationale: `user_deleted` is permanent (REQ-125 preserves the soft-deleted row forever); `blocked` is reversible by one mutation (REQ-074); `not_friends` is reversible by the re-friend flow (R2+R8). Most-permanent cause wins so the UI shows the most accurate "why" — unblocking a DM whose counterpart was deleted would not actually unfreeze it. Test in R11's listing branch asserts: counterpart-deleted + also-blocked → `frozenReason='user_deleted'` (not `'blocked'`).
+
 Cost per DM-send: one additional query (two `EXISTS` checks joined via `SELECT EXISTS(..) AS friends, EXISTS(..) AS blocked_either_way`). Acceptable at S2 scale. If the tail latency on DM send becomes problematic at S3 load testing, cache the predicate output per (userA, userB) with a short Redis TTL and invalidate on friendship/block mutations — NOT needed for S2.
 
 **Freeze is advisory, not transactional.** The predicate is evaluated inside the DM-send transaction but the `friendship` / `user_block` rows it reads are not locked. A mutation that races with an in-flight send (e.g. alice calls `DELETE /friends/:bob.id` at the same tick bob's send is mid-flight) can land one more message after the freeze "should" have taken effect. REQ-066 does not require linearizability — it only requires that *subsequent* sends are blocked, which is what this predicate delivers. Test authors MUST NOT assert "no message lands after the friendship DELETE returns 204" as a strict invariant; the looser assertion is "the N+1th send (after the DELETE returns) returns 409".
@@ -157,7 +161,7 @@ R1 reads `user.id` for `userId` path param (target). Validate that the target us
 10. [ ] **Auto-unfreeze (R7)** — `dms-send-unfreeze.test.ts`. Start frozen; re-friend and ensure no block; next send returns 201. One test, three phases (frozen → restore → unfrozen).
 11. [ ] **Send parity with group rooms (R8 / REQ-062)** — `dms-send-parity.test.ts`. Send in DM; second socket client (bob) subscribed to the DM roomId receives `message.new` with identical event shape to a group-room send. Reuse the REQ-034 assertion harness.
 12. [ ] **Seq parity (R9 / REQ-062)** — `dms-seq-concurrency.test.ts`. 100 parallel sends in one DM, assert 100 unique contiguous seqs. Reuse S1's seq allocator rig.
-13. [ ] **Listing (R11)** — `dms-list.test.ts`. Two DMs (alice-bob, alice-carol). GET returns both; each carries the counterpart's username. One DM frozen → `frozen: true` + correct `frozenReason`. Ordering: by latest message `createdAt` DESC. `unreadCount: 0` placeholder asserted with a comment pointing to the S2 unread spec.
+13. [ ] **Listing (R11)** — `dms-list.test.ts`. Four branches: (a) two active DMs (alice-bob, alice-carol), GET returns both with counterpart's username, `frozen:false`; (b) unfriend bob, assert alice-bob DM carries `frozen:true, frozenReason:'not_friends'`; (c) block carol, assert alice-carol DM carries `frozen:true, frozenReason:'blocked'`; (d) soft-delete carol (direct DB write of `user.deletedAt`), assert alice-carol DM still lists with `other.deleted:true` and `frozenReason:'user_deleted'`, and the "send returns 409" assertion is marked XFAIL with a comment citing §8 Q6. Priority branch: counterpart-deleted + blocked simultaneously → `frozenReason:'user_deleted'` (matches §5 priority). Ordering: by latest message `createdAt` DESC. `unreadCount: 0` placeholder asserted with a comment pointing to the S2 unread spec.
 14. [ ] **Negative: no separate DM history endpoint (R13)** — `dms-route-surface.test.ts`. Hit `GET /api/v1/dms/:id/messages`; expect 404. Documents the design.
 15. [ ] **Gate dry-run** — Manual: alice + bob friends; alice POSTs /api/v1/dms → room created; both browsers subscribe; alice sends → bob receives in <1s; alice unfriends bob → alice send returns 409 dialog_frozen; alice re-friends bob → send succeeds; alice blocks bob → send returns 409; unblock → send succeeds.
 
@@ -174,7 +178,11 @@ R1 reads `user.id` for `userId` path param (target). Validate that the target us
 
 ## 8. Open questions
 
-Must resolve before task 2 / task 3:
+Gating groups:
+
+- **Blocks task 2 (schema + dto)**: Q1 (dmPairKey column), Q2 (v4 deviation ADR), Q3 (createDmSchema dto).
+- **Blocks tasks 8 + 13 (freeze tests touching soft-deleted counterpart)**: Q6 (how freeze-on-deletion is implemented).
+- **Scope confirmations, no task-block**: Q4 (enumeration defense — one-line flip either way), Q5 (REQ-065 out-of-scope confirmation).
 
 - [ ] **Q1 — DM find-or-create storage strategy (R2).** Options:
     - **(a)** Add `room.dmPairKey text` column + partial unique index `WHERE kind='dm'`. Schema change; O(1) find; idempotency at DB level.
