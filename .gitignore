@@ -21,6 +21,7 @@ playwright-report/
 test-results/
 blob-report/
 .playwright/
+tests/e2e/screenshots/
 *.tsbuildinfo
 
 # IDE
