@@ -1,4 +1,4 @@
-// Task #7 (v3.docx §2.1.4, REQ-019) — POST /api/auth/request-password-reset.
+// Task #7 (v3.docx §2.1.4, REQ-017) — POST /api/auth/request-password-reset.
 //
 // Path is `/request-password-reset`, not `/forget-password`. Verified by
 // source-read of node_modules/better-auth/dist/api/routes/password.mjs:20
@@ -11,7 +11,7 @@
 // (ADR-0004). There is no app-owned route for this feature — but R15's
 // contract is ours to own via integration tests.
 //
-// R15 coverage (v3.docx §2.1.4, REQ-019 anti-enumeration):
+// R15 coverage (v3.docx §2.1.4, REQ-017 anti-enumeration):
 //   - existing email → 200 (sendResetPassword callback fires; token logged)
 //   - non-existent email → 200 (better-auth simulates the verification
 //     lookup for timing parity; confirmed in password.mjs:56-57)
@@ -41,7 +41,7 @@ const seed = {
   name: "Reset Anna",
 };
 
-describe("REQ-019 R15 /api/auth/request-password-reset returns 200 for any email", () => {
+describe("REQ-017 R15 /api/auth/request-password-reset returns 200 for any email", () => {
   let app: FastifyInstance;
   beforeAll(async () => {
     app = await buildApp();
@@ -51,7 +51,7 @@ describe("REQ-019 R15 /api/auth/request-password-reset returns 200 for any email
     await app.close();
   });
 
-  test("REQ-019 existing email → 200 + no-enumeration payload", async () => {
+  test("REQ-017 existing email → 200 + no-enumeration payload", async () => {
     await request(app.server)
       .post("/api/auth/sign-up/email")
       .send(seed)
@@ -69,7 +69,7 @@ describe("REQ-019 R15 /api/auth/request-password-reset returns 200 for any email
     expect(res.body).toHaveProperty("message");
   });
 
-  test("REQ-019 non-existent email → 200, identical shape (no enumeration)", async () => {
+  test("REQ-017 non-existent email → 200, identical shape (no enumeration)", async () => {
     const res = await request(app.server)
       .post("/api/auth/request-password-reset")
       .send({ email: "nobody@example.com" });
