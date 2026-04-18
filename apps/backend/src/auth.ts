@@ -102,11 +102,19 @@ export const auth = betterAuth({
       "/sign-in/email": { window: 60, max: 5 },
     },
   },
-  // Hotfix (REQ-022 partial, demo gate): auto-enroll every newly created user
-  // into the seeded 'general' room so a fresh signup can immediately post to
-  // /api/v1/rooms/general/messages without a separate join step. Full REQ-022
-  // (rooms catalog + self-join UI) is S2; this is the minimum wiring for the
-  // S1 demo. Hook API verified in
+  // Auto-enroll every newly created user into the seeded 'general' room so a
+  // fresh signup can immediately post to /api/v1/rooms/general/messages without
+  // a separate join step. NOT a v4 REQ — v4 REQ-022 is "Room description"
+  // (unimplemented; tracked in FOLLOWUPS.md #10).
+  //
+  // This is a permanent non-v4 UX convenience; claimed in s2-rooms.md §7
+  // (non-v4 deviations) and ADR-0006. Covered by register-auto-enroll.test.ts.
+  // It is NOT superseded by v4 REQ-025 (room catalog) / REQ-026 (self-join) —
+  // those enable users to discover and join OTHER rooms; this hook solves the
+  // signup-to-first-message dead-end that would otherwise force every new user
+  // through a manual #general join.
+  //
+  // Hook API verified in
   // node_modules/.pnpm/@better-auth+core@1.6.5/.../types/init-options.d.mts
   // lines 1059-1077 (`databaseHooks.user.create.after`). The hook fires AFTER
   // the user row is written, regardless of sign-up surface (HTTP or internal
