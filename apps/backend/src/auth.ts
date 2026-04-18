@@ -100,6 +100,9 @@ export const auth = betterAuth({
     storage: "secondary-storage",
     customRules: {
       "/sign-in/email": { window: 60, max: 5 },
+      // REQ-009 — 5 registrations per IP per hour. The /24 subnet rule in v4
+      // is deferred to FOLLOWUPS #6 (requires custom keyGenerator + CIDR).
+      "/sign-up/email": { window: 3600, max: 5 },
     },
   },
   // Auto-enroll every newly created user into the seeded 'general' room so a
