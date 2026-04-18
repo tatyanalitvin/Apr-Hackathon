@@ -30,3 +30,18 @@ Convention: when you land the fix, delete the bullet here AND the matching `TODO
 - **Username change (REQ-127)** — explicitly deferred in `docs/BRIEF.md`.
 - **Email verification at signup** — `requireEmailVerification: false`; `user.emailVerified` column stays for better-auth compatibility but is always `false`. `docs/specs/s1-auth.md` §5.
 - **Admin "force logout all users" tooling** — not in the REQ range.
+
+## ADR-0006 deviations (2026-04-18 retrofit)
+
+Tracked deferrals from the v4 REQ-catalog retrofit. Each item has a pointer to where it currently lives and what shipping it would cost.
+
+1. **REQ-003 — case-insensitive email uniqueness.** Current test `register.test.ts` exercises case-sensitive path. Add a case-variation test when better-auth 1.6.5+ lowercasing is wired.
+2. **REQ-005 — case-insensitive username uniqueness.** Same pattern as #1.
+3. **REQ-006 — password policy (12-char + top-10k blocklist).** Note: all test fixtures + seed use `"password1234"` which is on the blocklist; any implementation MUST rewrite fixtures in lockstep.
+4. **REQ-007 — passwordConfirm field.** Schema change in `packages/shared/src/dto.ts`; UI change in register form.
+5. **REQ-008 — argon2id.** ADR-0001 says not happening without unwinding better-auth adoption.
+6. **REQ-009 — /24 subnet rate limit.** Custom keyGenerator in `@fastify/rate-limit`; CIDR math; deferred (per-IP rule IS implemented, see `auth.ts` customRules).
+7. **REQ-012 — per-email lockout.** Current `rate-limit.test.ts` exercises IP-scoped 429 only; per-email counter + `auth_locked` error code are S3 work (see ADR-0006 row).
+8. **Auto-enroll is permanent, not a hotfix.** `auth.ts:117-143` + `register-auto-enroll.test.ts` stay indefinitely per s2-rooms.md R1 `[x]` (commit `ee0b136`). No deletion when S2 rooms (v4 REQ-025/REQ-026) land.
+9. **s1-chat REQ-049 seed.** Seed script is demo infra, not a v4 REQ. Trace doesn't need to claim it.
+10. **v4 REQ-022 "Room description".** Not implemented. `room.description` column exists in `packages/shared/src/schema.ts`, but there is no UI or API enforcement of description format/length/visibility. Deferred until a future spec claims it in §4.

@@ -47,7 +47,7 @@ const seed = {
   name: "Delete Anna",
 };
 
-describe("v3.docx §2.1.5 POST /api/auth/delete-user (task #11)", () => {
+describe("REQ-125 POST /api/auth/delete-user (task #11)", () => {
   let app: FastifyInstance;
   beforeAll(async () => {
     app = await buildApp();
@@ -57,7 +57,7 @@ describe("v3.docx §2.1.5 POST /api/auth/delete-user (task #11)", () => {
     await app.close();
   });
 
-  test("v3 §2.1.5 unauthenticated delete → 4xx, no rows touched", async () => {
+  test("REQ-125 unauthenticated delete → 4xx, no rows touched", async () => {
     const res = await request(app.server)
       .post("/api/auth/delete-user")
       .send({ password: seed.password });
@@ -65,7 +65,7 @@ describe("v3.docx §2.1.5 POST /api/auth/delete-user (task #11)", () => {
     expect(res.status).toBeLessThan(500);
   });
 
-  test("v3 §2.1.5 wrong password → 4xx, user row still present", async () => {
+  test("REQ-125 wrong password → 4xx, user row still present", async () => {
     const agent = request.agent(app.server);
     await agent.post("/api/auth/sign-up/email").send(seed).expect(200);
 
@@ -80,7 +80,7 @@ describe("v3.docx §2.1.5 POST /api/auth/delete-user (task #11)", () => {
     expect(rows).toHaveLength(1);
   });
 
-  test("v3 §2.1.5 happy path → user + session rows gone, cookie stops auth'ing", async () => {
+  test("REQ-125 happy path → user + session rows gone, cookie stops auth'ing", async () => {
     const agent = request.agent(app.server);
     await agent.post("/api/auth/sign-up/email").send(seed).expect(200);
 

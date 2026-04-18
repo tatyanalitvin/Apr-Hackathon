@@ -4,7 +4,7 @@
 **Branch**: `feat/s2-rooms` (worktree to be created off `main` alongside feat/s2-friendship)
 **Owner (human)**: Tatianka
 **Owner (agent)**: Claude Code — S2 rooms agent
-**Scope**: REQ-022, REQ-023 — public room catalog + user self-enrollment into group rooms. The auto-enroll-into-`general`-on-signup half of REQ-022 already ships in S1 via a better-auth `databaseHooks.user.create.after` hook ([apps/backend/src/auth.ts]) with a partial test in [apps/backend/tests/register-auto-enroll.test.ts]; this spec completes the REQ.
+**Scope**: REQ-025 (room catalog) + REQ-026 (join public room) + non-v4 auto-enroll hook (see §7 ADR-0006 deviations). v4 REQ-022 "Room description" is a separate follow-up (FOLLOWUPS.md #10). The auto-enroll-into-`general`-on-signup convenience already ships in S1 via a better-auth `databaseHooks.user.create.after` hook ([apps/backend/src/auth.ts:117-150](../../apps/backend/src/auth.ts#L117-L150)) with coverage in [apps/backend/tests/register-auto-enroll.test.ts](../../apps/backend/tests/register-auto-enroll.test.ts); that behavior is non-v4 and stays as documented UX.
 
 ## 1. Why
 
@@ -22,18 +22,17 @@ s2-dms.md §5 line 206 already assumes this catalog exists (uses REQ-022 as an i
 
 ## 3. User stories
 
-- As Anna, I `GET /api/v1/rooms` and see the list of public group rooms I can join, so I can browse beyond `#general`. (REQ-023)
-- As Anna, I `POST /api/v1/rooms/:id/join` on a public group room I'm not yet a member of, and a `room_member` row is created so I can read and post. (REQ-022 self-join half)
-- As Anna, I sign up for the first time and `#general` appears in my rooms list with a welcome message already visible — no explicit join needed. (REQ-022 auto-enroll half — already ships in S1)
+- As Anna, I `GET /api/v1/rooms` and see the list of public group rooms I can join, so I can browse beyond `#general`. (v4 REQ-025)
+- As Anna, I `POST /api/v1/rooms/:id/join` on a public group room I'm not yet a member of, and a `room_member` row is created so I can read and post. (v4 REQ-026)
+- As Anna, I sign up for the first time and `#general` appears in my rooms list with a welcome message already visible — no explicit join needed. (non-v4 UX convenience — see §7 ADR-0006 deviations; already ships in S1)
 
 ## 4. Requirements (testable)
 
 `pnpm trace` greps `tests/` for each REQ-ID. `describe`/`test` names MUST embed them.
 
-- [x] **R1 (REQ-022 auto-enroll)**: On `auth.api.signUpEmail` completion, a `room_member` row exists for `(newUser.id, 'general')`. Shipped in S1; test at [apps/backend/tests/register-auto-enroll.test.ts](../../apps/backend/tests/register-auto-enroll.test.ts).
-- [ ] **R2 (REQ-022 self-join)**: `POST /api/v1/rooms/:id/join` — caller is authenticated; target room exists, is `kind='group'`, and is `visibility='public'`. INSERT `room_member (userId=caller, roomId=:id)` ON CONFLICT DO NOTHING (idempotent: 200 either way with `{ joined: boolean }` indicating whether a new row was created). 404 if room doesn't exist; 403 if room is `visibility='private'` (private rooms require invitation; scope-bounded by §2).
-- [ ] **R3 (REQ-023 catalog)**: `GET /api/v1/rooms` — returns `{ rooms: Array<{ id, name, kind, visibility, memberCount, isMember }> }` filtered to `kind='group' AND visibility='public'`. `isMember` is true iff the caller has a `room_member` row for that roomId. Ordered by `memberCount DESC, name ASC`. 401 without session.
-- [ ] **R4 (REQ-023 per-user rooms)**: `GET /api/v1/rooms/me` — returns `{ rooms: Array<{ id, name, kind, visibility, lastReadSeq, roomHeadSeq }> }` for every room the caller is a `room_member` of (including DMs). Ordered by most-recent-activity. **Wires s1-web.md's hardcoded `general` list** (flagged as `TODO(S2)` in RoomList.tsx) to a real endpoint.
+- [ ] **R2 (REQ-026)**: `POST /api/v1/rooms/:id/join` — caller is authenticated; target room exists, is `kind='group'`, and is `visibility='public'`. INSERT `room_member (userId=caller, roomId=:id)` ON CONFLICT DO NOTHING (idempotent: 200 either way with `{ joined: boolean }` indicating whether a new row was created). 404 if room doesn't exist; 403 if room is `visibility='private'` (private rooms require invitation; scope-bounded by §2).
+- [ ] **R3 (REQ-025)**: `GET /api/v1/rooms` — returns `{ rooms: Array<{ id, name, kind, visibility, memberCount, isMember }> }` filtered to `kind='group' AND visibility='public'`. `isMember` is true iff the caller has a `room_member` row for that roomId. Ordered by `memberCount DESC, name ASC`. 401 without session.
+- [ ] **R4**: `GET /api/v1/rooms/me` — returns `{ rooms: Array<{ id, name, kind, visibility, lastReadSeq, roomHeadSeq }> }` for every room the caller is a `room_member` of (including DMs). Ordered by most-recent-activity. **Wires s1-web.md's hardcoded `general` list** (flagged as `TODO(S2)` in RoomList.tsx) to a real endpoint. Non-v4 — no explicit v4 REQ covers a caller-memberships endpoint; the closest v4 hook is the room data-model REQ (covered under the §7 deviations below). See §7 ADR-0006 deviations.
 
 ## 5. Design notes
 
@@ -60,6 +59,13 @@ All three new routes land in `apps/backend/src/routes/rooms.ts` (new file). The 
 
 ## 7. Out of scope / follow-ups
 
+### ADR-0006 non-v4 deviations
+
+Two S2 rooms behaviors don't map to any v4 catalog REQ. They stay shipped-as-is; this subsection documents why so future readers don't try to align them to a non-matching v4 ID.
+
+- **Auto-enroll new signups into `general`** — shipped in S1 via a better-auth `databaseHooks.user.create.after` hook ([apps/backend/src/auth.ts:117-150](../../apps/backend/src/auth.ts#L117-L150)) + [register-auto-enroll.test.ts](../../apps/backend/tests/register-auto-enroll.test.ts). Originally labelled REQ-022 in S1, but v4 REQ-022 is "Room description" (a group-room metadata field, unimplemented — tracked in FOLLOWUPS.md #10). The auto-enroll is a permanent non-v4 UX convenience: a brand-new user lands in `#general` with zero friction instead of having to hunt for a catalog and click Join. See ADR-0006.
+- **`GET /api/v1/rooms/me` — caller memberships endpoint** — R4 above. No v4 REQ explicitly covers a "return the rooms I belong to" endpoint; the closest is v4 REQ-020 ("Room data model"), which specifies `room` and `room_member` schema but not an API shape. `/rooms/me` exists because `RoomList.tsx` needs a per-user rooms list (DMs + group rooms + `#general`) and a catalog-style `/rooms` would require filtering by membership client-side. See ADR-0006.
+
 - **Room creation endpoint** — can be added as R5 here or split out. Currently excluded from this stub.
 - **Room member presence on catalog** — "who's online in this room right now" would be nice but depends on s2-afk-presence landing first.
 - **Leave room** (`DELETE /api/v1/rooms/:id/members/me`) — trivial sibling of self-join; add as R6 when this spec leaves stub status.
@@ -77,7 +83,7 @@ Must resolve before approval:
 Self-check before declaring "S2 rooms done":
 
 - [ ] `pnpm --filter backend test:run` green — catalog + self-join tests pass
-- [ ] `pnpm trace` reports REQ-022 and REQ-023 as covered (no longer zombies)
+- [ ] `pnpm trace` reports REQ-025 and REQ-026 as covered (v4 REQ-022/REQ-023 are no longer claimed here — v4 REQ-022 is "Room description" and tracked in FOLLOWUPS.md #10; auto-enroll + `/rooms/me` are non-v4 per §7 ADR-0006 deviations)
 - [ ] Manual: fresh signup → `/rooms` shows `#general`; browse page shows other public rooms; click "Join" → row appears; enter room → send message → broadcast works
 - [ ] `TODO(S2)` markers in [apps/web/src/components/chat/RoomList.tsx] deleted; replaced with real endpoint calls
 
@@ -85,5 +91,7 @@ Self-check before declaring "S2 rooms done":
 
 | REQ-ID | How exercised | Layer |
 | --- | --- | --- |
-| REQ-022 | auto-enroll on sign-up inserts `room_member` row (R1); self-join POST inserts / is idempotent (R2) | integration |
-| REQ-023 | catalog filter (`kind=group`, `visibility=public`), `isMember` derivation, ordering (R3); `/rooms/me` returns caller memberships (R4) | integration |
+| REQ-026 | self-join POST inserts a `room_member` row on first call, is idempotent on repeat, 403 on private-room target (R2) | integration |
+| REQ-025 | catalog filter (`kind=group`, `visibility=public`), `isMember` derivation, ordering (R3) | integration |
+| (non-v4, see §7 ADR-0006) | auto-enroll on sign-up inserts `room_member (userId, 'general')` — shipped in S1 via better-auth `databaseHooks.user.create.after` hook | integration |
+| (non-v4, see §7 ADR-0006) | `GET /api/v1/rooms/me` returns caller memberships across DMs + group rooms (R4) | integration |

@@ -1,7 +1,7 @@
 // Task #4 — login integration tests.
-// R7 (REQ-010, REQ-011): sign-in happy path + cookie authenticates get-session.
-// R8 (REQ-012): rememberMe toggles the session-cookie persistence attribute.
-// R9 (REQ-013): wrong-email and wrong-password return identical payload+status.
+// R7 (REQ-010): sign-in happy path + cookie authenticates get-session.
+// R8 (REQ-011): rememberMe toggles the session-cookie persistence attribute.
+// R9 (credential-error parity, see ADR-0006): wrong-email and wrong-password return identical payload+status.
 // R10 lands in a follow-up commit, after task #10 pins rateLimit.customRules.
 //
 // Runs against the Testcontainers harness (ADR-0005). Each test starts with a
@@ -21,7 +21,7 @@ const seed = {
   name: "Login Anna",
 };
 
-describe("REQ-010 REQ-011 login happy path (R7)", () => {
+describe("REQ-010 login happy path (R7)", () => {
   let app: FastifyInstance;
   beforeAll(async () => {
     app = await buildApp();
@@ -47,7 +47,7 @@ describe("REQ-010 REQ-011 login happy path (R7)", () => {
     expect(res.headers["set-cookie"]).toBeDefined();
   });
 
-  test("REQ-011 cookie from sign-in authenticates GET /api/auth/get-session", async () => {
+  test("REQ-010 cookie from sign-in authenticates GET /api/auth/get-session", async () => {
     // Register in a separate flow, then log in via a supertest.agent so the
     // cookie jar carries Set-Cookie forward into the get-session call.
     await request(app.server)
@@ -69,7 +69,7 @@ describe("REQ-010 REQ-011 login happy path (R7)", () => {
   });
 });
 
-describe("REQ-012 rememberMe cookie-attribute contract (R8)", () => {
+describe("REQ-011 rememberMe cookie-attribute contract (R8)", () => {
   // Why cookie-attribute instead of absolute expiresAt thresholds:
   // v3.docx §2.2.2 (organizer gate) says "persistent login across browser
   // close/reopen" with no day-counts. better-auth 1.6.5 source (sign-in.mjs)
@@ -94,7 +94,7 @@ describe("REQ-012 rememberMe cookie-attribute contract (R8)", () => {
     return line;
   }
 
-  test("REQ-012 rememberMe: true → session_token cookie carries Max-Age (persistent)", async () => {
+  test("REQ-011 rememberMe: true → session_token cookie carries Max-Age (persistent)", async () => {
     await request(app.server)
       .post("/api/auth/sign-up/email")
       .send(seed)
@@ -109,7 +109,7 @@ describe("REQ-012 rememberMe cookie-attribute contract (R8)", () => {
     expect(cookie.toLowerCase()).toMatch(/max-age=\d+/);
   });
 
-  test("REQ-012 rememberMe: false → session_token cookie omits Max-Age (session cookie)", async () => {
+  test("REQ-011 rememberMe: false → session_token cookie omits Max-Age (session cookie)", async () => {
     await request(app.server)
       .post("/api/auth/sign-up/email")
       .send(seed)
@@ -131,7 +131,7 @@ describe("REQ-012 rememberMe cookie-attribute contract (R8)", () => {
   // defined. Documented in docs/specs/s1-auth.md §10 decision log.
 });
 
-describe("REQ-013 wrong-email and wrong-password return identical response (R9)", () => {
+describe("sign-in returns identical response for wrong-email vs wrong-password (user-enumeration defense, not explicit in v4; see ADR-0006)", () => {
   // Regression fence over better-auth's user-enumeration defence. Source-read
   // of better-auth/dist/api/routes/sign-in.mjs confirms both branches throw
   //   APIError.from("UNAUTHORIZED", BASE_ERROR_CODES.INVALID_EMAIL_OR_PASSWORD)
@@ -148,7 +148,7 @@ describe("REQ-013 wrong-email and wrong-password return identical response (R9)"
     await app.close();
   });
 
-  test("REQ-013 identical HTTP status + body for non-existent email vs wrong password", async () => {
+  test("identical HTTP status + body for non-existent email vs wrong password", async () => {
     // Seed a real user so the "wrong password for a real email" branch hits
     // the password-verify path rather than the not-found path.
     await request(app.server)

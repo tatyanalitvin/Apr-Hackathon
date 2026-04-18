@@ -1,4 +1,4 @@
-// Task #6b (REQ-018, v3.docx §2.2.4) — DELETE /api/v1/sessions/:id.
+// Task #6b (REQ-019, v3.docx §2.2.4) — DELETE /api/v1/sessions/:id.
 //
 // We own the ownership guard. better-auth's `auth.api.revokeSession` takes a
 // token (not an id) and the Context7 docs are silent on whether it rejects
@@ -40,7 +40,7 @@ const mallory = {
   name: "Revoke Mallory",
 };
 
-describe("REQ-018 DELETE /api/v1/sessions/:id (task #6b)", () => {
+describe("REQ-019 DELETE /api/v1/sessions/:id (task #6b)", () => {
   let app: FastifyInstance;
   beforeAll(async () => {
     app = await buildApp();
@@ -50,12 +50,12 @@ describe("REQ-018 DELETE /api/v1/sessions/:id (task #6b)", () => {
     await app.close();
   });
 
-  test("REQ-018 unauthenticated → 401", async () => {
+  test("REQ-019 unauthenticated → 401", async () => {
     const res = await request(app.server).delete("/api/v1/sessions/whatever");
     expect(res.status).toBe(401);
   });
 
-  test("REQ-018 non-existent session id → 403 (existence not leaked)", async () => {
+  test("REQ-019 non-existent session id → 403 (existence not leaked)", async () => {
     const agent = request.agent(app.server);
     await agent.post("/api/auth/sign-up/email").send(anna).expect(200);
 
@@ -73,7 +73,7 @@ describe("REQ-018 DELETE /api/v1/sessions/:id (task #6b)", () => {
     expect(still.body[0].current).toBe(true);
   });
 
-  test("REQ-018 revoking another user's session → 403, victim still auth'd", async () => {
+  test("REQ-019 revoking another user's session → 403, victim still auth'd", async () => {
     const annaAgent = request.agent(app.server);
     await annaAgent.post("/api/auth/sign-up/email").send(anna).expect(200);
 
@@ -96,7 +96,7 @@ describe("REQ-018 DELETE /api/v1/sessions/:id (task #6b)", () => {
     expect(annaStill.body).toHaveLength(1);
   });
 
-  test("REQ-018 revoke own non-current session → 204, revoked cookie stops auth'ing, current still works", async () => {
+  test("REQ-019 revoke own non-current session → 204, revoked cookie stops auth'ing, current still works", async () => {
     const a = request.agent(app.server);
     await a.post("/api/auth/sign-up/email").send(anna).expect(200);
 
@@ -129,7 +129,7 @@ describe("REQ-018 DELETE /api/v1/sessions/:id (task #6b)", () => {
     expect(bDead.status).toBe(401);
   });
 
-  test("REQ-018 revoke own CURRENT session → 204, cookie stops auth'ing (logout-like)", async () => {
+  test("REQ-019 revoke own CURRENT session → 204, cookie stops auth'ing (logout-like)", async () => {
     const a = request.agent(app.server);
     await a.post("/api/auth/sign-up/email").send(anna).expect(200);
 

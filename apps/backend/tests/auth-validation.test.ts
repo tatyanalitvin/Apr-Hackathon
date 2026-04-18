@@ -10,7 +10,7 @@ import { buildApp } from "../src/app";
 // the better-auth bridge — so the client gets an actionable error and no
 // DB work is attempted.
 
-describe("REQ-008 zod boundary guard rejects short password (integration)", () => {
+describe("zod boundary guard rejects short password on sign-up (deviation from v4 REQ-006 12-char policy, see ADR-0006)", () => {
   let app: FastifyInstance;
   beforeAll(async () => {
     app = await buildApp();
@@ -20,7 +20,7 @@ describe("REQ-008 zod boundary guard rejects short password (integration)", () =
     await app.close();
   });
 
-  test("REQ-008 POST /api/auth/sign-up/email → 400 with zod issue shape", async () => {
+  test("POST /api/auth/sign-up/email with <8-char password → 400 with zod issue shape", async () => {
     const res = await request(app.server)
       .post("/api/auth/sign-up/email")
       .send({

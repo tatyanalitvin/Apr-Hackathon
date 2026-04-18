@@ -1,5 +1,5 @@
 // GET /api/v1/rooms/:id/messages — REQ-035 history + gap-fill and
-// REQ-036 persistence-across-restart.
+// REQ-034 persistence-across-restart.
 
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import request from "supertest";
@@ -208,8 +208,8 @@ describe("REQ-035 GET /api/v1/rooms/:id/messages history + gap-fill", () => {
   });
 });
 
-describe("REQ-036 messages survive backend re-bootstrap", () => {
-  test("REQ-036 buildApp() teardown + re-bootstrap still returns inserted message", async () => {
+describe("REQ-034 messages survive backend re-bootstrap", () => {
+  test("REQ-034 buildApp() teardown + re-bootstrap still returns inserted message", async () => {
     // First bootstrap: send a message.
     const app1 = await buildApp();
     await app1.ready();

@@ -6,8 +6,8 @@ import { registerSchema, loginSchema, usernameSchema } from "@ai-herders/shared/
 // regressions in `packages/shared/src/dto.ts` get caught without a running
 // HTTP server.
 
-describe("REQ-008 registerSchema rejects short password", () => {
-  test("REQ-008 password with <8 chars fails parse", () => {
+describe("registerSchema rejects short password (deviation from v4 REQ-006 password policy, see ADR-0006)", () => {
+  test("password with <8 chars fails parse", () => {
     const result = registerSchema.safeParse({
       email: "anna@example.com",
       username: "anna_01",
@@ -21,7 +21,7 @@ describe("REQ-008 registerSchema rejects short password", () => {
     }
   });
 
-  test("REQ-008 password with ≥8 chars parses", () => {
+  test("password with ≥8 chars parses", () => {
     const result = registerSchema.safeParse({
       email: "anna@example.com",
       username: "anna_01",
@@ -32,14 +32,14 @@ describe("REQ-008 registerSchema rejects short password", () => {
   });
 });
 
-describe("REQ-009 usernameSchema enforces [A-Za-z0-9_]{3,32}", () => {
+describe("REQ-004 usernameSchema enforces [A-Za-z0-9_]{3,32} (v4 requires {3,24}, see ADR-0006)", () => {
   test.each([
     ["ab", "too short"],
     ["a".repeat(33), "too long"],
     ["bad-name", "hyphen not allowed"],
     ["bad name", "space not allowed"],
     ["bad!name", "punctuation not allowed"],
-  ])("REQ-009 rejects %s (%s)", (value) => {
+  ])("REQ-004 rejects %s (%s)", (value) => {
     expect(usernameSchema.safeParse(value).success).toBe(false);
   });
 
@@ -49,7 +49,7 @@ describe("REQ-009 usernameSchema enforces [A-Za-z0-9_]{3,32}", () => {
     ["Anna_01"],
     ["a_b_c"],
     ["a".repeat(32)],
-  ])("REQ-009 accepts valid username %s", (value) => {
+  ])("REQ-004 accepts valid username %s", (value) => {
     expect(usernameSchema.safeParse(value).success).toBe(true);
   });
 });
