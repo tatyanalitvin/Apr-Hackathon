@@ -1,0 +1,124 @@
+// S2 friendship routes — REQ-050..060 + REQ-073/074.
+// Binding spec: docs/specs/s2-friendship.md. See §5 for the REST surface.
+//
+// Auth pattern mirrors routes/sessions.ts — better-auth session lookup via the
+// toFetchHeaders adapter. No room membership involved; friendship is a
+// cross-room relationship, so the helper is local and does not reuse
+// requireRoomMember.
+//
+// Handlers land one-per-commit via TDD. This scaffold wires routing + auth so
+// R19 (every endpoint returns 401 without a session) is satisfied out of the
+// gate; bodies default to 501 until each R-task's test-first cycle fills them.
+
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+
+import { auth } from "../auth";
+import { toFetchHeaders } from "../lib/fetch-headers";
+
+export interface FriendshipAuthContext {
+  userId: string;
+  username: string;
+}
+
+export async function requireFriendshipAuth(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<FriendshipAuthContext | null> {
+  const headers = toFetchHeaders(request);
+  const me = await auth.api.getSession({ headers });
+  if (!me) {
+    reply.status(401).send({ error: "unauthorized" });
+    return null;
+  }
+  // better-auth additionalField; same cast as message-auth.ts — auth.ts
+  // registers username as required on user.additionalFields.
+  const username = (me.user as { username?: string }).username ?? "";
+  return { userId: me.user.id, username };
+}
+
+function notImplemented(reply: FastifyReply) {
+  return reply.status(501).send({ error: "not_implemented" });
+}
+
+export async function friendshipRoutes(app: FastifyInstance): Promise<void> {
+  // R1 / REQ-050 — GET /api/v1/friends
+  app.get("/friends", async (request, reply) => {
+    const ctx = await requireFriendshipAuth(request, reply);
+    if (!ctx) return;
+    return notImplemented(reply);
+  });
+
+  // R2/R4/R5/R6 / REQ-051..055 — POST /api/v1/friends/requests
+  app.post("/friends/requests", async (request, reply) => {
+    const ctx = await requireFriendshipAuth(request, reply);
+    if (!ctx) return;
+    return notImplemented(reply);
+  });
+
+  // R14/R15/R7 — GET /api/v1/friends/requests?direction=
+  app.get("/friends/requests", async (request, reply) => {
+    const ctx = await requireFriendshipAuth(request, reply);
+    if (!ctx) return;
+    return notImplemented(reply);
+  });
+
+  // R8 / REQ-057 accept
+  app.post<{ Params: { id: string } }>(
+    "/friends/requests/:id/accept",
+    async (request, reply) => {
+      const ctx = await requireFriendshipAuth(request, reply);
+      if (!ctx) return;
+      return notImplemented(reply);
+    },
+  );
+
+  // R9 / REQ-057 decline
+  app.post<{ Params: { id: string } }>(
+    "/friends/requests/:id/decline",
+    async (request, reply) => {
+      const ctx = await requireFriendshipAuth(request, reply);
+      if (!ctx) return;
+      return notImplemented(reply);
+    },
+  );
+
+  // R10 / REQ-057 block from request
+  app.post<{ Params: { id: string } }>(
+    "/friends/requests/:id/block",
+    async (request, reply) => {
+      const ctx = await requireFriendshipAuth(request, reply);
+      if (!ctx) return;
+      return notImplemented(reply);
+    },
+  );
+
+  // R12 / REQ-059 — DELETE /api/v1/friends/:userId
+  app.delete<{ Params: { userId: string } }>(
+    "/friends/:userId",
+    async (request, reply) => {
+      const ctx = await requireFriendshipAuth(request, reply);
+      if (!ctx) return;
+      return notImplemented(reply);
+    },
+  );
+
+  // R16 / REQ-073 — POST /api/v1/users/:id/block
+  app.post<{ Params: { id: string } }>(
+    "/users/:id/block",
+    async (request, reply) => {
+      const ctx = await requireFriendshipAuth(request, reply);
+      if (!ctx) return;
+      return notImplemented(reply);
+    },
+  );
+
+  // R18 / REQ-074 — DELETE /api/v1/users/:id/ban
+  app.delete<{ Params: { id: string } }>(
+    "/users/:id/ban",
+    async (request, reply) => {
+      const ctx = await requireFriendshipAuth(request, reply);
+      if (!ctx) return;
+      return notImplemented(reply);
+    },
+  );
+}
