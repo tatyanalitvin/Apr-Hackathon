@@ -1,3 +1,4 @@
+// REQ-042: Account registration (email + username + display name + password).
 "use client";
 
 import { Suspense } from "react";

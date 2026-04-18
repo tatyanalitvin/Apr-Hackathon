@@ -1,3 +1,5 @@
+// REQ-047: Virtualized message list with lazy older-page loading.
+// REQ-048: Auto-scroll pin + "↓ N new messages" pill when user is scrolled up.
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";

@@ -1,3 +1,4 @@
+// REQ-044: Room list (rooms the signed-in user is a member of).
 "use client";
 
 import Link from "next/link";

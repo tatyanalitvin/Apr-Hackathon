@@ -1,3 +1,4 @@
+// REQ-045: Room view — 3-column layout (rooms · messages+composer · members).
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";

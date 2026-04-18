@@ -1,3 +1,4 @@
+// REQ-043: Sign in (email + password, Remember me, deep-link via ?next).
 "use client";
 
 import { Suspense } from "react";
