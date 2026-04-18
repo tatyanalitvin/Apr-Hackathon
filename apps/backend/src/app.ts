@@ -74,7 +74,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.decorate("io", attached.io);
   installSocketAuth(attached.io);
   attached.io.on("connection", (socket) => {
-    registerSocketHandlers(socket);
+    registerSocketHandlers(attached.io, socket);
   });
   app.addHook("onClose", async () => {
     await attached.close();
