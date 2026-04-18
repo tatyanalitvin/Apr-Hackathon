@@ -10,13 +10,61 @@
 // R19 (every endpoint returns 401 without a session) is satisfied out of the
 // gate; bodies default to 501 until each R-task's test-first cycle fills them.
 
-import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type {
+  FastifyInstance,
+  FastifyReply,
+  FastifyRequest,
+  preHandlerHookHandler,
+} from "fastify";
+import { randomUUID } from "node:crypto";
+import type { ZodType } from "zod";
 import { eq } from "drizzle-orm";
-import { friendship, user } from "@ai-herders/shared/schema";
+import { sendFriendRequestSchema, type SendFriendRequestInput } from "@ai-herders/shared/dto";
+import { friendRequest, friendship, user } from "@ai-herders/shared/schema";
 
 import { auth } from "../auth";
 import { db } from "../db";
 import { toFetchHeaders } from "../lib/fetch-headers";
+
+function zodBodyGuard<T>(schema: ZodType<T>): preHandlerHookHandler {
+  return async (request: FastifyRequest, reply: FastifyReply) => {
+    const result = schema.safeParse(request.body);
+    if (result.success) {
+      request.body = result.data;
+      return;
+    }
+    reply.status(400).send({
+      error: "validation",
+      issues: result.error.issues.map((i) => ({
+        path: i.path,
+        message: i.message,
+        code: i.code,
+      })),
+    });
+  };
+}
+
+// REQ-051 target resolution. Accepts either `toUsername` or `toUserId`;
+// returns `null` if the named user does not exist. The DTO union guarantees
+// exactly one of the two keys is present post-parse.
+async function resolveTargetUserId(
+  body: SendFriendRequestInput,
+): Promise<string | null> {
+  if ("toUserId" in body) {
+    const [row] = await db
+      .select({ id: user.id })
+      .from(user)
+      .where(eq(user.id, body.toUserId))
+      .limit(1);
+    return row?.id ?? null;
+  }
+  const [row] = await db
+    .select({ id: user.id })
+    .from(user)
+    .where(eq(user.username, body.toUsername))
+    .limit(1);
+  return row?.id ?? null;
+}
 
 export interface FriendshipAuthContext {
   userId: string;
@@ -87,11 +135,33 @@ export async function friendshipRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // R2/R4/R5/R6 / REQ-051..055 — POST /api/v1/friends/requests
-  app.post("/friends/requests", async (request, reply) => {
-    const ctx = await requireFriendshipAuth(request, reply);
-    if (!ctx) return;
-    return notImplemented(reply);
-  });
+  app.post(
+    "/friends/requests",
+    { preHandler: zodBodyGuard(sendFriendRequestSchema) },
+    async (request, reply) => {
+      const ctx = await requireFriendshipAuth(request, reply);
+      if (!ctx) return;
+
+      const body = request.body as SendFriendRequestInput;
+      const targetId = await resolveTargetUserId(body);
+      if (!targetId) {
+        return reply.status(404).send({ error: "user_not_found" });
+      }
+      if (targetId === ctx.userId) {
+        return reply.status(400).send({ error: "self_request" });
+      }
+
+      const id = randomUUID();
+      const messageText = body.message ?? null;
+      await db.insert(friendRequest).values({
+        id,
+        fromId: ctx.userId,
+        toId: targetId,
+        message: messageText,
+      });
+      return reply.status(201).send({ id, status: "pending" });
+    },
+  );
 
   // R14/R15/R7 — GET /api/v1/friends/requests?direction=
   app.get("/friends/requests", async (request, reply) => {
