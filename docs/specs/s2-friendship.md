@@ -86,7 +86,7 @@ All routes live in `apps/backend/src/routes/friendship.ts` (new file), registere
 | Route | REQ | Purpose | Req body / query | Response |
 | --- | --- | --- | --- | --- |
 | `GET /api/v1/friends` | REQ-050 | List accepted friends | — | `{ friends: [...] }` |
-| `POST /api/v1/friends/requests` | REQ-051, 053, 054, 055 | Send / update pending request | `sendFriendRequestSchema` | 201 `{ id, status: 'pending' }` or sentinel `{ id: null, status: 'sent' }` or 200 `{ id, status: 'pending' }` on update |
+| `POST /api/v1/friends/requests` | REQ-051, 053, 054, 055 | Send / update pending request | `sendFriendRequestSchema` | 201 `{ id, status: 'pending' }` on insert or sentinel (indistinguishable — fabricated UUID); 200 `{ id, status: 'pending' }` on duplicate UPDATE; 409 `already_friends` or `request_declined` on the accepted/rejected collision branches |
 | `GET /api/v1/friends/requests` | R14, R15 | List pending, filtered by direction | `?direction=incoming\|outgoing` | `{ requests: [...] }` |
 | `POST /api/v1/friends/requests/:id/accept` | REQ-057 | Accept | — | 200 `{ status: 'accepted', friendshipId }` |
 | `POST /api/v1/friends/requests/:id/decline` | REQ-057 | Decline | — | 200 `{ status: 'rejected' }` |
@@ -165,7 +165,7 @@ Tests MUST assert that step 3 happens before step 6: fire 21 POSTs from a blocke
 7. [ ] **Rate limit + ordering (R5 / REQ-054)** — `friends-send-ratelimit.test.ts`. 20 successful, 21st returns 429. Second test: fire 21 POSTs from a blocked caller; assert the 21st is 429 (NOT sentinel-success), proving rate-limit runs before the block check per §5 ordering.
 8. [ ] **`GET /api/v1/friends/requests` direction filter + 30d expiry filter (R14, R15, R7)** — `friends-requests-list.test.ts`. Insert rows with direction and backdated createdAt; assert filtering.
 9. [ ] **Protocol.ts event (15b — was task 15, split)** — BLOCKED on §8 Q3 approval. Add `friend.request.accepted` event to `ServerToClientEvents`; add `user:{id}` room-join to socket middleware (one line after userId is resolved). Task 12 depends on this. **Do NOT proceed to task 12 until the event type is in protocol.ts.**
-10. [ ] **Accept transaction (R8 / REQ-057 accept)** — `friends-accept.test.ts`. Fixtures: alice→bob pending request; bob accepts; assert friend_request.status='accepted', friendship row inserted with userAId < userBId. **Non-idempotent replay**: second accept returns 409 (R8 explicit); test asserts 409 on replay, NOT 200.
+10. [ ] **Accept transaction (R8 / REQ-057 accept)** — `friends-accept.test.ts`. Fixtures: alice→bob pending request; bob accepts; assert friend_request.status='accepted', friendship row inserted with userAId < userBId. **Non-idempotent replay**: second accept returns 409 (R8 explicit); test asserts 409 on replay, NOT 200. **Implementation wires the `io.to(\`user:\${fromId}\`).emit("friend.request.accepted", evt)` call inside the transaction's commit-after hook** — task 13 asserts delivery, so the emit MUST land here, not in task 13.
 11. [ ] **Decline (R9)** — `friends-decline.test.ts`. Status transitions to 'rejected', no friendship row, no user_block row.
 12. [ ] **Block-from-request (R10 / REQ-057 block)** — `friends-block-from-request.test.ts`. Three assertions: (a) the specified request row → 'rejected', (b) ALL other pending requests in either direction between the pair → 'rejected' (mirrors R16), (c) user_block inserted, no friendship.
 13. [ ] **Socket event on accept (R11 / REQ-058)** — `friends-socket-accept.test.ts`. Second socket client connected as alice subscribes to `user:alice`; bob accepts; alice receives `friend.request.accepted` within same tick. Decline + block tests assert NO event emitted (timeout of 200ms).
@@ -186,7 +186,7 @@ Tests MUST assert that step 3 happens before step 6: fire 21 POSTs from a blocke
 
 ## 8. Open questions
 
-Must resolve before task 3 / task 11 / task 15:
+Must resolve before task 2 (DTO front-load), task 6 (Q5 decision for rejected branch), and task 9 (protocol event front-load):
 
 - [ ] **Q1 — `toUserId` variant (REQ-051).** v4 REQ-051 reads `{ targetUsername | targetUserId, note? }`; our `sendFriendRequestSchema` only has `toUsername`. Options:
     - **(a)** Extend DTO: `z.union([z.object({ toUsername }), z.object({ toUserId })])` — small surface, handles REQ-052's "from member panel" use case cleanly (member list already has userId).
@@ -213,7 +213,6 @@ Must resolve before task 3 / task 11 / task 15:
 
 **Contract gaps spotted (informational):**
 
-- REQ-053 sentinel-success timing-parity is a defense-in-depth property. R20 asserts within 50ms; CI variance may flake. If it flakes twice, soften to existence-parity only with a comment citing this spec.
 - `user_block` has no reason/note column. REQ-073 doesn't require one; if S3 admin tooling wants it, add then.
 
 ## 9. Gate criteria
@@ -238,7 +237,7 @@ Timebox: shares the S2 soft gate at H+16 (2026-04-18 24:00 UTC) with DMs. If DM 
 | REQ-052 | No backend test — UI concern | — |
 | REQ-053 | blocker's target POSTs → sentinel, no row | integration |
 | REQ-054 | 21st request in 24h → 429 | integration |
-| REQ-055 | duplicate pending → UPDATE in place; rejected → UPDATE-to-pending; accepted → 409 | integration (3 branches) |
+| REQ-055 | duplicate pending → UPDATE in place (200); rejected → 409 `request_declined` (Q5a); accepted → 409 `already_friends` | integration (3 branches) |
 | REQ-056 | 31-day-old pending excluded from listing (read-side) | integration |
 | REQ-057 | accept / decline / block request — state + side effects | integration (3 branches) |
 | REQ-058 | accept emits Socket event; decline + block do not | integration (Socket.IO client) |
