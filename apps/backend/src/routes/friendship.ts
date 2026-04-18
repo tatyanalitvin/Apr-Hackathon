@@ -578,13 +578,28 @@ export async function friendshipRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  // R18 / REQ-074 — DELETE /api/v1/users/:id/ban
+  // R18 / REQ-074 — DELETE /api/v1/users/:id/ban. One-way unblock: removes
+  // the user_block row WHERE byId=caller AND targetId=:id. A mutual-block
+  // state (parallel bob→alice block) requires a second call from bob.
+  // Idempotent 204 — the caller shouldn't learn whether a block existed.
+  // Does NOT restore friendship (REQ-074 explicit); the DM auto-unfreeze
+  // (REQ-066) is a read-time predicate in s2-dms.md.
   app.delete<{ Params: { id: string } }>(
     "/users/:id/ban",
     async (request, reply) => {
       const ctx = await requireFriendshipAuth(request, reply);
       if (!ctx) return;
-      return notImplemented(reply);
+
+      await db
+        .delete(userBlock)
+        .where(
+          and(
+            eq(userBlock.byId, ctx.userId),
+            eq(userBlock.targetId, request.params.id),
+          ),
+        );
+
+      return reply.status(204).send();
     },
   );
 }
