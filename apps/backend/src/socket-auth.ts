@@ -38,6 +38,10 @@ export function installSocketAuth(io: ChatIOServer): void {
         return;
       }
       socket.data.userId = session.user.id;
+      // REQ-058 (S2 friendship): per-user private room for friend-request
+      // accept notifications. Emit happens in routes/friendship.ts →
+      // io.to(`user:${fromId}`).emit("friend.request.accepted", evt).
+      socket.join(`user:${session.user.id}`);
       next();
     } catch (err) {
       next(err instanceof Error ? err : new Error("auth failed"));
