@@ -2,10 +2,9 @@
 // Exercises POST /api/auth/sign-up/email end-to-end against a real Postgres
 // (Testcontainers harness, see docs/adr/0005-test-db-harness.md) so the full
 // better-auth → drizzleAdapter → schema stack is covered:
-//   - R1 (REQ-001, REQ-004): happy path — user row inserted with name + username
-//   - R2 (REQ-005): response Set-Cookie authenticates subsequent get-session
-//   - R3 (REQ-006): duplicate email → 4xx, no duplicate row
-//   - R4 (REQ-007): duplicate username → 4xx
+//   - R1 (REQ-001): happy path — user row inserted with name + username, session cookie auth
+//   - R2 (REQ-003): duplicate email → 4xx, no duplicate row
+//   - R3 (REQ-005): duplicate username → 4xx, no duplicate row
 //
 // truncateAll() runs in beforeEach (tests/setup.ts), so each test starts with
 // an empty `user`/`account`/`session` state — no cross-test order dependency.
@@ -26,7 +25,7 @@ const validRegister = {
   name: "Anna Example",
 };
 
-describe("REQ-001 REQ-004 register happy path persists user row", () => {
+describe("REQ-001 register happy path persists user row", () => {
   let app: FastifyInstance;
   beforeAll(async () => {
     app = await buildApp();
@@ -49,7 +48,7 @@ describe("REQ-001 REQ-004 register happy path persists user row", () => {
     expect(rows[0].username).toBe(validRegister.username);
   });
 
-  test("REQ-004 user row stores the submitted display name", async () => {
+  test("REQ-001 user row stores the submitted display name", async () => {
     await request(app.server)
       .post("/api/auth/sign-up/email")
       .send(validRegister)
@@ -75,7 +74,7 @@ describe("REQ-001 REQ-004 register happy path persists user row", () => {
   });
 });
 
-describe("REQ-005 register response session cookie authenticates get-session", () => {
+describe("REQ-001 register response session cookie authenticates get-session", () => {
   let app: FastifyInstance;
   beforeAll(async () => {
     app = await buildApp();
@@ -85,7 +84,7 @@ describe("REQ-005 register response session cookie authenticates get-session", (
     await app.close();
   });
 
-  test("REQ-005 Set-Cookie from sign-up authenticates a subsequent get-session call", async () => {
+  test("REQ-001 Set-Cookie from sign-up authenticates a subsequent get-session call", async () => {
     const agent = request.agent(app.server);
 
     const signUp = await agent
@@ -108,7 +107,7 @@ describe("REQ-005 register response session cookie authenticates get-session", (
   });
 });
 
-describe("REQ-006 duplicate email rejected with no duplicate row", () => {
+describe("REQ-003 duplicate email rejected with no duplicate row", () => {
   let app: FastifyInstance;
   beforeAll(async () => {
     app = await buildApp();
@@ -118,7 +117,7 @@ describe("REQ-006 duplicate email rejected with no duplicate row", () => {
     await app.close();
   });
 
-  test("REQ-006 second register with same email → 4xx and table still has one row", async () => {
+  test("REQ-003 second register with same email → 4xx and table still has one row", async () => {
     const first = await request(app.server)
       .post("/api/auth/sign-up/email")
       .send(validRegister);
@@ -136,7 +135,7 @@ describe("REQ-006 duplicate email rejected with no duplicate row", () => {
   });
 });
 
-describe("REQ-007 duplicate username rejected with no duplicate row", () => {
+describe("REQ-005 duplicate username rejected with no duplicate row", () => {
   let app: FastifyInstance;
   beforeAll(async () => {
     app = await buildApp();
@@ -146,7 +145,7 @@ describe("REQ-007 duplicate username rejected with no duplicate row", () => {
     await app.close();
   });
 
-  test("REQ-007 second register with same username (different email) → 4xx", async () => {
+  test("REQ-005 second register with same username (different email) → 4xx", async () => {
     const first = await request(app.server)
       .post("/api/auth/sign-up/email")
       .send(validRegister);
