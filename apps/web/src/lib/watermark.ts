@@ -32,9 +32,11 @@ export function createWatermark(
 ): Watermark {
   let lastSeenSeq = 0n;
   let busy = false;
+  let generation = 0; // bumped on reset; in-flight backfills become no-ops
   const queue: MessageNewEvent[] = [];
 
   async function processEvent(evt: MessageNewEvent): Promise<void> {
+    const gen = generation;
     const seq = BigInt(evt.seq);
 
     if (seq <= lastSeenSeq) return;
@@ -48,6 +50,8 @@ export function createWatermark(
     const fromSeq = lastSeenSeq + 1n;
     const toSeq = seq - 1n;
     const slice = await fetchHistory(roomId, fromSeq, toSeq);
+    // reset() while awaiting fetchHistory invalidates this backfill.
+    if (generation !== gen) return;
     const sorted = [...slice.messages].sort((a, b) => {
       const av = BigInt(a.seq);
       const bv = BigInt(b.seq);
@@ -55,10 +59,16 @@ export function createWatermark(
     });
     for (const m of sorted) {
       const ms = BigInt(m.seq);
+      // Trim backfill to the requested window: drop anything already seen
+      // and anything at/above the live event (we emit live below).
       if (ms <= lastSeenSeq) continue;
+      if (ms >= seq) continue;
       emit(m);
       lastSeenSeq = ms;
     }
+    // If the server returns an empty slice despite a real gap, we accept the
+    // live event and advance; the server is the source of truth for seq
+    // continuity. S1 scope — no retry.
     if (seq > lastSeenSeq) {
       emit(evt.message);
       lastSeenSeq = seq;
@@ -73,6 +83,8 @@ export function createWatermark(
   }
 
   async function ingest(evt: MessageNewEvent): Promise<void> {
+    // Drop events mis-routed from other rooms.
+    if (evt.roomId !== roomId) return;
     if (busy) {
       queue.push(evt);
       return;
@@ -82,18 +94,26 @@ export function createWatermark(
       await processEvent(evt);
       await drain();
     } finally {
+      // On error (from processEvent or drain) we clear the queue: favor
+      // "stop emitting ghosts" over "strand the queue and freeze future emits".
+      queue.length = 0;
       busy = false;
     }
   }
 
   return {
     primeFromAck(headSeq: string) {
-      lastSeenSeq = BigInt(headSeq);
+      // Monotonic: prime only advances the watermark forward.
+      const head = BigInt(headSeq);
+      if (head > lastSeenSeq) lastSeenSeq = head;
     },
     ingest,
     reset() {
+      // Caller must ensure no in-flight fetches — reset abandons any pending backfill.
       lastSeenSeq = 0n;
+      busy = false;
       queue.length = 0;
+      generation += 1;
     },
     getLastSeenSeq() {
       return lastSeenSeq;
