@@ -362,13 +362,42 @@ export async function friendshipRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  // R9 / REQ-057 decline
+  // R9 / REQ-057 decline — caller must be toId. Silent per REQ-058.
+  // Terminal states: accepted → 409 already_friends (decline can't reverse
+  // acceptance); rejected → 200 idempotent (calling decline on an already-
+  // rejected row is a no-op with the same response shape).
   app.post<{ Params: { id: string } }>(
     "/friends/requests/:id/decline",
     async (request, reply) => {
       const ctx = await requireFriendshipAuth(request, reply);
       if (!ctx) return;
-      return notImplemented(reply);
+
+      const [row] = await db
+        .select({
+          id: friendRequest.id,
+          toId: friendRequest.toId,
+          status: friendRequest.status,
+        })
+        .from(friendRequest)
+        .where(eq(friendRequest.id, request.params.id))
+        .limit(1);
+
+      if (!row || row.toId !== ctx.userId) {
+        return reply.status(404).send({ error: "not_found" });
+      }
+      if (row.status === "accepted") {
+        return reply.status(409).send({ error: "already_friends" });
+      }
+      if (row.status === "rejected") {
+        return reply.status(200).send({ status: "rejected" });
+      }
+
+      await db
+        .update(friendRequest)
+        .set({ status: "rejected", respondedAt: new Date() })
+        .where(eq(friendRequest.id, row.id));
+
+      return reply.status(200).send({ status: "rejected" });
     },
   );
 
