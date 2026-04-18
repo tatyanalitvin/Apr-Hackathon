@@ -65,8 +65,17 @@ export type HistoryQuery = z.infer<typeof historyQuerySchema>;
 // Friendships (§2.3)
 // ──────────────────────────────────────────────────────────────────────────
 
-export const sendFriendRequestSchema = z.object({
-  toUsername: usernameSchema,
-  message: z.string().max(500).optional(),
-});
+// REQ-051: target can be specified by username OR userId. The userId branch
+// serves REQ-052 (contacts-panel "add friend"), where the caller already has
+// the target userId and a username round-trip would be redundant.
+export const sendFriendRequestSchema = z.union([
+  z.object({
+    toUsername: usernameSchema,
+    message: z.string().max(500).optional(),
+  }),
+  z.object({
+    toUserId: z.string().min(1),
+    message: z.string().max(500).optional(),
+  }),
+]);
 export type SendFriendRequestInput = z.infer<typeof sendFriendRequestSchema>;
