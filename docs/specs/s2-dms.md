@@ -4,7 +4,7 @@
 **Branch**: `feat/s2-dms` (worktree to be created off `main` after S1 + `feat/s2-friendship` merge)
 **Owner (human)**: Tatianka
 **Owner (agent)**: Claude Code — S2 relationships agent (pairs with `s2-friendship.md`)
-**Scope**: REQ-061 … REQ-066 (DM entity, parity with rooms, freeze semantics). Depends on `s2-friendship.md` for the friendship + user_block tables that gate DM creation and send.
+**Scope**: REQ-060 … REQ-066 (DM precondition gate, DM entity, parity with rooms, freeze semantics). Depends on `s2-friendship.md` for the friendship + user_block tables that gate DM creation and send.
 
 ## 1. Why
 
@@ -46,21 +46,24 @@ Explicit, so reviewers don't flag:
 - [ ] **R2 (REQ-061 pair canonicalization)**: The find-half of R1 MUST be deterministic and O(1). Implementation: canonicalize the pair by sorting user ids, store in a new column `room.dmPairKey = \`${low}:${high}\`` with a partial unique index `WHERE kind = 'dm'`. The find query is `SELECT … WHERE kind='dm' AND dm_pair_key = $1`. **Data model gap flagged**: `room` currently has no `dmPairKey` column. Alternatives in §8 Q1. R1's transaction depends on whichever approach is approved.
 - [ ] **R3 (REQ-063 2-member cap)**: A DM room MUST always have exactly 2 members. Enforce via: (a) the only insert path for `roomMember` on `kind='dm'` rooms is R1, which inserts exactly two; (b) no `/rooms/:id/members` endpoint accepts `kind='dm'` rooms (S2 room-management spec enforces this — contract item). This spec's test: attempt to insert a third `roomMember` via raw SQL / a future unsafe endpoint, assert the business-logic check rejects it. **No DB-level CHECK** — that would be cross-table (count of `roomMember` per `roomId`) and expensive; the check lives in application code.
 - [ ] **R4 (REQ-060 precondition at create)**: R1's transaction reads `friendship` and `user_block` before the insert. If `friendship` row does not exist for the pair OR a `user_block` row exists in either direction, return `403 { error: "dm_not_allowed" }` with NO room created. Test: four branches — (a) not friends → 403, (b) friends + caller blocked target → 403, (c) friends + target blocked caller → 403, (d) friends + no blocks → 201. REQ-060 explicit: "Attempting to send otherwise returns `403` with code `dm_not_allowed`."
-- [ ] **R5 (REQ-066 frozen-send predicate)**: When a message is sent to a room with `kind='dm'`, the send handler MUST check the freeze predicate BEFORE allocating seq:
+- [ ] **R5 (REQ-066 frozen-send predicate)**: When a message is sent to a room with `kind='dm'`, the send handler MUST check the freeze predicate BEFORE allocating seq. `memberA` is the caller (already in request context); `memberB` is the counterpart, resolved via `SELECT user_id FROM room_member WHERE room_id = :roomId AND user_id != :caller LIMIT 1` (piggy-backed on the extended `requireRoomMember` helper's single-query JOIN — no extra round-trip). Predicate:
     ```
     is_frozen(dm_room) = NOT exists(friendship where {memberA, memberB})
                          OR exists(user_block where (by=A,target=B) or (by=B,target=A))
     ```
-    If frozen, return `409 { error: "dialog_frozen" }` with NO seq consumed and NO broadcast. Implementation: extend the S1-landed `requireRoomMember` helper (or add `requireSendableRoom`) to also load `room.kind`; if `kind='dm'`, run the predicate. Group-room sends skip the predicate (fast path). Tests: two scenarios — (a) remove friendship → frozen; (b) create user_block either direction → frozen.
+    If frozen, return `409 { error: "dialog_frozen" }` with NO seq consumed and NO broadcast. Implementation: extend the S1-landed `requireRoomMember` helper (or add `requireSendableRoom`) to also load `room.kind` AND the counterpart `userId`; if `kind='dm'`, run the predicate. Group-room sends skip the predicate (fast path). Tests: two scenarios — (a) remove friendship → frozen; (b) create user_block either direction → frozen.
 - [ ] **R6 (REQ-066 read-after-freeze)**: `GET /api/v1/rooms/:id/messages` on a frozen DM MUST still return full history for both members. Freeze affects writes only. Test: freeze a DM with 10 messages; both members can still GET all 10. No change to the S1-landed history handler — it already only checks membership.
-- [ ] **R7 (REQ-066 auto-unfreeze)**: No explicit unfreeze endpoint. The freeze predicate (R5) is evaluated per send. If the underlying rows flip (re-friend via `s2-friendship.md` R8 + no block), the next send succeeds. Test: freeze → re-friend → send → 201.
+- [ ] **R7 (REQ-066 auto-unfreeze)**: No explicit unfreeze endpoint. The freeze predicate (R5) is evaluated per send. If the underlying rows flip (full re-friend flow: `s2-friendship.md` R2 send + R8 accept, plus no `user_block` row in either direction), the next send succeeds. Test: freeze → re-friend (R2+R8) → send → 201.
 - [ ] **R8 (REQ-062 same pipeline)**: `POST /api/v1/rooms/:id/messages` on a DM room uses the SAME handler as group rooms. `message.new` event emitted carries the same `{seq, roomHeadSeq, message}` shape (see [packages/shared/src/protocol.ts:29-35](../../packages/shared/src/protocol.ts#L29-L35)). No new Socket.IO event for DMs. Test: alice sends in DM; bob's subscribed socket receives `message.new` within the same tick with `evt.seq === evt.roomHeadSeq === evt.message.seq` — identical to the S1 REQ-034 assertion.
 - [ ] **R9 (REQ-062 seq parity)**: Each DM room has its own `message_seq.seq` counter, allocated per-room exactly like a group room. 100 parallel sends in one DM → 100 unique contiguous seqs. Test reuses the S1 allocator rig, just targeting a DM roomId.
 - [ ] **R10 (REQ-063 no admin actions)**: DM rooms have `ownerId=NULL`. Any future endpoint that checks `room.ownerId` or `room_member.role='owner'|'admin'` MUST early-return on `kind='dm'`. This spec's test: assert `ownerId IS NULL` for rooms created via R1, and assert no `roomMember` row has `role != 'member'` for those rooms.
-- [ ] **R11 (listing)**: `GET /api/v1/dms` returns `{ dms: Array<{ roomId, other: { userId, username, name }, lastMessage?: MessagePayload, unreadCount: number, frozen: boolean, frozenReason?: "not_friends" | "blocked" }> }` for the authenticated caller. Query: `room` JOIN `roomMember` WHERE caller is a member AND kind='dm', LEFT JOIN the counterpart member + user row, LEFT JOIN latest message. `frozen` / `frozenReason` computed in application code (same predicate as R5). Ordered by latest message `createdAt` DESC (DMs with no messages at the end). `unreadCount` derivation is out of scope here — see §7 (depends on S2 unread spec); ship `unreadCount: 0` placeholder until that spec lands, flag it loudly.
+- [ ] **R11 (listing)**: `GET /api/v1/dms` returns `{ dms: Array<{ roomId, other: { userId, username, name, deleted: boolean }, lastMessage?: MessagePayload, unreadCount: number, frozen: boolean, frozenReason?: "not_friends" | "blocked" | "user_deleted" }> }` for the authenticated caller. Query: `room` JOIN `roomMember` WHERE caller is a member AND kind='dm', LEFT JOIN the counterpart member + user row, LEFT JOIN latest message. `frozen` / `frozenReason` computed in application code. Ordered by latest message `createdAt` DESC (DMs with no messages at the end). `unreadCount` derivation is out of scope here — see §7 (depends on S2 unread spec); ship `unreadCount: 0` placeholder until that spec lands, flag it loudly. **Counterpart soft-delete behavior**: if `user.deletedAt IS NOT NULL` on the other member, the DM is still listed (REQ-125: "Dialogs the user participated in: frozen permanently"). `other.deleted=true`; `other.username`/`other.name` are preserved on the row (better-auth nulls email/password on deletion, but REQ-125's "row retained with deleted_at, is_deleted=true" keeps display fields). Send path MUST be frozen — **but note**: `friendship.userAId` FK uses `onDelete: cascade`, which fires only on hard DELETE, not on REQ-125's soft-delete. So the R5 predicate as written does NOT fire frozen on soft-deleted counterpart. Two ways to close the gap — the owner of REQ-125 (account-deletion spec) or this spec must pick one:
+    - **(a)** Account-deletion workflow DELETEs friendship rows for the deleted user (hard-delete the friendship, keep the user row soft). One line in REQ-125's implementation.
+    - **(b)** R5 predicate extended: `is_frozen(dm) = (caller's counterpart has deletedAt NOT NULL) OR NOT exists(friendship) OR exists(user_block …)`. Self-contained to this spec.
+    - **Cross-spec coordination flagged in §8 Q6.** Until resolved, R11's test soft-deletes carol, asserts listing shows `other.deleted=true`, and XFAILs the "send returns 409" assertion with a comment citing Q6.
 - [ ] **R12 (transverse)**: DM endpoints reuse the same better-auth session helper (`toFetchHeaders` + `getSession`). Missing session → 401. One test per new endpoint (R1, R11).
 - [ ] **R13 (no separate DM history)**: No `GET /api/v1/dms/:id/messages` endpoint. DM history is served by `GET /api/v1/rooms/:id/messages`. Test: attempting to GET the hypothetical path returns 404 (route not registered). This is a negative test documenting the design choice; kept minimal.
-- [ ] **R14 (room-ban table not applicable)**: `roomBan` (§2.4.8 / REQ-090) does NOT apply to DM rooms. If a DM roomId is passed to any future `/rooms/:id/ban` endpoint, that endpoint MUST reject with 400. This spec's test: assert the S2 room-management spec's handler early-returns on `kind='dm'` (contract item, not enforced here because the handler doesn't exist yet). Keep as a documentation bullet if the test requires a not-yet-landed endpoint.
+- [ ] **R14 (room-ban table not applicable — DB-level assertion)**: `roomBan` (§2.4.8 / REQ-090) does NOT apply to DM rooms. Testable without the not-yet-landed ban handler: a DB-level invariant that no `room_ban` row exists whose `roomId` points to a `room` with `kind='dm'`. Test: after the full DM test suite runs, execute `SELECT COUNT(*) FROM room_ban rb JOIN room r ON rb.room_id = r.id WHERE r.kind = 'dm'` and assert zero. Contract item for the S2 room-management spec — "handler MUST early-return on `kind='dm'`" — is documented in §7 follow-ups, not asserted here.
 
 ## 5. Design notes
 
@@ -110,20 +113,22 @@ Placement: `apps/backend/src/lib/dm-freeze.ts`, a pure-DB-call helper that takes
 
 Cost per DM-send: one additional query (two `EXISTS` checks joined via `SELECT EXISTS(..) AS friends, EXISTS(..) AS blocked_either_way`). Acceptable at S2 scale. If the tail latency on DM send becomes problematic at S3 load testing, cache the predicate output per (userA, userB) with a short Redis TTL and invalidate on friendship/block mutations — NOT needed for S2.
 
+**Freeze is advisory, not transactional.** The predicate is evaluated inside the DM-send transaction but the `friendship` / `user_block` rows it reads are not locked. A mutation that races with an in-flight send (e.g. alice calls `DELETE /friends/:bob.id` at the same tick bob's send is mid-flight) can land one more message after the freeze "should" have taken effect. REQ-066 does not require linearizability — it only requires that *subsequent* sends are blocked, which is what this predicate delivers. Test authors MUST NOT assert "no message lands after the friendship DELETE returns 204" as a strict invariant; the looser assertion is "the N+1th send (after the DELETE returns) returns 409".
+
 ### Find-or-create transaction (R1 with approach (a))
+
+Canonicalization happens in application code before the transaction opens — `const [low, high] = [caller, target].sort(); const pairKey = \`${low}:${high}\`;` — no SQL round-trip for the sort. `messageSeq.seq` has `default(sql\`0\`)` on the column ([schema.ts:134](../../packages/shared/src/schema.ts#L134)), so the seq insert only specifies `roomId`.
 
 ```sql
 BEGIN;
--- canonicalize
-SELECT :caller < :target AS caller_is_low;
 -- find
-SELECT id FROM room WHERE kind='dm' AND dm_pair_key = :low_high_key;
+SELECT id FROM room WHERE kind='dm' AND dm_pair_key = :pair_key;
 -- if found, return it; else:
 INSERT INTO room (id, kind, visibility, dm_pair_key) VALUES (...)
   ON CONFLICT (dm_pair_key) WHERE kind='dm' DO NOTHING RETURNING id;
 -- if ON CONFLICT returned no row, re-SELECT (lost the race)
 INSERT INTO room_member (...) VALUES (:caller), (:target);
-INSERT INTO message_seq (room_id, seq) VALUES (:new_room_id, 0);
+INSERT INTO message_seq (room_id) VALUES (:new_room_id);
 COMMIT;
 ```
 
@@ -182,6 +187,10 @@ Must resolve before task 2 / task 3:
     - **(b)** 403 `dm_not_allowed` — symmetric, small privacy win.
     - **Recommendation**: (a). The blocked-vs-unknown distinction at DM-create time is not as exploitable as REQ-053's because userIds aren't enumerated by username. If the S3 security pass disagrees, flip to (b) — one-line change.
 - [ ] **Q5 — REQ-065 "Report" on DM messages.** Out of S2 scope per BRIEF.md. Confirming the scope decision before anyone assumes DMs ship a report button in the demo. No code impact either way; just a scope confirmation.
+- [ ] **Q6 — DM freeze on soft-deleted counterpart (R11 + R5).** REQ-125 soft-deletes users (`user.deletedAt` set; row retained). `friendship.userAId` FK uses `onDelete: cascade`, which fires only on hard DELETE — soft-delete leaves the friendship row intact, so the R5 predicate does NOT fire frozen. REQ-125 explicitly requires "Dialogs the user participated in: frozen permanently". Options:
+    - **(a)** REQ-125's implementation (account-deletion spec, owner TBD) explicitly DELETEs `friendship` rows for the deleted user as part of the soft-delete workflow. One extra statement in that spec; no change here.
+    - **(b)** Extend R5 predicate to also check counterpart's `user.deletedAt IS NULL`. Self-contained; adds one JOIN to the freeze query.
+    - **Recommendation**: (a). Cleaner separation — REQ-125 owns the "what happens when a user deletes their account" workflow, and freezing their DMs is part of that. (b) leaks knowledge of REQ-125 into every DM send. Needs coordination with whoever owns the S2 account-deletion spec; if nobody owns it yet, this spec falls back to (b). Human decision gate.
 
 **Contract gaps spotted (informational):**
 
