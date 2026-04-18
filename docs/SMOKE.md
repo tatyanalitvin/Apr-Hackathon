@@ -30,16 +30,16 @@ docker compose down -v
 docker compose up --build -d
 
 # 3. Wait for all services to report healthy. Postgres + Redis come up fast;
-#    backend depends on `migrate` completing, so the first run adds ~3s for
-#    drizzle-kit to apply `infra/migrations/*.sql`.
+#    backend depends on `migrate` then `seed` completing, so the first run
+#    adds ~3s for drizzle-kit + ~2s for the demo-fixture seed.
 docker compose ps
 # Expected: postgres (healthy), redis (healthy), backend (healthy), app (Up),
-#           migrate (Exited 0).
+#           migrate (Exited 0), seed (Exited 0).
 ```
 
 If `docker compose ps` still shows `backend (starting)` after 30 seconds,
 tail the backend logs — `docker compose logs -f backend` — and check that
-migrate exited 0: `docker compose logs migrate`.
+migrate + seed both exited 0: `docker compose logs migrate seed`.
 
 ## 2 — Verify /health
 
@@ -48,36 +48,13 @@ curl -sf http://localhost:4000/health
 # → {"status":"ok","service":"backend","env":"production"}
 ```
 
-## 3 — Seed the demo fixture (REQ-049)
+The demo fixture (REQ-049: alice/bob/carol + `general` room + 3 seed
+messages + memberships) is already in the DB — the `seed` one-shot service
+ran as part of `docker compose up` and backend gates on its successful
+exit. Re-running `docker compose up` is idempotent: `scripts/seed.ts` uses
+`ON CONFLICT DO NOTHING` everywhere, so existing rows are left alone.
 
-```bash
-docker compose exec backend pnpm db:seed
-# Expected output (first run):
-#   [seed] done { createdUsers: 3, createdRoom: true, createdMembers: 3, createdMessages: 3 }
-# Re-running is idempotent:
-#   [seed] done { createdUsers: 0, createdRoom: false, createdMembers: 0, createdMessages: 0 }
-```
-
-**Known quirk (application-layer, not infra):** `scripts/seed.ts` commits
-all data correctly but does not self-exit — it leaves a Redis client handle
-open after the work is done. The process is safe to kill once you see
-`[seed] done`; press `Ctrl-C`. See "Application-layer issues" below.
-
-CI-friendly variant (no interactive Ctrl-C):
-
-```bash
-docker compose exec -d backend pnpm db:seed
-# Wait for the completion log line, then stop the detached exec's process
-# inside the container:
-until docker compose exec -T backend grep -q "\[seed\] done" /proc/*/fd/1 2>/dev/null; do sleep 1; done
-docker compose exec -T backend pkill -f "scripts/seed.ts" || true
-```
-
-(If that feels too surgical: the `[seed] done` line lands in the detached
-exec's output, which `docker compose logs backend` does not capture. The
-simplest path for judges is the foreground command with `Ctrl-C`.)
-
-## 4 — Register a brand-new user
+## 3 — Register a brand-new user
 
 ```bash
 curl -s -X POST http://localhost:4000/api/auth/sign-up/email \
@@ -89,13 +66,12 @@ curl -s -X POST http://localhost:4000/api/auth/sign-up/email \
 The request payload must match `registerSchema` in
 `packages/shared/src/dto.ts` (email / username / password ≥ 8 / name).
 
-## 5 — Sign in as a seeded user (alice) and capture the session cookie
+## 4 — Sign in as a seeded user (alice) and capture the session cookie
 
-The smoke procedure's send-message step needs a session cookie for a user
-who is already a member of `general`. In S1 there is no self-serve
-"join-public-room" endpoint (see spec §R14 + "Application-layer issues"
-below), so fresh signups cannot post to seeded rooms. We sign in as
-`alice` (seeded via REQ-049) to exercise the message flow.
+The smoke procedure's send-message step exercises the message flow as a
+known-membership user. Fresh signups are also enrolled in `general`
+automatically (see `apps/backend/src/auth.ts` `databaseHooks.user.create`),
+but signing in as alice keeps this recipe deterministic across re-runs.
 
 ```bash
 rm -f /tmp/cookies.txt
@@ -108,7 +84,7 @@ grep better-auth.session_token /tmp/cookies.txt
 # → #HttpOnly_localhost  FALSE  /  FALSE  …  better-auth.session_token  <opaque>
 ```
 
-## 6 — Send a message to `general`
+## 5 — Send a message to `general`
 
 ```bash
 curl -s -b /tmp/cookies.txt -X POST http://localhost:4000/api/v1/rooms/general/messages \
@@ -122,7 +98,7 @@ curl -s -b /tmp/cookies.txt -X POST http://localhost:4000/api/v1/rooms/general/m
 fourth. Body shape matches `sendMessageSchema` in
 `packages/shared/src/dto.ts`.
 
-## 7 — Fetch room history with watermark
+## 6 — Fetch room history with watermark
 
 ```bash
 curl -s -b /tmp/cookies.txt http://localhost:4000/api/v1/rooms/general/messages | jq .
@@ -138,48 +114,38 @@ curl -s -b /tmp/cookies.txt http://localhost:4000/api/v1/rooms/general/messages 
 `roomHeadSeq` mirrors the watermark published on the Socket.IO `message.new`
 event (ADR-0003) — clients gap-detect against this value.
 
-## Application-layer issues (flagged, NOT fixed here)
+## Previously-flagged application-layer issues (now resolved)
 
-These were observed while running the smoke. Per the infra-smoke charter,
-they must be handled by the app agents on `feat/s1-chat` / `feat/s1-auth`,
-not on `chore/infra-smoke`.
+Earlier iterations of this doc flagged two issues the infra-smoke branch
+could not fix. Both are now closed; recorded here for reviewer continuity.
 
-1. **`scripts/seed.ts` does not self-exit.** The seed calls
-   `auth.api.signUpEmail`, which pulls in `better-auth`'s rate limiter and
-   opens a Redis client via `apps/backend/src/secondary-storage.ts`. The
-   script closes the pg pool at the end but never closes the Redis client,
-   so the Node event loop stays alive. Data commits are correct and the
-   script is idempotent — but a judge running the seed in foreground has to
-   `Ctrl-C` after `[seed] done` appears. **Suggested fix:** export a
-   `close()` from `secondary-storage.ts` and call it in `seed.ts` `main()`
-   after `pool.end()`, or call `process.exit(0)` after the success log.
+1. **`scripts/seed.ts` did not self-exit.** The seed opened a Redis client
+   via `apps/backend/src/secondary-storage.ts` (for better-auth's rate
+   limiter) and never closed it, so the Node event loop stayed alive and
+   judges had to `Ctrl-C` after `[seed] done`. Resolved by exporting
+   `closeSecondaryStorage()` and calling it in `seed.ts` `main()` after
+   `pool.end()`. Required to run `db:seed` as a compose one-shot gated by
+   `service_completed_successfully`.
 
-2. **Fresh signups cannot post to seeded rooms (no self-join endpoint).** A
-   user registered via `/api/auth/sign-up/email` is not a member of any
-   room until someone adds them. Posting to `general` as such a user
-   returns `403 {"error":"forbidden"}` — exactly as specified by
-   `apps/backend/src/lib/message-auth.ts:44-47` and
-   `docs/specs/s1-chat.md` §R14. The room-join / room-catalog flow
-   (REQ-021…REQ-028) is on the S1 docket but not wired to a REST endpoint
-   yet. **Impact on the demo:** the pitch works because bob / carol are
-   seeded into `general`; new walk-up accounts have no room they can
-   actually post in. **Suggested fix on the app side:** either auto-enroll
-   every new account into `general` on sign-up (one INSERT into
-   `room_member`), or land the REQ-022 catalog + join endpoint.
+2. **Fresh signups could not post to seeded rooms.** A new user registered
+   via `/api/auth/sign-up/email` had no `room_member` row, so posting to
+   `general` returned `403 {"error":"forbidden"}`. Resolved by the
+   `databaseHooks.user.create.after` hook in `apps/backend/src/auth.ts`
+   which inserts a `room_member` row for `(newUser, 'general')`. Full
+   REQ-022 (catalog + self-join UI) is still S2 scope.
 
-Neither of these blocks `docker compose up --build` from producing a
-working system. The submission gate is green.
+## Infra changes summary
 
-## Infra changes made on `chore/infra-smoke`
+For reviewer context, the infra diff against `main` consists of:
 
-For reviewer context, the diff on this branch against `main` consists of:
-
-- **`docker-compose.yml`** — added a one-shot `migrate` service that runs
-  `pnpm db:migrate` after Postgres is healthy and before backend starts.
-  Backend now `depends_on.migrate: service_completed_successfully` so the
-  app never serves traffic against an empty schema. Without this, a fresh
-  `docker compose up` would bring the backend up with zero tables and the
-  first auth request would ECONNRESET.
+- **`docker-compose.yml`** — one-shot `migrate` service (`pnpm db:migrate`)
+  runs after Postgres is healthy. One-shot `seed` service (`pnpm db:seed`,
+  REQ-049 demo fixture) runs after `migrate` exits 0 and before backend
+  starts. Backend `depends_on.seed: service_completed_successfully` so the
+  `'general'` room the auto-enroll hook expects is guaranteed present on
+  every fresh `docker compose up`. Without `migrate` the first auth
+  request would ECONNRESET against an empty schema; without `seed`, a
+  fresh signup landing on `/rooms/general` would get 403 or a blank UI.
 
 - **`apps/web/Dockerfile`** — collapsed the `deps` / `builder` split into a
   single `builder` stage that runs `pnpm install` in place. The previous

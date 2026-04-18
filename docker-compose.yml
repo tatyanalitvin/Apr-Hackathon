@@ -4,7 +4,10 @@
 # Services:
 #   postgres — chat persistence
 #   redis    — Socket.IO adapter + rate-limit counters
-#   migrate  — one-shot drizzle-kit migrate; backend waits for it to exit 0
+#   migrate  — one-shot drizzle-kit migrate; seed waits for it to exit 0
+#   seed     — one-shot REQ-049 demo fixture (alice/bob/carol + 'general');
+#              backend waits for it to exit 0 so fresh bring-ups always have
+#              the 'general' room that auth.ts's auto-enroll hook expects
 #   backend  — Fastify (:4000): auth, mutations, Socket.IO, file upload/download
 #   app      — Next.js (:3000): UI
 #
@@ -12,8 +15,6 @@
 #   docker compose up --build
 # Open http://localhost:3000
 #
-# Seed demo fixture (REQ-049) after the stack is healthy:
-#   docker compose exec backend pnpm db:seed
 # See docs/SMOKE.md for the full copy-paste verification sequence.
 
 services:
@@ -68,7 +69,15 @@ services:
     command: ["pnpm", "db:migrate"]
     restart: "no"
 
-  backend:
+  # One-shot demo fixture (REQ-049): alice/bob/carol + 'general' room + seed
+  # messages + memberships. Makes `docker compose up` the real submission
+  # gate — prior to this, judges had to run `docker compose exec backend
+  # pnpm db:seed` manually, and a fresh signup landing on /rooms/general
+  # would 403 because the room didn't exist. Idempotent: seed.ts uses
+  # `onConflictDoNothing` everywhere, so re-runs on an already-seeded DB
+  # are no-ops. Needs Redis because better-auth's rate limiter (and thus
+  # `auth.api.signUpEmail`) initialises against secondaryStorage on import.
+  seed:
     build:
       context: .
       dockerfile: apps/backend/Dockerfile
@@ -78,6 +87,26 @@ services:
       redis:
         condition: service_healthy
       migrate:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://chat:chat@postgres:5432/chat
+      REDIS_URL: redis://redis:6379
+      SESSION_SECRET: ${SESSION_SECRET:-change-me-in-prod-32-char-min-xxxxxx}
+      WEB_ORIGIN: http://localhost:3000
+    command: ["pnpm", "db:seed"]
+    restart: "no"
+
+  backend:
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      seed:
         condition: service_completed_successfully
     environment:
       NODE_ENV: production

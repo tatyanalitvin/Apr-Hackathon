@@ -17,6 +17,7 @@ import { eq, sql } from "drizzle-orm";
 import { auth } from "../apps/backend/src/auth";
 import { db, pool } from "../apps/backend/src/db";
 import { allocateAndInsertMessage } from "../apps/backend/src/lib/seq-allocator";
+import { closeSecondaryStorage } from "../apps/backend/src/secondary-storage";
 import {
   message,
   messageSeq,
@@ -156,6 +157,9 @@ async function main() {
   // eslint-disable-next-line no-console
   console.log("[seed] done", report);
   await pool.end();
+  // Close the better-auth rate-limit Redis handle so the script exits —
+  // required for `depends_on.seed: service_completed_successfully` in compose.
+  await closeSecondaryStorage();
 }
 
 // Invoked directly via `tsx scripts/seed.ts` / `pnpm db:seed`.

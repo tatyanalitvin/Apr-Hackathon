@@ -53,3 +53,15 @@ export const secondaryStorage = {
     await (await getClient()).del(key);
   },
 };
+
+// One-shot scripts (scripts/seed.ts, migrations, etc.) must close this
+// handle or Node's event loop stays alive and the process never exits —
+// which in compose means `service_completed_successfully` never fires and
+// anything depending on the script hangs indefinitely. The long-running
+// backend process doesn't need to call this: exit reaps the socket.
+export async function closeSecondaryStorage(): Promise<void> {
+  if (client) {
+    await client.quit();
+    client = undefined;
+  }
+}
