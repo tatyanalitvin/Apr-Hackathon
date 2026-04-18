@@ -8,6 +8,7 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { db } from "./db";
 import { env } from "./env";
+import { logger } from "./lib/logger";
 import { secondaryStorage } from "./secondary-storage";
 
 export const auth = betterAuth({
@@ -15,6 +16,27 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     requireEmailVerification: false,
+    // Task #7 (v3.docx §2.1.4, REQ-019) — password-reset-request stub.
+    // better-auth's `/request-password-reset` endpoint (path verified in
+    // node_modules/better-auth/dist/api/routes/password.mjs:20; Context7
+    // calls it `forget-password`, which is only the email-otp plugin's
+    // path) returns `RESET_PASSWORD_DISABLED` 4xx unless this callback
+    // is configured. For S1 we log `{email, token}` via pino with a
+    // TODO(S3) marker so a dev can copy the token from server output;
+    // S3 swaps this for real SMTP (nodemailer/SES) per FOLLOWUPS.md.
+    // In production the token is truncated to its first 6 chars so a
+    // leaked log line alone can't complete a reset — the full token
+    // still lives in the `verification` table for genuine incident-
+    // response. Non-existent emails never reach here: better-auth
+    // short-circuits with an anti-enumeration 200 + timing-parity dummy
+    // lookup in password.mjs:51-62.
+    sendResetPassword: async ({ user, token }) => {
+      const redacted = env.NODE_ENV === "production" ? token.slice(0, 6) : token;
+      logger.info(
+        { email: user.email, token: redacted, todo: "S3:wire-nodemailer" },
+        "password reset requested (stub — no email sent)",
+      );
+    },
   },
   // §5 + ADR-0004: username is validated at the sign-up boundary and
   // written atomically with the user row. The zod `registerSchema` in
