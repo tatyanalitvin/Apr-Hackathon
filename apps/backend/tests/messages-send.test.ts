@@ -135,7 +135,7 @@ describe("REQ-029 POST /api/v1/rooms/:id/messages send message", () => {
     expect(row.authorName).toBe("req029_ident");
   });
 
-  test("REQ-029 body over 3072 chars → 400 validation", async () => {
+  test("REQ-030 body over 3072 chars → 400 validation", async () => {
     const { agent, userId } = await registerAgent(app, "req029-big@example.com", "req029_big");
     await createRoom("r-req029-big");
     await addMember("r-req029-big", userId);
@@ -148,7 +148,7 @@ describe("REQ-029 POST /api/v1/rooms/:id/messages send message", () => {
     expect(res.body).toHaveProperty("error");
   });
 
-  test("REQ-029 empty body → 400 validation", async () => {
+  test("REQ-030 empty body → 400 validation", async () => {
     const { agent, userId } = await registerAgent(app, "req029-empty@example.com", "req029_empty");
     await createRoom("r-req029-empty");
     await addMember("r-req029-empty", userId);
