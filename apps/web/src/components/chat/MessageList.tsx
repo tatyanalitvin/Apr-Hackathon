@@ -73,7 +73,8 @@ function MessageRow({ message }: { message: MessagePayload }) {
   return (
     <div className="px-4 py-2">
       <div className="flex items-baseline gap-2">
-        <span className="font-semibold text-sm">{message.authorId}</span>
+        <span className="font-semibold text-sm">{message.authorName}</span>
+        <span className="text-xs text-muted-foreground">@{message.authorUsername}</span>
         <span className="text-xs text-muted-foreground">{ts}</span>
       </div>
       <div className="whitespace-pre-wrap break-words text-sm">{message.body}</div>

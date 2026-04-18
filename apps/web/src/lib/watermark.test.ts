@@ -7,6 +7,8 @@ function msg(seq: number): MessagePayload {
     id: `m-${seq}`,
     roomId: "general",
     authorId: "u",
+    authorUsername: "u",
+    authorName: "User",
     body: `msg ${seq}`,
     seq: String(seq),
     replyToId: null,

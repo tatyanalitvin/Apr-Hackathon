@@ -61,6 +61,8 @@ async function seedMessages(roomId: string, authorId: string, count: number): Pr
       messageId: randomUUID(),
       roomId,
       authorId,
+      authorUsername: "test_seed",
+      authorName: "Test Seed",
       body: `seeded-${i}`,
     });
     seqs.push(row.seq);

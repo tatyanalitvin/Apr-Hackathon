@@ -137,10 +137,14 @@ export async function runSeed(): Promise<SeedReport> {
     .where(eq(message.roomId, ROOM_ID));
   if ((existingCount?.count ?? 0) === 0) {
     for (const m of SEED_MESSAGES) {
+      const profile = USERS.find((u) => u.username === m.author);
+      if (!profile) throw new Error(`seed: no profile for ${m.author}`);
       await allocateAndInsertMessage({
         messageId: randomUUID(),
         roomId: ROOM_ID,
         authorId: userIds[m.author]!,
+        authorUsername: profile.username,
+        authorName: profile.name,
         body: m.body,
         replyToId: null,
         clientMessageId: null,

@@ -102,6 +102,39 @@ describe("REQ-029 POST /api/v1/rooms/:id/messages send message", () => {
     expect(rows[0].seq).toBe(1n);
   });
 
+  test("REQ-029 response payload includes authorUsername + authorName (snapshot at send)", async () => {
+    // Break #2 from the s1-web walkthrough: MessageList rendered raw
+    // `authorId` because MessagePayload carried no human-readable identity.
+    // We snapshot username + display-name onto the message row at send time
+    // — rename-after-send must not retroactively rewrite history.
+    const { agent, userId } = await registerAgent(
+      app,
+      "req029-ident@example.com",
+      "req029_ident",
+    );
+    await createRoom("r-req029-ident");
+    await addMember("r-req029-ident", userId);
+
+    const res = await agent
+      .post("/api/v1/rooms/r-req029-ident/messages")
+      .send({ body: "who am I" });
+
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({
+      authorId: userId,
+      authorUsername: "req029_ident",
+      authorName: "req029_ident",
+    });
+
+    // DB side: snapshot columns populated on the row.
+    const [row] = await getTestDb()
+      .select()
+      .from(message)
+      .where(eq(message.roomId, "r-req029-ident"));
+    expect(row.authorUsername).toBe("req029_ident");
+    expect(row.authorName).toBe("req029_ident");
+  });
+
   test("REQ-029 body over 3072 chars → 400 validation", async () => {
     const { agent, userId } = await registerAgent(app, "req029-big@example.com", "req029_big");
     await createRoom("r-req029-big");

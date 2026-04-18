@@ -216,6 +216,11 @@ export const message = pgTable(
     authorId: text("author_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    // Snapshot of the author's identity AT SEND TIME. Denormalised so
+    // username/display-name changes don't retroactively rewrite chat
+    // history (Slack/Discord-style audit semantics). See protocol.ts.
+    authorUsername: text("author_username").notNull(),
+    authorName: text("author_name").notNull(),
     // Per-room monotonic sequence — the watermark. Unique (roomId, seq).
     seq: bigint("seq", { mode: "bigint" }).notNull(),
     // §2.5.2 up to 3 KB UTF-8, enforced in DTO.

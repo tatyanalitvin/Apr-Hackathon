@@ -20,6 +20,8 @@ import { toFetchHeaders } from "./fetch-headers";
 
 export interface MessageAuthContext {
   userId: string;
+  username: string;
+  name: string;
 }
 
 export async function requireRoomMember(
@@ -46,5 +48,8 @@ export async function requireRoomMember(
     return null;
   }
 
-  return { userId };
+  // better-auth additionalField; cast is safe — auth.ts registers
+  // `username: required` on user.additionalFields so it's always present.
+  const username = (session.user as { username?: string }).username ?? "";
+  return { userId, username, name: session.user.name };
 }

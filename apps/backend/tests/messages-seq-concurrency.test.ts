@@ -52,6 +52,8 @@ describe("REQ-030/REQ-037 seq advances by 1 and is strictly increasing", () => {
         messageId: randomUUID(),
         roomId: ROOM_ID,
         authorId: AUTHOR_ID,
+        authorUsername: "seq_author",
+        authorName: "Seq Author",
         body: `msg-${i}`,
       });
       // roomHeadSeq must equal the new seq after each insert.
@@ -82,6 +84,8 @@ describe("REQ-032 atomic seq allocation under concurrency", () => {
           messageId: randomUUID(),
           roomId: ROOM_ID,
           authorId: AUTHOR_ID,
+          authorUsername: "seq_author",
+          authorName: "Seq Author",
           body: `parallel-${i}`,
         }),
       ),
@@ -122,6 +126,8 @@ describe("REQ-032 atomic seq allocation under concurrency", () => {
           messageId: randomUUID(),
           roomId: ROOM_ID,
           authorId: AUTHOR_ID,
+          authorUsername: "seq_author",
+          authorName: "Seq Author",
           body: "eq-check",
         }),
       ),
@@ -155,6 +161,8 @@ describe("seq allocator — fail-fast invariants", () => {
         messageId: randomUUID(),
         roomId: "r-ghost",
         authorId: "u-ghost",
+        authorUsername: "u_ghost",
+        authorName: "Ghost",
         body: "orphan",
       }),
     ).rejects.toThrow(/message_seq/);

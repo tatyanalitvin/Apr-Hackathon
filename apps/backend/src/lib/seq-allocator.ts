@@ -31,6 +31,9 @@ export interface AllocateMessageInput {
   messageId: string;
   roomId: string;
   authorId: string;
+  // Snapshot of author identity AT SEND TIME (denormalised onto the row).
+  authorUsername: string;
+  authorName: string;
   body: string;
   replyToId?: string | null;
   clientMessageId?: string | null;
@@ -91,6 +94,8 @@ export async function allocateAndInsertMessage(
       id: input.messageId,
       roomId: input.roomId,
       authorId: input.authorId,
+      authorUsername: input.authorUsername,
+      authorName: input.authorName,
       seq: newSeq,
       body: input.body,
       clientMessageId: cid,

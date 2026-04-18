@@ -50,6 +50,8 @@ describe("chat rig smoke", () => {
       id: "m-rig-1",
       roomId: "r-rig-1",
       authorId: "u-rig-1",
+      authorUsername: "rig_u",
+      authorName: "Rig User",
       seq: 1n,
       body: "hello rig",
     });

@@ -19,6 +19,11 @@ export interface MessagePayload {
   id: string;
   roomId: string;
   authorId: string;
+  // Snapshot of the author's identity AT SEND TIME. Denormalised into the
+  // message row so username/display-name changes do not retroactively
+  // rewrite chat history (Slack/Discord-style audit semantics).
+  authorUsername: string;
+  authorName: string;
   body: string;
   seq: string;        // bigint as string
   replyToId: string | null;
