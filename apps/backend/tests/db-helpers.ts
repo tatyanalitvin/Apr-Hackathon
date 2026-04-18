@@ -94,6 +94,11 @@ export async function truncateAll(): Promise<void> {
   );
 }
 
+// Also clears better-auth's rate-limit counters: auth.ts configures
+// `rateLimit.storage: "secondary-storage"` against the same Redis (see
+// src/secondary-storage.ts), so FLUSHDB resets session-adjacent state AND
+// rate-limit budgets in one call. This is why R10's "5×401 then 429" test
+// isn't poisoned by earlier login-file sign-ins under vitest singleFork.
 export async function flushRedis(): Promise<void> {
   const client = await getRedis();
   await client.flushDb();
