@@ -8,10 +8,7 @@ Convention: when you land the fix, delete the bullet here AND the matching `TODO
 
 ## S1 → S2
 
-- **Implement `pnpm trace` REQ-ID coverage check.** Root `package.json` wires `trace → node scripts/trace-req-ids.mjs || echo 'trace script not implemented yet (S1)'`; the script doesn't exist. CLAUDE.md describes it as "Greps `tests/` for REQ-IDs; fails if any MUST REQ lacks a test". Coverage is currently verified manually via ad-hoc grep; once s1-web lands we should ship the real script so drift is caught automatically.
-  - **Location**: create `scripts/trace-req-ids.mjs`; the package.json wrapper already exists.
-  - **Fix shape**: parse every `docs/specs/*.md` for `REQ-\d+` tokens marked as MUST/deliverables, grep `apps/*/tests/**` + `apps/*/src/**/*.test.ts` for each, exit non-zero listing any REQ in specs but not referenced in tests. Consider shipping as a non-failing diagnostic first (always exit 0, print the report) and flipping to failing after s1-web merges, so cross-branch drift on feat/s1-auth + feat/s1-web doesn't red-light CI during integration.
-  - **Raised**: 2026-04-18 during S1 gate dry-run. Why now: adding a failing check while three feature branches are still diverging would create coordination noise; running it as a diagnostic lets us see gaps without blocking merges.
+- ~~**Implement `pnpm trace` REQ-ID coverage check.**~~ Shipped 2026-04-18 in [scripts/trace-req-ids.mjs](../scripts/trace-req-ids.mjs). Strict by default (exits 1 on missing); set `TRACE_VERBOSE=1` for per-REQ coverage, `TRACE_STRICT=1` to also fail on zombie REQ-IDs in tests that no spec §4 claims.
 
 ## S2 → S3
 

@@ -19,7 +19,7 @@
     "db:migrate": "pnpm --filter @ai-herders/backend db:migrate",
     "db:studio": "pnpm --filter @ai-herders/backend db:studio",
     "db:seed": "pnpm --filter @ai-herders/backend db:seed",
-    "trace": "node scripts/trace-req-ids.mjs || echo 'trace script not implemented yet (S1)'",
+    "trace": "node scripts/trace-req-ids.mjs",
     "prepare": "husky || true"
   },
   "devDependencies": {
