@@ -88,10 +88,6 @@ export async function requireFriendshipAuth(
   return { userId: me.user.id, username };
 }
 
-function notImplemented(reply: FastifyReply) {
-  return reply.status(501).send({ error: "not_implemented" });
-}
-
 const directionQuerySchema = z.object({
   direction: z.enum(["incoming", "outgoing"]),
 });
