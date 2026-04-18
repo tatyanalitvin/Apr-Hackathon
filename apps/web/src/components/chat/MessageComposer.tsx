@@ -23,6 +23,7 @@ export function MessageComposer({ userId, roomId, onSend, disabled }: MessageCom
   const [value, setValue] = useState("");
   const [sending, setSending] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sendingRef = useRef(false);
 
   // Hydrate draft on mount / when userId or roomId changes.
   useEffect(() => {
@@ -46,14 +47,22 @@ export function MessageComposer({ userId, roomId, onSend, disabled }: MessageCom
   const canSend = !sending && !disabled && trimmed.length > 0 && !overLimit;
 
   const send = useCallback(async () => {
+    if (sendingRef.current) return;
     if (!canSend) return;
+    sendingRef.current = true;
     setSending(true);
     try {
       const body = trimmed.normalize("NFC");
-      await onSend(body);
+      try {
+        await onSend(body);
+      } catch {
+        // Parent owns error surfacing; keep draft intact so user can retry.
+        return;
+      }
       setValue("");
       clearDraft(userId, roomId);
     } finally {
+      sendingRef.current = false;
       setSending(false);
     }
   }, [canSend, trimmed, onSend, userId, roomId]);
@@ -80,6 +89,7 @@ export function MessageComposer({ userId, roomId, onSend, disabled }: MessageCom
         <span
           className={`text-xs ${overLimit ? "text-destructive" : bytes >= SOFT_WARN_BYTES ? "text-amber-600" : "text-transparent"}`}
           aria-live="polite"
+          aria-hidden={bytes < SOFT_WARN_BYTES}
         >
           {bytes} / {MAX_BYTES}
         </span>

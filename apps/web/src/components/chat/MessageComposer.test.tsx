@@ -88,4 +88,25 @@ describe("MessageComposer (REQ-046, R5)", () => {
     await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
     expect(window.localStorage.getItem("s1-draft:u1:general")).toBeNull();
   });
+
+  it("preserves draft and re-enables Send when onSend rejects (R5)", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn().mockRejectedValueOnce(new Error("network")).mockResolvedValue(undefined);
+    render(<MessageComposer userId="u1" roomId="general" onSend={onSend} />);
+    const ta = screen.getByLabelText("Message");
+
+    await user.type(ta, "retry-me{Enter}");
+    // onSend rejected — draft MUST NOT clear, and no unhandled rejection must escape.
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+
+    expect(ta).toHaveValue("retry-me");
+    const send = screen.getByRole("button", { name: /send/i });
+    expect(send).not.toBeDisabled();
+
+    // Second attempt succeeds.
+    await user.click(send);
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect(onSend).toHaveBeenCalledTimes(2);
+    expect(ta).toHaveValue("");
+  });
 });
