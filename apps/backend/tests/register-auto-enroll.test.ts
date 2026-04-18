@@ -1,17 +1,17 @@
-// REQ-022 (partial) — new-user auto-enrollment into the seeded 'general' room.
+// Auto-enroll new users into the seeded 'general' room on signup.
 //
-// Hotfix driver: apps/backend/src/lib/message-auth.ts:44-47 rejects posts to
+// NOT a v4 REQ — v4 REQ-022 is "Room description" (unimplemented; tracked in
+// FOLLOWUPS.md). This test covers a permanent non-v4 UX convenience claimed
+// in s2-rooms.md §7 (non-v4 deviations) and ADR-0006. Kept indefinitely per
+// s2-rooms.md R1 `[x]` (commit ee0b136).
+//
+// Driver: apps/backend/src/lib/message-auth.ts:44-47 rejects posts to
 // /api/v1/rooms/:id/messages with 403 when the caller is not a room_member.
-// A brand-new signup has no memberships yet, so the S1 demo would 403 on the
-// very first message unless they join general first — and REQ-022's rooms
-// catalog + self-join UI isn't built yet. The hook in auth.ts inserts a
-// room_member row for (newUser.id, 'general') inside better-auth's
-// `databaseHooks.user.create.after`, so the auto-enroll happens for BOTH
-// sign-up surfaces (HTTP POST /api/auth/sign-up/email and internal
-// auth.api.signUpEmail from scripts/seed.ts).
-//
-// Full REQ-022 (catalog + self-join) remains an S2 task; this file partially
-// satisfies the REQ so `pnpm trace` finds a test against the ID.
+// A brand-new signup has no memberships, so without this hook the very first
+// message would 403. The hook in auth.ts inserts a room_member row for
+// (newUser.id, 'general') inside better-auth's databaseHooks.user.create.after,
+// so the auto-enroll happens for BOTH sign-up surfaces (HTTP POST and
+// internal auth.api.signUpEmail from scripts/seed.ts).
 
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import request from "supertest";
@@ -55,7 +55,7 @@ async function userIdByEmail(email: string): Promise<string> {
   return row.id;
 }
 
-describe("REQ-022 partial — auto-enroll new users in 'general' on sign-up", () => {
+describe("auto-enroll new users in 'general' on sign-up (non-v4 convenience, see ADR-0006)", () => {
   let app: FastifyInstance;
 
   beforeAll(async () => {
@@ -67,7 +67,7 @@ describe("REQ-022 partial — auto-enroll new users in 'general' on sign-up", ()
     await app.close();
   });
 
-  test("REQ-022 sign-up inserts a room_member row for (newUser, 'general')", async () => {
+  test("sign-up inserts a room_member row for (newUser, 'general')", async () => {
     await seedGeneralRoom();
 
     const agent = request.agent(app.server);
@@ -94,7 +94,7 @@ describe("REQ-022 partial — auto-enroll new users in 'general' on sign-up", ()
     expect(memberships).toHaveLength(1);
   });
 
-  test("REQ-022 fresh signup can POST to /api/v1/rooms/general/messages (not 403)", async () => {
+  test("fresh signup can POST to /api/v1/rooms/general/messages (not 403)", async () => {
     await seedGeneralRoom();
 
     const agent = request.agent(app.server);
@@ -136,7 +136,7 @@ describe("REQ-022 partial — auto-enroll new users in 'general' on sign-up", ()
     expect(rows).toHaveLength(1);
   });
 
-  test("REQ-022 sign-up succeeds silently when 'general' room is not seeded", async () => {
+  test("sign-up succeeds silently when 'general' room is not seeded", async () => {
     // No seedGeneralRoom() call — simulates a dev DB where `pnpm db:seed`
     // hasn't run yet. The hook logs a warning and returns; sign-up must not
     // fail. This fences the "skip silently, do not throw" contract so a
