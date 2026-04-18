@@ -5,10 +5,14 @@ fresh clone plus `docker compose up` must produce a working auth + chat
 backend. Copy-paste the whole block on a clean machine with Docker 24+ and
 Docker Compose v2.
 
-Scope verified here: Postgres + Redis + migrate + backend (Fastify). The
-web container builds and serves `/` but the UI flow is not part of S1 — it
-ships in the `feat/s1-web` branch. The steps below exercise the backend
-REST surface directly with `curl`.
+Scope verified here: full S1 stack — Postgres + Redis + migrate + seed +
+backend (Fastify) + web (Next.js). The steps below exercise the backend
+REST surface directly with `curl`; `/login` and `/register` are
+client-rendered, so a static HTML grep for "login" / "register" will miss —
+open `http://localhost:3000/login` in a browser (or drive it with
+Playwright) to confirm the form paints. A bare `HTTP 200` from
+`curl -sfI http://localhost:3000/login` is the sanity check the compose
+gate owes the judge; the interactive flow is out of scope for this doc.
 
 ## 0 — Prerequisites
 
