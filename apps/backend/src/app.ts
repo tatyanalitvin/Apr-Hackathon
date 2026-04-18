@@ -10,6 +10,7 @@ import { env } from "./env";
 import { auth } from "./auth";
 import { toFetchHeaders } from "./lib/fetch-headers";
 import { sessionsRoutes } from "./routes/sessions";
+import { messagesRoutes } from "./routes/messages";
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -45,6 +46,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   // prefixes win. See docs/specs/s1-auth.md task #6a for why sessions is an
   // app route, not a bare better-auth proxy.
   await app.register(sessionsRoutes, { prefix: "/api/v1/sessions" });
+  await app.register(messagesRoutes, { prefix: "/api/v1/rooms" });
 
   // Bridge better-auth's fetch-style handler into Fastify. See ADR-0004.
   // Owns every /api/auth/* path not already declared above.
