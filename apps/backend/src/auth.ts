@@ -31,6 +31,15 @@ export const auth = betterAuth({
   // from FOLLOWUPS.md in ~5 lines and makes the test harness's
   // beforeEach flushRedis() automatically reset counters between tests.
   secondaryStorage,
+  // Default when secondaryStorage is set is to store sessions ONLY in Redis
+  // and skip the DB. Our REQ-018 DELETE /api/v1/sessions/:id ownership guard
+  // (task #6b) does a DB lookup by session.id to verify `row.userId ===
+  // caller.user.id`; that lookup needs the row to exist in Postgres. Forcing
+  // storeSessionInDatabase=true keeps Postgres as the source of truth for
+  // sessions — Redis is only used for rate-limit counters.
+  session: {
+    storeSessionInDatabase: true,
+  },
   // Task #10 — rate-limit pinning (REQ-014). `customRules["/sign-in/email"]`
   // caps wrong-creds at 5 within a 60s window so the REQ-014 "≤10 attempts"
   // budget is enforced with headroom. Global defaults stay generous (100/60s)

@@ -8,6 +8,8 @@ import type { ZodType } from "zod";
 import { registerSchema, loginSchema } from "@ai-herders/shared/dto";
 import { env } from "./env";
 import { auth } from "./auth";
+import { toFetchHeaders } from "./lib/fetch-headers";
+import { sessionsRoutes } from "./routes/sessions";
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -38,6 +40,11 @@ export async function buildApp(): Promise<FastifyInstance> {
     { preHandler: zodBodyGuard(loginSchema) },
     proxyToBetterAuth,
   );
+
+  // App-owned /api/v1/* routes go here, ahead of the catch-all so specific
+  // prefixes win. See docs/specs/s1-auth.md task #6a for why sessions is an
+  // app route, not a bare better-auth proxy.
+  await app.register(sessionsRoutes, { prefix: "/api/v1/sessions" });
 
   // Bridge better-auth's fetch-style handler into Fastify. See ADR-0004.
   // Owns every /api/auth/* path not already declared above.
@@ -75,11 +82,7 @@ async function proxyToBetterAuth(request: FastifyRequest, reply: FastifyReply) {
     request.url,
     `http://${request.headers.host ?? "localhost"}`,
   );
-  const headers = new Headers();
-  for (const [key, value] of Object.entries(request.headers)) {
-    if (Array.isArray(value)) headers.set(key, value.join(","));
-    else if (value !== undefined) headers.set(key, String(value));
-  }
+  const headers = toFetchHeaders(request);
 
   const hasBody = !["GET", "HEAD"].includes(request.method);
   const body =
