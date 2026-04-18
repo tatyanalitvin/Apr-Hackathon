@@ -23,6 +23,7 @@ import { historyQuerySchema, sendMessageSchema } from "@ai-herders/shared/dto";
 import { message, messageSeq, type Message } from "@ai-herders/shared/schema";
 import type {
   HistorySliceResponse,
+  MessageNewEvent,
   MessagePayload,
 } from "@ai-herders/shared/protocol";
 
@@ -97,7 +98,7 @@ export async function messagesRoutes(app: FastifyInstance): Promise<void> {
         });
       }
 
-      const { message: inserted } = await allocateAndInsertMessage({
+      const { message: inserted, roomHeadSeq } = await allocateAndInsertMessage({
         messageId: randomUUID(),
         roomId,
         authorId: ctx.userId,
@@ -105,11 +106,19 @@ export async function messagesRoutes(app: FastifyInstance): Promise<void> {
         replyToId: request.body.replyToId ?? null,
       });
 
-      // TODO(task 7): emit message.new over Socket.IO to room `roomId` with
-      // {seq, roomHeadSeq, message} per REQ-034. No-op until io is decorated
-      // on the Fastify instance (see spec §5 "io plumbing").
+      const payload = toMessagePayload(inserted);
+      // REQ-034 watermark broadcast. For a fresh send, seq === roomHeadSeq
+      // (the allocator advances the head by one and hands back both).
+      const evt: MessageNewEvent = {
+        type: "message.new",
+        roomId,
+        seq: payload.seq,
+        roomHeadSeq: roomHeadSeq.toString(),
+        message: payload,
+      };
+      request.server.io.to(roomId).emit("message.new", evt);
 
-      return reply.status(201).send(toMessagePayload(inserted));
+      return reply.status(201).send(payload);
     },
   );
 

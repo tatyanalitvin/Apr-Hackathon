@@ -11,6 +11,15 @@ import { auth } from "./auth";
 import { toFetchHeaders } from "./lib/fetch-headers";
 import { sessionsRoutes } from "./routes/sessions";
 import { messagesRoutes } from "./routes/messages";
+import { createSocketIO, type ChatIOServer } from "./socket";
+import { installSocketAuth } from "./socket-auth";
+import { registerSocketHandlers } from "./socket-handlers";
+
+declare module "fastify" {
+  interface FastifyInstance {
+    io: ChatIOServer;
+  }
+}
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -54,6 +63,21 @@ export async function buildApp(): Promise<FastifyInstance> {
     method: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     url: "/api/auth/*",
     handler: proxyToBetterAuth,
+  });
+
+  // Socket.IO is attached to Fastify's underlying HTTP server. Decorating
+  // `app.io` lets routes fan out via `request.server.io.to(roomId).emit(...)`
+  // — the io-plumbing pattern from spec §5. Handlers + handshake auth go
+  // through the same Fastify instance so tests can drive the full stack via
+  // a single `buildApp()`.
+  const attached = await createSocketIO(app.server);
+  app.decorate("io", attached.io);
+  installSocketAuth(attached.io);
+  attached.io.on("connection", (socket) => {
+    registerSocketHandlers(socket);
+  });
+  app.addHook("onClose", async () => {
+    await attached.close();
   });
 
   return app;
