@@ -135,6 +135,39 @@ export async function friendshipRoutes(app: FastifyInstance): Promise<void> {
     return reply.status(200).send({ friends });
   });
 
+  // REQ-074 read-side — GET /api/v1/users/blocked
+  // Spec §5 never scoped a dedicated list; the UI needs it for the
+  // "Unblock" tab. Mirrors GET /friends: inner-join user onto the
+  // target_id side, JS-side sort by blockedAt DESC (same rationale —
+  // keeps the shape trivial and lets the index on (by_id, target_id)
+  // carry the WHERE). One-way: only rows owned by the caller.
+  app.get("/users/blocked", async (request, reply) => {
+    const ctx = await requireFriendshipAuth(request, reply);
+    if (!ctx) return;
+
+    const rows = await db
+      .select({
+        userId: userBlock.targetId,
+        blockedAt: userBlock.createdAt,
+        username: user.username,
+        name: user.name,
+      })
+      .from(userBlock)
+      .innerJoin(user, eq(user.id, userBlock.targetId))
+      .where(eq(userBlock.byId, ctx.userId));
+
+    const blocked = rows
+      .map((r) => ({
+        userId: r.userId,
+        username: r.username,
+        name: r.name,
+        blockedAt: r.blockedAt.toISOString(),
+      }))
+      .sort((x, y) => (x.blockedAt > y.blockedAt ? -1 : x.blockedAt < y.blockedAt ? 1 : 0));
+
+    return reply.status(200).send({ blocked });
+  });
+
   // R2/R4/R5/R6 / REQ-051..055 — POST /api/v1/friends/requests
   app.post(
     "/friends/requests",
