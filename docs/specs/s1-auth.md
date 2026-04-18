@@ -24,17 +24,18 @@ The stack pivot (ADR-0001) settled on `better-auth` so we don't hand-roll passwo
 
 ## 3. User stories
 
-- As Anna, I can register with **email + unique username + display name + password**, so I can start using the chat. (REQ-001, REQ-002, REQ-003, REQ-004, REQ-005)
-- As Anna, registration fails clearly if my email or username is already taken, so I know to pick another. (REQ-006, REQ-007)
-- As Anna, registration rejects a weak password (<8 chars) or malformed username, so accounts meet the minimum bar. (REQ-008, REQ-009)
-- As Anna, I can log in with email + password and a session cookie is set, so subsequent requests are authenticated. (REQ-010, REQ-011)
-- As Anna, I can tick "remember me" to extend my session lifetime beyond the default, so I don't have to re-login daily on my own laptop. (REQ-012)
-- As Anna, invalid credentials return a generic error and never reveal whether the email exists, so enumeration is impossible. (REQ-013)
-- As Anna, repeated failed logins from the same IP start getting rate-limited, so brute-force is throttled. (REQ-014)
-- As Anna, I can log out on this browser and the server-side session is revoked, so the cookie alone can't re-auth. (REQ-015, REQ-016)
-- As Anna, I can list my active sessions (UA, IP, last-seen) and revoke any of them individually, so I can kick a forgotten session on a shared machine. (REQ-017, REQ-018, v3.docx §2.2.4)
-- As Anna, I can request a password-reset link by email (endpoint only — actual send is stubbed, see §7). (REQ-019)
-- As Anna, I can permanently delete my own account (reconfirming my password) and the server purges my `user` row, my sessions, and my stored password hash; my cookie stops authenticating immediately. (v3.docx §2.1.5)
+- As Anna, I can register with **email + unique username + display name + password**, so I can start using the chat. (REQ-001, REQ-002, REQ-004)
+- As Anna, registration fails clearly if my email or username is already taken, so I know to pick another. (REQ-003, REQ-005)
+- As Anna, registration rejects a weak password (<8 chars) or malformed username, so accounts meet the minimum bar. (REQ-004; the password-length rule is a deviation from v4 REQ-006 — see §7 / ADR-0006)
+- As Anna, registration is rate-limited per IP so credential-stuffing against the sign-up endpoint is throttled. (REQ-009)
+- As Anna, I can log in with email + password and a session cookie is set, so subsequent requests are authenticated. (REQ-010)
+- As Anna, I can tick "remember me" to extend my session lifetime beyond the default, so I don't have to re-login daily on my own laptop. (REQ-011)
+- As Anna, invalid credentials return a generic error and never reveal whether the email exists, so enumeration is impossible. (observable detail of REQ-010; v4 REQ-013 is logout, not generic-error shape)
+- As Anna, repeated failed logins from the same IP start getting rate-limited, so brute-force is throttled. (deviation from v4 REQ-012 per-email lockout — see §7 / ADR-0006)
+- As Anna, I can log out on this browser and the server-side session is revoked, so the cookie alone can't re-auth. (REQ-013)
+- As Anna, I can list my active sessions (UA, IP, last-seen) and revoke any of them individually, so I can kick a forgotten session on a shared machine. (REQ-018, REQ-019, v3.docx §2.2.4)
+- As Anna, I can request a password-reset link by email (endpoint only — actual send is stubbed, see §7). (REQ-017)
+- As Anna, I can permanently delete my own account (reconfirming my password) and the server purges my `user` row, my sessions, and my stored password hash; my cookie stops authenticating immediately. (REQ-125)
 
 ## 4. Requirements (testable)
 
@@ -46,24 +47,25 @@ describe("REQ-006 duplicate email rejected", () => {
 });
 ```
 
-- [ ] **R1 (REQ-001, REQ-002, REQ-003, REQ-004)**: `POST /api/auth/sign-up/email` with valid `{ email, password, name, username }` creates a `user` row (and the `account` row better-auth uses for the password hash), returns 200 with user payload, and sets a `Set-Cookie` session cookie.
-- [ ] **R2 (REQ-005)**: On successful register, the returned cookie authenticates `GET /api/auth/get-session` — user is auto-logged-in.
-- [ ] **R3 (REQ-006)**: Registering with an email already present in `user` returns a 4xx error from better-auth that the client surfaces as "email already in use". No duplicate row is inserted.
-- [ ] **R4 (REQ-007)**: Registering with a `username` already present in `user.username` returns a 4xx error "username already in use". (Enforced by the unique index on `user.username` + a pre-insert check so better-auth surfaces a clean error rather than a Postgres constraint leak.)
-- [ ] **R5 (REQ-008)**: Passwords shorter than 8 chars are rejected client-side (zod `registerSchema`) and server-side (zod at the Fastify boundary **plus** better-auth's minimum). Response is 400 with the zod issue.
-- [ ] **R6 (REQ-009)**: Usernames outside `^[A-Za-z0-9_]{3,32}$` are rejected by `usernameSchema` with a 400. Verified by unit tests against the schema and an e2e against the register handler.
-- [ ] **R7 (REQ-010, REQ-011)**: `POST /api/auth/sign-in/email` with correct creds returns 200 + session cookie; subsequent `GET /api/auth/get-session` returns the user.
-- [ ] **R8 (REQ-012)**: Sign-in with `{ rememberMe: true }` sets a persistent cookie (`Set-Cookie` carries a `Max-Age` attribute); sign-in with `rememberMe: false` / omitted sets a session cookie (no `Max-Age`). This matches v3.docx §2.2.2's "persistent login across browser close/reopen" without inventing a numeric threshold — absolute day-counts (29d, 8d) were v4-MD AI-prep, non-binding (see §10 decision log). Verified via `Set-Cookie` inspection in an integration test.
-- [ ] **R9 (REQ-013)**: Sign-in with a non-existent email AND sign-in with a wrong password for a real email both return the **same** generic error shape and the **same** HTTP status. Verified against better-auth 1.6.5 source: both branches throw `APIError.from("UNAUTHORIZED", INVALID_EMAIL_OR_PASSWORD)` and the not-found branch even runs `password.hash()` to equalise timing — so no Fastify response rewriter is needed. The ±50ms latency assertion was v4-MD and is **dropped** (not in v3). Payload-identity is what the test asserts.
-- [ ] **R10 (REQ-014)**: After ≤10 failed sign-in attempts from the same IP, further attempts return 429 — using better-auth `rateLimit` defaults if they suffice, otherwise the `customRules` added in task #10. Verified by hammering the endpoint in an integration test.
-- [x] **R11 (REQ-015)**: `POST /api/auth/sign-out` deletes the current `session` row and clears the cookie. `GET /api/auth/get-session` immediately after returns `null` (observed; spec had said "null / 401" — better-auth 1.6.5 specifically returns 200 + `null` body for unauthenticated get-session).
-- [x] **R12 (REQ-016)**: The logged-out cookie, even if replayed by a client that cached it, no longer authenticates — the DB row is gone. HMAC still verifies, so the test uses raw `Cookie` header replay (not the agent's cleared jar) to actually exercise the server-side DB-lookup path.
-- [x] **R13 (REQ-017, v3.docx §2.2.4)**: `GET /api/v1/sessions` returns `[{ id, userAgent, ipAddress, createdAt, expiresAt, current: boolean }]` for the logged-in user's non-expired sessions.
-- [x] **R14 (REQ-018, v3.docx §2.2.4)**: `DELETE /api/v1/sessions/:id` revokes a single session the caller owns. Revoking someone else's session returns 403. Revoking the caller's current session is allowed and behaves like logout.
-- [x] **R15 (REQ-019)**: `POST /api/auth/request-password-reset` with `{ email }` returns 200 regardless of whether the email exists (no enumeration — better-auth does this itself via a dummy verification lookup, see `password.mjs:51-62`). The endpoint currently **logs the reset token to stdout instead of sending email** — marked with a `TODO(S3)` and captured in §7.
-- [ ] **R18 (v3.docx §2.1.5)**: `POST /api/auth/delete-user` (source-verified: method is `POST`, not `DELETE` despite Context7 docs suggesting otherwise — see §10 entry) with `{ password }` on an authenticated session permanently deletes the `user` row and FK-cascades `session` + `account` rows. A subsequent `GET /api/v1/sessions` using the same cookie returns 401. Wrong password returns 4xx; unauthenticated returns 4xx. Room-level cascade ("owner's rooms + their messages/files deleted") is **deferred to S2** via a `TODO(S2-rooms)` in the `beforeDelete` hook — rooms don't exist in S1.
+- [ ] **R1 (REQ-001, REQ-002)**: `POST /api/auth/sign-up/email` with valid `{ email, password, name, username }` creates a `user` row (and the `account` row better-auth uses for the password hash), returns 200 with user payload, and sets a `Set-Cookie` session cookie.
+- [ ] **R2 (REQ-001)**: On successful register, the returned cookie authenticates `GET /api/auth/get-session` — user is auto-logged-in.
+- [ ] **R3 (REQ-003)**: Registering with an email already present in `user` returns a 4xx error from better-auth that the client surfaces as "email already in use". No duplicate row is inserted.
+- [ ] **R4 (REQ-005)**: Registering with a `username` already present in `user.username` returns a 4xx error "username already in use". (Enforced by the unique index on `user.username` + a pre-insert check so better-auth surfaces a clean error rather than a Postgres constraint leak.)
+- [ ] **R5 (transverse; v4 REQ-006 deviation)**: Passwords shorter than 8 chars are rejected client-side (zod `registerSchema`) and server-side (zod at the Fastify boundary **plus** better-auth's minimum). Response is 400 with the zod issue. (v4 REQ-006 mandates a fuller password policy — see §7 / ADR-0006.)
+- [ ] **R6 (REQ-004)**: Usernames outside `^[A-Za-z0-9_]{3,32}$` are rejected by `usernameSchema` with a 400. Verified by unit tests against the schema and an e2e against the register handler. (v4 specifies `{3,24}`; we use `{3,32}` — see ADR-0006.)
+- [ ] **R7 (REQ-010)**: `POST /api/auth/sign-in/email` with correct creds returns 200 + session cookie; subsequent `GET /api/auth/get-session` returns the user.
+- [ ] **R8 (REQ-011)**: Sign-in with `{ rememberMe: true }` sets a persistent cookie (`Set-Cookie` carries a `Max-Age` attribute); sign-in with `rememberMe: false` / omitted sets a session cookie (no `Max-Age`). This matches v3.docx §2.2.2's "persistent login across browser close/reopen" without inventing a numeric threshold — absolute day-counts (29d, 8d) were v4-MD AI-prep, non-binding (see §10 decision log). Verified via `Set-Cookie` inspection in an integration test.
+- [ ] **R9 (transverse; observable invariant of REQ-010)**: Sign-in with a non-existent email AND sign-in with a wrong password for a real email both return the **same** generic error shape and the **same** HTTP status. Verified against better-auth 1.6.5 source: both branches throw `APIError.from("UNAUTHORIZED", INVALID_EMAIL_OR_PASSWORD)` and the not-found branch even runs `password.hash()` to equalise timing — so no Fastify response rewriter is needed. The ±50ms latency assertion was v4-MD and is **dropped** (not in v3). Payload-identity is what the test asserts.
+- [ ] **R10 (v4 REQ-012 deviation)**: After ≤10 failed sign-in attempts from the same IP, further attempts return 429 — using better-auth `rateLimit` defaults if they suffice, otherwise the `customRules` added in task #10. Verified by hammering the endpoint in an integration test. (v4 REQ-012 mandates per-email lockout; we implement per-IP rate limit — see ADR-0006.)
+- [x] **R11 (REQ-013)**: `POST /api/auth/sign-out` deletes the current `session` row and clears the cookie. `GET /api/auth/get-session` immediately after returns `null` (observed; spec had said "null / 401" — better-auth 1.6.5 specifically returns 200 + `null` body for unauthenticated get-session).
+- [x] **R12 (REQ-013)**: The logged-out cookie, even if replayed by a client that cached it, no longer authenticates — the DB row is gone. HMAC still verifies, so the test uses raw `Cookie` header replay (not the agent's cleared jar) to actually exercise the server-side DB-lookup path.
+- [x] **R13 (REQ-018, v3.docx §2.2.4)**: `GET /api/v1/sessions` returns `[{ id, userAgent, ipAddress, createdAt, expiresAt, current: boolean }]` for the logged-in user's non-expired sessions.
+- [x] **R14 (REQ-019, v3.docx §2.2.4)**: `DELETE /api/v1/sessions/:id` revokes a single session the caller owns. Revoking someone else's session returns 403. Revoking the caller's current session is allowed and behaves like logout.
+- [x] **R15 (REQ-017)**: `POST /api/auth/request-password-reset` with `{ email }` returns 200 regardless of whether the email exists (no enumeration — better-auth does this itself via a dummy verification lookup, see `password.mjs:51-62`). The endpoint currently **logs the reset token to stdout instead of sending email** — marked with a `TODO(S3)` and captured in §7.
+- [ ] **R18 (REQ-125)**: `POST /api/auth/delete-user` (source-verified: method is `POST`, not `DELETE` despite Context7 docs suggesting otherwise — see §10 entry) with `{ password }` on an authenticated session permanently deletes the `user` row and FK-cascades `session` + `account` rows. A subsequent `GET /api/v1/sessions` using the same cookie returns 401. Wrong password returns 4xx; unauthenticated returns 4xx. Room-level cascade ("owner's rooms + their messages/files deleted") is **deferred to S2** via a `TODO(S2-rooms)` in the `beforeDelete` hook — rooms don't exist in S1.
 - [x] **R16 (transverse)**: Session cookie attributes are `HttpOnly; SameSite=Lax; Path=/; Secure` (the `Secure` flag depends on `NODE_ENV=production`, per better-auth defaults). Verified by asserting `Set-Cookie` headers in an integration test (test env: `Secure` absent, cookie name is plain `better-auth.session_token` with no `__Secure-` prefix — source-read of `cookies/index.mjs:20` confirms the isProduction-driven branch).
 - [ ] **R17 (transverse)**: `SESSION_SECRET` is validated at boot by `src/env.ts` and must be ≥16 chars (we'll require ≥32 in prod per v3.docx §2.2). App fails to start otherwise.
+- [ ] **R19 (REQ-009)**: Registration rate limit — `POST /api/auth/sign-up/email` capped at 5/IP/hour via better-auth `rateLimit.customRules`. /24 subnet rule from v4 is deferred to FOLLOWUPS. (Test lands in Task 19 of this retrofit plan.)
 
 ## 5. Design notes
 
@@ -150,7 +152,21 @@ The Fastify bridge validates the body with these schemas **before** delegating t
 
 ## 7. Out of scope / follow-ups
 
-- **SMTP for password reset (REQ-019 completion)** — S3 hardening. Today the reset token is logged (redacted in prod, see task #7); a user can copy it from server logs in dev. Tracked as `TODO(S3): wire nodemailer/SES`.
+### ADR-0006 deviations
+
+v4 catalog REQs we do not implement, but whose observable behaviour we intentionally diverge from. Each line names the v4 REQ + what we do instead. See [docs/adr/0006-req-catalog-canonical.md](../adr/0006-req-catalog-canonical.md) (lands in Task 20 of the retrofit plan).
+
+- **v4 REQ-006** (password policy — complexity rules) — we enforce only `min(8)` via zod + better-auth default; no uppercase/digit/symbol requirement. Tested negatively via R5 above (rejects <8 chars).
+- **v4 REQ-007** (password confirmation field on register) — not implemented; the client does not re-prompt. Surfacing a confirmation field is a pure frontend add and was out of S1 scope.
+- **v4 REQ-008** (argon2id for password hashing) — we use better-auth's built-in scrypt (no extra deps). ADR-0001 supersedes.
+- **v4 REQ-012** (per-email failed-login lockout) — we implement per-IP rate limit via better-auth `rateLimit.customRules` (see R10). Per-email lockout would require a secondary counter keyed by email that we don't build in S1.
+- **v4 REQ-014** (explicit session TTL configuration) — left at better-auth defaults (7d absolute, 24h rolling). See §10 "task #9 — skip rationale".
+- **v4 REQ-015** (refresh-token rotation) — better-auth rotates via `updateAge`; no separate rotation endpoint / JWT refresh flow.
+- **v4 REQ-016** (password change while logged in) — not implemented in S1; endpoint exists in better-auth (`auth.api.changePassword`) but no UI/route exposed. S2 or S3.
+
+### Other follow-ups
+
+- **SMTP for password reset (REQ-017 completion)** — S3 hardening. Today the reset token is logged (redacted in prod, see task #7); a user can copy it from server logs in dev. Tracked as `TODO(S3): wire nodemailer/SES`.
 - **Distributed rate-limit storage** — ~~S3~~ done in task #10; Redis-backed `secondaryStorage` is live.
 - **CSRF double-submit token (REQ-146)** — S3.
 - **Password change while logged in + "revoke all other sessions on password change"** — the endpoint exists in better-auth (`auth.api.changePassword`) but we're not surfacing UI for S1. S2 or S3.
@@ -169,26 +185,19 @@ The Fastify bridge validates the body with these schemas **before** delegating t
 
 | REQ-ID | How exercised | Layer |
 | --- | --- | --- |
-| REQ-001 | register happy path inserts `user` row | integration (Vitest + Supertest) |
+| REQ-001 | register happy path inserts `user` row + `account` row; cookie auto-logs-in | integration (Vitest + Supertest) |
 | REQ-002 | registerSchema rejects missing/invalid email | unit |
-| REQ-003 | usernameSchema accepts valid + rejects invalid | unit |
-| REQ-004 | register stores display name in `user.name` | integration |
-| REQ-005 | register response sets session cookie; `get-session` returns user | integration |
-| REQ-006 | duplicate email → 4xx, no duplicate row | integration |
-| REQ-007 | duplicate username → 4xx | integration |
-| REQ-008 | password <8 → 400 with zod issue | unit + integration |
-| REQ-009 | username outside `[A-Za-z0-9_]{3,32}` → 400 | unit + integration |
-| REQ-010 | login happy path returns cookie | integration |
-| REQ-011 | cookie authenticates `get-session` | integration |
-| REQ-012 | rememberMe=true → `session.expiresAt` > short lifetime | integration |
-| REQ-013 | wrong email vs wrong password: identical 401 payload | integration |
-| REQ-014 | N+1 sign-ins from same IP → 429 | integration |
-| REQ-015 | sign-out deletes `session` row | integration |
-| REQ-016 | post-logout cookie replay → 401 | integration |
-| REQ-017 | `GET /api/v1/sessions` lists caller's sessions | integration + e2e |
-| REQ-018 | `DELETE /api/v1/sessions/:id` removes row; forbidden for other users | integration |
-| REQ-019 | `POST /api/auth/request-password-reset` stub returns 200 for any email + logs token | integration |
-| v3 §2.1.5 | `POST /api/auth/delete-user` with valid pw → user+session rows purged; wrong pw → 4xx; unauth → 4xx | integration |
+| REQ-003 | duplicate email → 4xx, no duplicate row | integration |
+| REQ-004 | usernameSchema accepts valid + rejects invalid (`{3,32}`) | unit + integration |
+| REQ-005 | duplicate username → 4xx | integration |
+| REQ-009 | register rate limit — ≤5/IP/hour → 429 (test lands in Task 19) | integration |
+| REQ-010 | login happy path + wrong-creds identical 401 shape | integration |
+| REQ-011 | rememberMe=true → `Set-Cookie` carries `Max-Age` attr | integration |
+| REQ-013 | sign-out deletes `session` row; post-logout cookie replay → null | integration |
+| REQ-017 | `POST /api/auth/request-password-reset` stub returns 200 for any email + logs token | integration |
+| REQ-018 | `GET /api/v1/sessions` lists caller's sessions | integration |
+| REQ-019 | `DELETE /api/v1/sessions/:id` removes row; forbidden for other users | integration |
+| REQ-125 | `POST /api/auth/delete-user` with valid pw → user+session rows purged; wrong pw → 4xx; unauth → 4xx | integration |
 
 ## 10. Decision log
 
