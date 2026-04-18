@@ -17,11 +17,10 @@ import type {
   preHandlerHookHandler,
 } from "fastify";
 import { randomUUID } from "node:crypto";
-import type { ZodType } from "zod";
-import { eq } from "drizzle-orm";
+import { z, type ZodType } from "zod";
+import { and, eq, gt } from "drizzle-orm";
 import { sendFriendRequestSchema, type SendFriendRequestInput } from "@ai-herders/shared/dto";
 import { friendRequest, friendship, user, userBlock } from "@ai-herders/shared/schema";
-import { and } from "drizzle-orm";
 
 import { auth } from "../auth";
 import { db } from "../db";
@@ -92,6 +91,10 @@ export async function requireFriendshipAuth(
 function notImplemented(reply: FastifyReply) {
   return reply.status(501).send({ error: "not_implemented" });
 }
+
+const directionQuerySchema = z.object({
+  direction: z.enum(["incoming", "outgoing"]),
+});
 
 export async function friendshipRoutes(app: FastifyInstance): Promise<void> {
   // R1 / REQ-050 — GET /api/v1/friends
@@ -221,11 +224,74 @@ export async function friendshipRoutes(app: FastifyInstance): Promise<void> {
   );
 
   // R14/R15/R7 — GET /api/v1/friends/requests?direction=
-  app.get("/friends/requests", async (request, reply) => {
-    const ctx = await requireFriendshipAuth(request, reply);
-    if (!ctx) return;
-    return notImplemented(reply);
-  });
+  app.get<{ Querystring: { direction?: string } }>(
+    "/friends/requests",
+    async (request, reply) => {
+      const ctx = await requireFriendshipAuth(request, reply);
+      if (!ctx) return;
+
+      const parsed = directionQuerySchema.safeParse(request.query);
+      if (!parsed.success) {
+        return reply.status(400).send({
+          error: "validation",
+          issues: parsed.error.issues.map((i) => ({
+            path: i.path,
+            message: i.message,
+            code: i.code,
+          })),
+        });
+      }
+
+      // R7 — 30-day read-side TTL. Rows older than 30d are hidden even
+      // though status='pending' (nightly hard-sweep is S3 / REQ-163).
+      const ttlCutoff = new Date(Date.now() - 30 * 24 * 60 * 60_000);
+      const isIncoming = parsed.data.direction === "incoming";
+      const selfColumn = isIncoming ? friendRequest.toId : friendRequest.fromId;
+      const otherColumn = isIncoming ? friendRequest.fromId : friendRequest.toId;
+
+      const rows = await db
+        .select({
+          id: friendRequest.id,
+          message: friendRequest.message,
+          createdAt: friendRequest.createdAt,
+          otherUserId: otherColumn,
+          otherUsername: user.username,
+          otherName: user.name,
+        })
+        .from(friendRequest)
+        .innerJoin(user, eq(user.id, otherColumn))
+        .where(
+          and(
+            eq(selfColumn, ctx.userId),
+            eq(friendRequest.status, "pending"),
+            gt(friendRequest.createdAt, ttlCutoff),
+          ),
+        )
+        .orderBy(friendRequest.createdAt);
+
+      const requests = rows
+        .map((r) => {
+          const counterparty = {
+            userId: r.otherUserId,
+            username: r.otherUsername,
+            name: r.otherName,
+          };
+          return {
+            id: r.id,
+            message: r.message,
+            createdAt: r.createdAt.toISOString(),
+            ...(isIncoming ? { from: counterparty } : { to: counterparty }),
+          };
+        })
+        // Newest first. Drizzle's orderBy can't take desc on an aliased
+        // column from a union; sort in JS after map.
+        .sort((a, b) =>
+          a.createdAt > b.createdAt ? -1 : a.createdAt < b.createdAt ? 1 : 0,
+        );
+
+      return reply.status(200).send({ requests });
+    },
+  );
 
   // R8 / REQ-057 accept
   app.post<{ Params: { id: string } }>(
