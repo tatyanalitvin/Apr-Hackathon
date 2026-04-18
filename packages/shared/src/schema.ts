@@ -6,7 +6,7 @@
 // `message_seq`). Broadcasts emit {seq, room_head_seq}; clients gap-detect and
 // backfill via history endpoint. See docs/adr/0003-watermark-protocol.md (S1).
 
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
@@ -48,8 +48,11 @@ export const user = pgTable("user", {
   email: text("email").notNull().unique(),
   emailVerified: boolean("email_verified").notNull().default(false),
   image: text("image"),
-  // §2.1.2 unique, immutable after creation — enforced at app layer.
-  username: text("username").unique(),
+  // §2.1.2 unique, NOT NULL, immutable after creation.
+  // NOT NULL is enforced atomically with the user-row insert via
+  // better-auth's `user.additionalFields.username` (see apps/backend/src/auth.ts
+  // and docs/specs/s1-auth.md §5 + §10 decision log).
+  username: text("username").notNull().unique(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
@@ -126,7 +129,9 @@ export const messageSeq = pgTable("message_seq", {
   roomId: text("room_id")
     .primaryKey()
     .references(() => room.id, { onDelete: "cascade" }),
-  seq: bigint("seq", { mode: "bigint" }).notNull().default(0n),
+  // SQL literal default avoids drizzle-kit 0.31's BigInt-JSON-serialize bug
+  // (see github.com/drizzle-team/drizzle-orm issues around `default(0n)`).
+  seq: bigint("seq", { mode: "bigint" }).notNull().default(sql`0`),
 });
 
 // §2.4.2 members + admins (role discriminator)
@@ -143,7 +148,7 @@ export const roomMember = pgTable(
     role: roomRole("role").notNull().default("member"),
     joinedAt: timestamp("joined_at", { withTimezone: true }).notNull().defaultNow(),
     // §2.7 unread counter pointer — per-room seq watermark the user has read through.
-    lastReadSeq: bigint("last_read_seq", { mode: "bigint" }).notNull().default(0n),
+    lastReadSeq: bigint("last_read_seq", { mode: "bigint" }).notNull().default(sql`0`),
     // §2.7.3 mute/unmute per room
     muted: boolean("muted").notNull().default(false),
   },
