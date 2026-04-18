@@ -1,11 +1,15 @@
-// Task #4 R10 (REQ-014) — sign-in rate-limit gate.
+// Sign-in IP rate-limit gate (deviation from v4 REQ-012 per-email lockout,
+// see ADR-0006).
 //
-// Contract (pinned in apps/backend/src/auth.ts task #10):
+// Contract (pinned in apps/backend/src/auth.ts):
 //   rateLimit.customRules["/sign-in/email"] = { window: 60, max: 5 }
 // The first 5 wrong-password attempts from a single IP return the normal
 // INVALID_EMAIL_OR_PASSWORD 4xx; the 6th trips the rate-limiter and returns
-// 429. v3.docx §2.2 requires "rate-limit failed logins" — we enforce it at
-// 5 attempts / 60s, inside the REQ-014 "≤10 attempts" budget.
+// 429. v4 REQ-012 actually mandates per-email lockout (10 fails/15min, code
+// `auth_locked`). Per-IP is weaker — a botnet bypasses it. Implementing
+// REQ-012 properly requires a new counter store keyed by email + `auth_locked`
+// error wiring through better-auth's login handler; deferred to S3
+// (FOLLOWUPS.md #7).
 //
 // Runs in its own file so that flushRedis() in the harness beforeEach (see
 // tests/setup.ts + secondary-storage.ts) wipes the counter before this test
@@ -30,7 +34,7 @@ const victim = {
   name: "Rate Victim",
 };
 
-describe("REQ-014 sign-in rate limit (R10)", () => {
+describe("sign-in IP rate limit (deviation from v4 REQ-012 per-email lockout, see ADR-0006)", () => {
   let app: FastifyInstance;
   beforeAll(async () => {
     app = await buildApp();
@@ -40,7 +44,7 @@ describe("REQ-014 sign-in rate limit (R10)", () => {
     await app.close();
   });
 
-  test("REQ-014 5 wrong-password attempts return 4xx; 6th returns 429", async () => {
+  test("5 wrong-password attempts return 4xx; 6th returns 429", async () => {
     await request(app.server)
       .post("/api/auth/sign-up/email")
       .send(victim)
