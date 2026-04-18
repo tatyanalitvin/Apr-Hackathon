@@ -26,6 +26,7 @@ import { and } from "drizzle-orm";
 import { auth } from "../auth";
 import { db } from "../db";
 import { toFetchHeaders } from "../lib/fetch-headers";
+import { checkFriendRequestRateLimit } from "../lib/friend-rate-limit";
 
 function zodBodyGuard<T>(schema: ZodType<T>): preHandlerHookHandler {
   return async (request: FastifyRequest, reply: FastifyReply) => {
@@ -142,6 +143,16 @@ export async function friendshipRoutes(app: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const ctx = await requireFriendshipAuth(request, reply);
       if (!ctx) return;
+
+      // R5 / REQ-054 — rate-limit check runs BEFORE target resolution so
+      // a caller can't enumerate usernames nor burn the bucket on a
+      // blocked target for free (§5 ordering step 3).
+      const rl = await checkFriendRequestRateLimit(ctx.userId);
+      if (!rl.allowed) {
+        return reply
+          .status(429)
+          .send({ error: "rate_limited", retryAfterSec: rl.retryAfterSec });
+      }
 
       const body = request.body as SendFriendRequestInput;
       const targetId = await resolveTargetUserId(body);
