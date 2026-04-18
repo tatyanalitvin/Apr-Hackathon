@@ -72,7 +72,7 @@ export function MessageComposer({ userId, roomId, onSend, disabled }: MessageCom
       <TextareaAutosize
         aria-label="Message"
         className="w-full resize-none rounded-md border bg-background px-3 py-2 text-sm outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring"
-        placeholder="Message #room"
+        placeholder={`Message #${roomId}`}
         minRows={1}
         maxRows={6}
         value={value}
