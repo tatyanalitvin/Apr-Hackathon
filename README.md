@@ -54,6 +54,34 @@ Inside Claude Code:
 | `pnpm lint` | ESLint |
 | `pnpm format` | Prettier write |
 
+## Testing
+
+### Backend test DB harness
+
+Backend tests use Testcontainers-managed Postgres + Redis (see [ADR 0005](docs/adr/0005-test-db-harness.md)). One-time setup per machine:
+
+```bash
+echo 'testcontainers.reuse.enable=true' >> ~/.testcontainers.properties
+```
+
+Run tests:
+
+```bash
+pnpm --filter @ai-herders/backend test:run      # one-shot
+pnpm --filter @ai-herders/backend test          # watch (one watcher at a time)
+```
+
+**If tests hang or containers are in a bad state**, nuke and retry:
+
+```bash
+docker ps -aq --filter label=org.testcontainers=true | xargs -r docker rm -f
+```
+
+**OrbStack / Colima users** need `DOCKER_HOST` set:
+
+- OrbStack: `export DOCKER_HOST=unix:///$HOME/.orbstack/run/docker.sock`
+- Colima: `export DOCKER_HOST=unix:///$HOME/.colima/default/docker.sock`
+
 ## Philosophy
 
 Based on Anthropic's own internal playbook + synthesized from ~15 public sources (2025-2026). Key principles:
