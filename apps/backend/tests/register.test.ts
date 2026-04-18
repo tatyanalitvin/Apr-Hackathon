@@ -2,9 +2,10 @@
 // Exercises POST /api/auth/sign-up/email end-to-end against a real Postgres
 // (Testcontainers harness, see docs/adr/0005-test-db-harness.md) so the full
 // better-auth → drizzleAdapter → schema stack is covered:
-//   - R1 (REQ-001): happy path — user row inserted with name + username, session cookie auth
-//   - R2 (REQ-003): duplicate email → 4xx, no duplicate row
-//   - R3 (REQ-005): duplicate username → 4xx, no duplicate row
+//   - R1 (REQ-001): happy path — user row inserted with name + username
+//   - R2 (REQ-001): response Set-Cookie authenticates subsequent get-session
+//   - R3 (REQ-003): duplicate email → 4xx, no duplicate row
+//   - R4 (REQ-005): duplicate username → 4xx
 //
 // truncateAll() runs in beforeEach (tests/setup.ts), so each test starts with
 // an empty `user`/`account`/`session` state — no cross-test order dependency.
