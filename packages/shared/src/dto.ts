@@ -18,7 +18,7 @@ export const messageBodySchema = z.string().min(1).max(3072);
 // ──────────────────────────────────────────────────────────────────────────
 
 export const registerSchema = z.object({
-  email: z.string().email(),
+  email: z.email(),
   username: usernameSchema,
   password: z.string().min(8).max(256),
   name: z.string().min(1).max(64),
@@ -26,7 +26,7 @@ export const registerSchema = z.object({
 export type RegisterInput = z.infer<typeof registerSchema>;
 
 export const loginSchema = z.object({
-  email: z.string().email(),
+  email: z.email(),
   password: z.string().min(1),
   rememberMe: z.boolean().optional(),
 });

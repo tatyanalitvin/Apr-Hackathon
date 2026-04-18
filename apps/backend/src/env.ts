@@ -6,8 +6,8 @@ const schema = z.object({
   LOG_LEVEL: z
     .enum(["trace", "debug", "info", "warn", "error", "fatal"])
     .default("info"),
-  DATABASE_URL: z.string().url(),
-  REDIS_URL: z.string().url(),
+  DATABASE_URL: z.url(),
+  REDIS_URL: z.url(),
   WEB_ORIGIN: z.string().default("http://localhost:3000"),
   // better-auth + CSRF signing. Must be >= 16 chars; 32+ in prod (§2.2).
   SESSION_SECRET: z.string().min(16),
