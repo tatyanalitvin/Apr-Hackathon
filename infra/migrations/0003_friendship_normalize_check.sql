@@ -1,0 +1,13 @@
+-- Q4a — belt-and-braces normalization of friendship pairs.
+--
+-- schema.ts comment says "Normalize so userAId < userBId" but carries no
+-- CHECK; R8's accept-transaction is the only writer today and sorts before
+-- INSERT. This CHECK protects against a future second insert site (e.g. an
+-- S3 data-repair script) breaking the invariant silently — a violated
+-- INSERT will fail loudly at the DB boundary instead of producing two rows
+-- per friendship that the pair unique index can't catch on its own.
+--
+-- One-liner. Hand-authored, not drizzle-kit-generated; drizzle schema.ts
+-- carries no CHECK definition so a future `db:generate` will not emit this.
+-- See docs/specs/s2-friendship.md §8 Q4.
+ALTER TABLE "friendship" ADD CONSTRAINT "friendship_user_a_lt_user_b" CHECK ("user_a_id" < "user_b_id");
