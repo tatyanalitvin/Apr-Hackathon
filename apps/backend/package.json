@@ -11,7 +11,8 @@
     "test:run": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "db:seed": "tsx ../../scripts/seed.ts"
   },
   "dependencies": {
     "@ai-herders/shared": "workspace:*",
