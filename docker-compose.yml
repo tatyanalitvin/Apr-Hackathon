@@ -1,0 +1,68 @@
+# docker-compose.yml — `docker compose up` from repo root must build and run the app.
+# Services:
+#   postgres — persistent chat data
+#   redis    — pub/sub fan-out for Socket.IO + presence
+#   app      — Next.js + custom server.js that mounts Socket.IO on the same port
+#
+# On first run:
+#   docker compose up --build
+# Then open http://localhost:3000
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: chat
+      POSTGRES_PASSWORD: chat
+      POSTGRES_DB: chat
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chat -d chat"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ports:
+      - "6379:6379"
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://chat:chat@postgres:5432/chat
+      REDIS_URL: redis://redis:6379
+      SESSION_SECRET: change-me-in-prod-32-char-min-xxxxxx
+      UPLOAD_DIR: /data/uploads
+      # Set via .env or override: ANTHROPIC_API_KEY=...
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    volumes:
+      - uploads:/data/uploads
+    ports:
+      - "3000:3000"
+    # Ensure migrations run before the server starts
+    command: sh -c "pnpm prisma migrate deploy && node server.js"
+
+volumes:
+  pgdata:
+  redisdata:
+  uploads:

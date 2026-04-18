@@ -1,0 +1,30 @@
+# deps
+node_modules/
+.pnpm-store/
+
+# next
+.next/
+out/
+
+# env
+.env
+.env.local
+.env.*.local
+
+# misc
+.DS_Store
+*.log
+coverage/
+.vitest/
+playwright-report/
+test-results/
+blob-report/
+.playwright/
+
+# IDE
+.vscode/
+.idea/
+
+# claude runtime (but keep configs!)
+.claude/.cache/
+.claude/logs/
