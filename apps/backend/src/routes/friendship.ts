@@ -20,7 +20,8 @@ import { randomUUID } from "node:crypto";
 import type { ZodType } from "zod";
 import { eq } from "drizzle-orm";
 import { sendFriendRequestSchema, type SendFriendRequestInput } from "@ai-herders/shared/dto";
-import { friendRequest, friendship, user } from "@ai-herders/shared/schema";
+import { friendRequest, friendship, user, userBlock } from "@ai-herders/shared/schema";
+import { and } from "drizzle-orm";
 
 import { auth } from "../auth";
 import { db } from "../db";
@@ -149,6 +150,19 @@ export async function friendshipRoutes(app: FastifyInstance): Promise<void> {
       }
       if (targetId === ctx.userId) {
         return reply.status(400).send({ error: "self_request" });
+      }
+
+      // R4 / REQ-053 — sentinel success: if the target has blocked the
+      // caller, return the same 201 shape as the real-insert path without
+      // persisting a row. The fabricated UUID is opaque to the caller; no
+      // consumer reads it back from the DB.
+      const [blockRow] = await db
+        .select({ id: userBlock.id })
+        .from(userBlock)
+        .where(and(eq(userBlock.byId, targetId), eq(userBlock.targetId, ctx.userId)))
+        .limit(1);
+      if (blockRow) {
+        return reply.status(201).send({ id: randomUUID(), status: "pending" });
       }
 
       const id = randomUUID();
