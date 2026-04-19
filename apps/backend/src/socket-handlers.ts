@@ -27,6 +27,7 @@ import type {
 } from "@ai-herders/shared/protocol";
 
 import { db } from "./db";
+import { recordUserConnect, recordUserDisconnect } from "./lib/metrics";
 import type { ChatIOServer } from "./socket";
 
 type ChatSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
@@ -43,8 +44,15 @@ function presenceEvent(userId: string, state: "online" | "offline"): PresenceSta
 export function registerSocketHandlers(io: ChatIOServer, socket: ChatSocket): void {
   const userId = socket.data.userId;
   if (userId) {
+    // REQ-158 admin tap: refcount this user's live sockets so the admin
+    // dashboard's "online users" widget reflects distinct users (not raw
+    // sockets). Multi-tab = one online user; see metrics.ts OnlineUserMap.
+    // Kept OUTSIDE the presence broadcast block so a future split between
+    // presence fanout and admin-count semantics stays readable.
+    recordUserConnect(userId);
     io.emit("presence.state", presenceEvent(userId, "online"));
     socket.on("disconnect", () => {
+      recordUserDisconnect(userId);
       io.emit("presence.state", presenceEvent(userId, "offline"));
     });
   }
