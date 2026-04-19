@@ -140,7 +140,17 @@ export async function invitationsRoutes(app: FastifyInstance): Promise<void> {
         }
       }
 
-      const [livePending] = await db
+      // REQ-089a R8 — the partial unique index `(room_id, invitee_id) WHERE
+      // status='pending'` can't reference `now()` (volatile; forbidden in
+      // partial index predicates), so an expired-but-still-'pending' row
+      // would block a fresh INSERT with a constraint violation even though
+      // R3 semantics say expired rows must not block. Resolve both cases by
+      // reading the single `status='pending'` row (if any) and either
+      // rejecting (live) or lazy-flipping it to 'expired' (stale). This is
+      // the same effect the REQ-157 GC sweep would produce, just at
+      // write-time instead of on a timer. Atomic-enough: the partial unique
+      // guarantees at most one such row exists, so no sweep loop is needed.
+      const [pendingRow] = await db
         .select({ id: roomInvite.id, expiresAt: roomInvite.expiresAt })
         .from(roomInvite)
         .where(
@@ -148,12 +158,17 @@ export async function invitationsRoutes(app: FastifyInstance): Promise<void> {
             eq(roomInvite.roomId, roomId),
             eq(roomInvite.inviteeId, invitee.id),
             eq(roomInvite.status, "pending"),
-            gt(roomInvite.expiresAt, new Date()),
           ),
         )
         .limit(1);
-      if (livePending) {
-        return reply.status(409).send({ error: "invite_pending" });
+      if (pendingRow) {
+        if (pendingRow.expiresAt > new Date()) {
+          return reply.status(409).send({ error: "invite_pending" });
+        }
+        await db
+          .update(roomInvite)
+          .set({ status: "expired" })
+          .where(eq(roomInvite.id, pendingRow.id));
       }
 
       const invitationId = randomUUID();
