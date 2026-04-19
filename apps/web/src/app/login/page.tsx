@@ -64,6 +64,9 @@ function LoginForm() {
               {form.formState.errors.password && (
                 <p className="text-sm text-destructive">{form.formState.errors.password.message}</p>
               )}
+              <p className="text-sm text-right">
+                <a className="underline text-muted-foreground" href="/forgot-password">Forgot password?</a>
+              </p>
             </div>
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" {...form.register("rememberMe")} className="h-4 w-4" />
