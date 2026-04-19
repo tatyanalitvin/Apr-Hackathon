@@ -29,29 +29,28 @@ The uploader-loses-access clause is the one that trips naive designs. Today's `r
 
 So future reviewers can see what this spec touches vs. leaves alone:
 
-- `packages/shared/src/schema.ts` attachment table already has `comment: text("comment")` at [schema.ts:373](../../packages/shared/src/schema.ts#L373). The column is also present in the initial migration `infra/migrations/0000_chilly_whirlwind.sql:31`. **Migration 0009 is therefore a dead file** — the drizzle `_journal.json` only tracks `0000`…`0008`, so the runner never opens `0009_attachment_comment.sql`. The pre-work placeholder stays as-is (3-line comment block). No risk of a duplicate-column ALTER because nothing will execute it; no need for `SELECT 1;` either.
-- `routes/attachments.ts:90-98` reads the `comment` multipart field, NFC-normalises, and persists to the column. **Cap is 500 chars today** (§4 REQ-E-COMMENT-CAP below lowers it to 280).
+- `packages/shared/src/schema.ts` attachment table already has `comment: text("comment")` at [schema.ts:373](../../packages/shared/src/schema.ts#L373) (committed in 9065eee "REQ-079 + REQ-082 comment validation"). The column is also present in the initial migration `infra/migrations/0000_chilly_whirlwind.sql:31`. **Migration 0009 is a no-op placeholder**, kept as a reserved slot for sequential numbering. The drizzle `_journal.json` only tracks `0000`…`0008`, so the runner never opens `0009_attachment_comment.sql`; its content is a single `-- no-op` comment. No DDL needed.
+- `routes/attachments.ts:90-98` reads the `comment` multipart field, NFC-normalises, and persists to the column. **Cap stays at 500 chars** — this is the shipped REQ-082 contract ([docs/specs/s2-attachments.md](s2-attachments.md) §REQ-082) bound by four tests in `attachments-upload.test.ts`. The brief's "Max 280 chars" line was ignored per the 2026-04-19 correction.
 - `routes/messages.ts` `loadAttachmentPayloads` already exposes `comment` in the message payload ([messages.ts:165](../../apps/backend/src/routes/messages.ts#L165)), so MessageList only needs to *render* it (no backend change for the display path).
 - Upload response shape today is `{ attachmentId }` only; §4 REQ-E-UPLOAD-RESP extends it to include `comment` for symmetry.
 - Web client already wires the comment partway: `UploadAttachmentInput.comment` at [chat-api.ts:21-25](../../apps/web/src/lib/chat-api.ts#L21-L25) and the multipart `append("comment", …)` at [chat-api.ts:300-303](../../apps/web/src/lib/chat-api.ts#L300-L303). What's missing: (a) `UploadAttachmentResult.comment` per REQ-E-UPLOAD-RESP, (b) MessageComposer state + input for the user to type it, (c) the `handleUpload` call site at [RoomClient.tsx:330](../../apps/web/src/app/rooms/[roomId]/RoomClient.tsx#L330) has to pass the comment into `uploadAttachment` — see §5.2 + **§10 blocker** on this one.
 
 ## 4. Requirements (REQ-IDs — pnpm trace)
 
-- **REQ-E-COMMENT-CAP** (v3.docx §2.6.3): `attachment.comment` is capped at **280 UTF-16 code units** (i.e. JS `String.length`, the same unit the HTML `maxLength` attribute uses). Overflow → 400 `comment_too_long` before the file is persisted. Empty string normalises to NULL (today's handler already does this via `commentField.length > 0`). Reason the cap drops from the pre-existing 500: the brief calls 280 "client-side-friendly" and we want the UI `maxLength` attribute to match the backend byte-for-byte. Reason code-unit rather than code-point: avoids a `[...str].length` / `Intl.Segmenter` dependency and matches the HTML attribute exactly; a 280-emoji caption getting rejected at ~140 graphemes is an acceptable cost for that parity.
-- **REQ-E-UPLOAD-RESP** (§2.6.3): the upload handler's 201 body includes `comment: string | null` so the client can reflect exactly what the server persisted (e.g., after NFC normalisation). No other response fields change.
+- **REQ-E-UPLOAD-RESP** (§2.6.3): the upload handler's 201 body includes `comment: string | null` so the client can reflect exactly what the server persisted (e.g., after NFC normalisation). No other response fields change. The existing 500-char cap (REQ-082) is untouched — that requirement is binding elsewhere.
 - **REQ-E-REVOKE-GATE** (v3.docx §2.6.4): GET `/api/v1/attachments/:id` returns 403 when ANY of the following holds for caller `u` on the file's `roomId = r`:
   1. `u` has no `room_member` row for `r`; OR
   2. A `room_ban` row exists for `(r, u)`.
   Otherwise the existing stream path runs. 404 on unknown `:id` remains.
 - **REQ-E-REVOKE-UPLOADER** (v3.docx §2.6.5): the uploader is subject to the same gate. After being kicked, `GET /api/v1/attachments/:own-file` → 403. No uploader grandfathering.
-- **REQ-E-UI-COMPOSER-COMMENT** (§2.6.3): when `pending.length > 0` the composer renders a single batch-scoped input "Add a comment (optional)" (`maxLength=280`) inside the AGENT-E marker zone. On send, the composer forwards the comment via the existing `onUpload` callback — see §5 design for the callback-signature widening.
+- **REQ-E-UI-COMPOSER-COMMENT** (§2.6.3): when `pending.length > 0` the composer renders a single batch-scoped input "Add a comment (optional)" (`maxLength=500`, matching REQ-082) inside the AGENT-E marker zone. On send, the composer forwards the comment via the existing `onUpload` callback — see §5 design for the callback-signature widening.
 - **REQ-E-UI-LIST-COMMENT** (§2.6.3): when a rendered attachment has a non-null `comment`, MessageList shows it as a small italic line beneath the filename, visually truncated via CSS (`truncate` + `max-w-[18rem]`); full text exposed via `title=""` for hover. No JS length slicing — CSS is the single source of truth for the visible cutoff.
 
 ## 5. Design
 
 ### 5.1 Backend
 
-**Comment cap.** `COMMENT_MAX` constant in `routes/attachments.ts` lowers from 500 to 280. Same 400 error shape (`{ error: "comment_too_long" }`). Measure `commentField.length` before NFC — string length post-normalisation can only shrink or stay equal for well-formed input, so capping before normalise keeps the error deterministic.
+**Comment cap.** Unchanged — stays at 500 per REQ-082. No edit to `COMMENT_MAX`.
 
 **Upload response.** Include the post-normalisation `comment: string | null` on the 201 body. Only additive; all existing supertest assertions that read `res.body.attachmentId` continue to pass.
 
@@ -133,12 +132,11 @@ SELECT 1;
 
 New files (both allowed by file ownership):
 
-- `apps/backend/tests/attachments-comment.test.ts`
-  - **REQ-E-COMMENT-CAP** (positive): upload with `comment="see bottom of page 3"` → 201; GET message payload via `POST /api/v1/rooms/:id/messages` → message.attachments[0].comment equals the sent string (NFC-normalised).
-  - **REQ-E-COMMENT-CAP** (overflow): upload with 281-char comment → 400 `comment_too_long`; row not inserted (DB `count(*)` unchanged).
-  - **REQ-E-COMMENT-CAP** (empty): upload with `comment=""` → 201; stored value is NULL (SELECT `comment IS NULL`).
-  - **REQ-E-UPLOAD-RESP**: 201 body contains `comment: string | null` matching persisted value.
-  - **Persistence across reconnect**: after the upload, Alice's GET `/api/v1/rooms/:id/messages` returns the comment. (No actual socket reconnect — "reconnect" here means a fresh HTTP fetch of history.)
+- `apps/backend/tests/attachments-comment.test.ts` — owns **REQ-E-UPLOAD-RESP only**. Cap + NFC-on-store + empty-string-NULL-in-db are covered by the shipped REQ-082 tests in `attachments-upload.test.ts` (which keep the 500-char cap as their binding contract); duplicating them here would just diverge.
+  - **REQ-E-UPLOAD-RESP (NFC echo)**: upload with a decomposed NFD string; 201 body's `comment` equals the NFC-normalised form, matching the DB row.
+  - **REQ-E-UPLOAD-RESP (empty)**: empty-string comment → 201 body's `comment` is `null`.
+  - **REQ-E-UPLOAD-RESP (absent)**: no `comment` field → 201 body's `comment` is `null`.
+  - **Round-trip through message payload**: upload with a caption, send a message referencing the attachment, GET `/api/v1/rooms/:id/messages` → caption appears under `messages[].attachments[].comment`. Regression guard around `loadAttachmentPayloads`.
 
 - `apps/backend/tests/attachments-revoke.test.ts`
   - **REQ-E-REVOKE-GATE, kick path** (non-cuttable): Alice owns room, Bob is member, Bob uploads F. Alice `DELETE /api/v1/rooms/:id/members/:bob` (agent A's endpoint — kick = insert room_ban + delete room_member). Bob `GET /api/v1/attachments/:F` → 403. Assert a `room_ban` row exists for `(room, bob)` — sanity that we're exercising A's code path. **Caveat**: this alone doesn't distinguish the old `room_member`-only gate from the new `room_member ∧ ¬room_ban` gate (both 403 via the missing member row). It's included because §2.6.5 explicitly calls out the kick flow and we want a 1:1 test for the brief. The NOT-EXISTS branch is exercised separately below.
@@ -163,10 +161,14 @@ Vitest-one-buildApp discipline: each new test file calls `buildApp()` exactly on
 From the brief, repeated here so a reviewer can see the cut queue without leaving the spec:
 
 1. Per-attachment comment → one-per-batch (already the chosen default).
-2. 280-char cap → accept any length; DB column is `text`. **Note**: cutting the cap also means dropping the "empty string → NULL" coercion is still intact (the `commentField.length > 0` branch), and the 400 overflow response goes away entirely. Don't leave the cap at 280 on the client but unchecked on the server — that's silent client-side-only enforcement and a rejected submit from a manual curl would be undefined.
+2. Comment cap tweak — no-op; cap stays at 500 per REQ-082, no cut lever here.
 3. DM-participant branch refinement → defer (the existing room-member gate covers DMs).
 
 Non-cuttable: the **member + ban coexist** revoke test (proves the new NOT-EXISTS branch) and the kick/POST-`/bans` revoke tests (prove the wave-1 moderation table is the source of truth for the wave-2 gate). Together they cover both "the gate fires on ban alone" and "real-world kick flows 403 correctly".
+
+## Revision log
+
+- **2026-04-19 (human correction)**: the original brief called for lowering the comment cap from 500 → 280 chars and an `ALTER TABLE` in migration 0009. Both were discovered to be stale — the `attachment.comment` column shipped with 9065eee at 500 chars (REQ-082 binding contract). This spec's §3/§4/§5/§6/§8 were re-written to keep the cap at 500 and leave migration 0009 as a no-op placeholder. REQ-E-COMMENT-CAP was deleted as a separate requirement; its coverage folds into the existing REQ-082 tests.
 
 ## 9. Open questions for human
 

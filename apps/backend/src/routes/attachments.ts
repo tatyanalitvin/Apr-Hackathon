@@ -16,7 +16,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { pipeline } from "node:stream/promises";
 import { and, eq } from "drizzle-orm";
-import { attachment, roomMember } from "@ai-herders/shared/schema";
+import { attachment, roomBan, roomMember } from "@ai-herders/shared/schema";
 
 import { auth } from "../auth";
 import { db } from "../db";
@@ -164,7 +164,9 @@ export async function attachmentsRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(500).send({ error: "storage_unavailable" });
       }
 
-      return reply.status(201).send({ attachmentId });
+      // REQ-E-UPLOAD-RESP — echo persisted `comment` (post-NFC, or null for
+      // the empty-string case) so the client reflects exactly what was stored.
+      return reply.status(201).send({ attachmentId, comment });
     },
   );
 
@@ -181,6 +183,12 @@ export async function attachmentsRoutes(app: FastifyInstance): Promise<void> {
       }
       const userId = session.user.id;
 
+      // REQ-E-REVOKE-GATE — gate is `room_member ∧ ¬room_ban`, evaluated on
+      // every request (no signed URLs, no cached grants). The ban LEFT JOIN
+      // is what makes the check robust to future states where a member row
+      // somehow coexists with a ban (e.g., admin re-add without clearing the
+      // ban). Wave-1 moderation deletes the member row on kick, but the gate
+      // doesn't rely on that ordering.
       const [row] = await db
         .select({
           id: attachment.id,
@@ -189,28 +197,30 @@ export async function attachmentsRoutes(app: FastifyInstance): Promise<void> {
           storagePath: attachment.storagePath,
           mimeType: attachment.mimeType,
           sizeBytes: attachment.sizeBytes,
+          memberId: roomMember.id,
+          banId: roomBan.id,
         })
         .from(attachment)
+        .leftJoin(
+          roomMember,
+          and(
+            eq(roomMember.roomId, attachment.roomId),
+            eq(roomMember.userId, userId),
+          ),
+        )
+        .leftJoin(
+          roomBan,
+          and(
+            eq(roomBan.roomId, attachment.roomId),
+            eq(roomBan.userId, userId),
+          ),
+        )
         .where(eq(attachment.id, request.params.id))
         .limit(1);
       if (!row) {
         return reply.status(404).send({ error: "not_found" });
       }
-
-      // R6 / REQ-083 — membership recomputed on every request. No signed URLs,
-      // no cached grants. Former members → 403 (even the uploader, per R14 /
-      // ADR-0006 deviation from v4's `/uploads/mine`).
-      const [membership] = await db
-        .select({ id: roomMember.id })
-        .from(roomMember)
-        .where(
-          and(
-            eq(roomMember.roomId, row.roomId),
-            eq(roomMember.userId, userId),
-          ),
-        )
-        .limit(1);
-      if (!membership) {
+      if (!row.memberId || row.banId) {
         return reply.status(403).send({ error: "forbidden" });
       }
 

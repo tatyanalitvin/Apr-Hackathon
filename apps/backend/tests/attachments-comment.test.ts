@@ -1,12 +1,10 @@
-// REQ-E-COMMENT-CAP / REQ-E-UPLOAD-RESP — optional attachment comment.
-// Binding spec: docs/specs/s2-attachments-enhance.md §4, §6.
+// REQ-E-UPLOAD-RESP — upload 201 body echoes the persisted `attachment.comment`
+// (post-NFC; `null` for the empty-string case) so the client reflects exactly
+// what was stored. Binding spec: docs/specs/s2-attachments-enhance.md §4.
 //
-// Covers:
-//   - 280 UTF-16 code-unit cap (lowered from the shipped 500 in s2-attachments.md).
-//   - 201 upload response echoes the persisted `comment` field.
-//   - Empty-string coerces to NULL (regression guard around the existing branch).
-//   - Comment round-trips through the message-payload (already wired in
-//     routes/messages.ts `loadAttachmentPayloads`; regression guard).
+// Cap enforcement, NFC storage, and >cap → 400 are owned by the shipped
+// REQ-082 tests in attachments-upload.test.ts (500-char cap stands). This
+// file asserts only the new response-shape requirement.
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import request from "supertest";
@@ -72,7 +70,7 @@ async function uploadWithComment(
   return req.attach("file", bodyBytes, { filename: "x.txt", contentType: "text/plain" });
 }
 
-describe("REQ-E-COMMENT-CAP / REQ-E-UPLOAD-RESP — attachment comment wiring", () => {
+describe("REQ-E-UPLOAD-RESP — upload response echoes persisted comment", () => {
   let app: FastifyInstance;
 
   beforeAll(async () => {
@@ -88,16 +86,16 @@ describe("REQ-E-COMMENT-CAP / REQ-E-UPLOAD-RESP — attachment comment wiring", 
     await flushRedis();
   });
 
-  test("REQ-E-UPLOAD-RESP — 201 body includes `comment` echoing persisted NFC value", async () => {
+  test("REQ-E-UPLOAD-RESP — 201 body echoes post-NFC comment", async () => {
     const alice = await createRoomAsOwner(
       app,
-      "ecap-ok@example.com",
-      "ecap_ok",
-      "ECAP OK",
+      "eresp-nfc@example.com",
+      "eresp_nfc",
+      "ERESP NFC",
     );
-    // Compose a string whose NFC form differs from its NFD input — proves the
-    // echo reflects post-normalisation state, not the raw bytes.
-    const rawNFD = "Cafe\u0301"; // "Café" as C + \u0301 combining acute.
+    // NFD input → NFC on store. Proves the echo reflects what was persisted,
+    // not the raw bytes the client sent.
+    const rawNFD = "Cafe\u0301"; // "Café" decomposed.
     const res = await uploadWithComment(alice.agent, alice.roomId, rawNFD);
     expect(res.status).toBe(201);
     expect(res.body.attachmentId).toBeTruthy();
@@ -110,65 +108,36 @@ describe("REQ-E-COMMENT-CAP / REQ-E-UPLOAD-RESP — attachment comment wiring", 
     expect(row?.comment).toBe(rawNFD.normalize("NFC"));
   });
 
-  test("REQ-E-COMMENT-CAP — 280-char comment accepted", async () => {
+  test("REQ-E-UPLOAD-RESP — empty-string comment echoes as null", async () => {
     const alice = await createRoomAsOwner(
       app,
-      "ecap-280@example.com",
-      "ecap_280",
-      "ECAP 280",
-    );
-    const comment = "a".repeat(280);
-    const res = await uploadWithComment(alice.agent, alice.roomId, comment);
-    expect(res.status).toBe(201);
-    expect(res.body.comment).toBe(comment);
-  });
-
-  test("REQ-E-COMMENT-CAP — 281-char comment rejected with comment_too_long", async () => {
-    const alice = await createRoomAsOwner(
-      app,
-      "ecap-281@example.com",
-      "ecap_281",
-      "ECAP 281",
-    );
-    const comment = "a".repeat(281);
-    const countBefore = (
-      await getTestDb().select({ id: attachment.id }).from(attachment)
-    ).length;
-
-    const res = await uploadWithComment(alice.agent, alice.roomId, comment);
-    expect(res.status).toBe(400);
-    expect(res.body.error).toBe("comment_too_long");
-
-    const countAfter = (
-      await getTestDb().select({ id: attachment.id }).from(attachment)
-    ).length;
-    expect(countAfter).toBe(countBefore);
-  });
-
-  test("REQ-E-COMMENT-CAP — empty-string comment stored as NULL", async () => {
-    const alice = await createRoomAsOwner(
-      app,
-      "ecap-empty@example.com",
-      "ecap_empty",
-      "ECAP EMPTY",
+      "eresp-empty@example.com",
+      "eresp_empty",
+      "ERESP EMPTY",
     );
     const res = await uploadWithComment(alice.agent, alice.roomId, "");
     expect(res.status).toBe(201);
     expect(res.body.comment).toBeNull();
-
-    const [row] = await getTestDb()
-      .select({ comment: attachment.comment })
-      .from(attachment)
-      .where(eq(attachment.id, res.body.attachmentId));
-    expect(row?.comment).toBeNull();
   });
 
-  test("REQ-E-COMMENT-CAP — comment round-trips through message payload", async () => {
+  test("REQ-E-UPLOAD-RESP — no comment field → null on response", async () => {
     const alice = await createRoomAsOwner(
       app,
-      "ecap-rt@example.com",
-      "ecap_rt",
-      "ECAP RT",
+      "eresp-absent@example.com",
+      "eresp_absent",
+      "ERESP ABSENT",
+    );
+    const res = await uploadWithComment(alice.agent, alice.roomId, undefined);
+    expect(res.status).toBe(201);
+    expect(res.body.comment).toBeNull();
+  });
+
+  test("REQ-E-UPLOAD-RESP — comment round-trips via message payload", async () => {
+    const alice = await createRoomAsOwner(
+      app,
+      "eresp-rt@example.com",
+      "eresp_rt",
+      "ERESP RT",
     );
     const caption = "see bottom of page 3";
     const up = await uploadWithComment(
@@ -178,6 +147,7 @@ describe("REQ-E-COMMENT-CAP / REQ-E-UPLOAD-RESP — attachment comment wiring", 
       Buffer.from("pdf bytes"),
     );
     expect(up.status).toBe(201);
+    expect(up.body.comment).toBe(caption);
 
     const send = await alice.agent
       .post(`/api/v1/rooms/${alice.roomId}/messages`)
