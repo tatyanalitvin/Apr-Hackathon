@@ -170,6 +170,20 @@ export interface RoomDeletedEvent {
   deletedBy: string;      // userId of the owner who issued the delete
 }
 
+// REQ-022 / REQ-087 / REQ-088 — emitted after a successful owner PATCH so every
+// live subscriber rekeys name / description / visibility without a /rooms/me
+// fetch. Fanout: `server.to(roomId).emit(...)`. At-most-once best-effort — no
+// watermark; reconcile on the next /rooms/me or page reload.
+export interface RoomUpdatedEvent {
+  type: "room.updated";
+  roomId: string;
+  name: string;
+  description: string | null;
+  visibility: "public" | "private";
+  updatedBy: string;       // userId of the owner issuing the change
+  updatedAt: string;       // ISO timestamp
+}
+
 // ──────────────────────────────────────────────────────────────────────────
 // room mgmt — reserved event names (wave1 scaffold). Payloads intentionally
 // left as `{}` stubs; the owner agents fill them in their feature branches.
@@ -288,6 +302,7 @@ export interface ServerToClientEvents {
   "friend.request.accepted": (evt: FriendRequestAcceptedEvent) => void;
   "room.member.joined": (evt: RoomMemberJoinedEvent) => void;
   "room.deleted": (evt: RoomDeletedEvent) => void;
+  "room.updated": (evt: RoomUpdatedEvent) => void;
   // reserved — wave1 scaffold (agents A/B fill payloads in feature branches).
   "room.role.changed": (evt: RoomRoleChangedEvent) => void;
   "room.member.kicked": (evt: RoomMemberKickedEvent) => void;

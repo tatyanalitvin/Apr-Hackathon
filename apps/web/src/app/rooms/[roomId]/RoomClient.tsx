@@ -10,6 +10,7 @@ import type {
   MessageDeletedEvent,
   RoomDeletedEvent,
   RoomMemberJoinedEvent,
+  RoomUpdatedEvent,
 } from "@ai-herders/shared/protocol";
 import { RequireSession } from "@/components/chat/RequireSession";
 import { Header } from "@/components/chat/Header";
@@ -231,6 +232,26 @@ function RoomContent({ roomId }: { roomId: string }) {
     };
     socket.on("room.deleted", onRoomDeleted);
 
+    // REQ-022/087/088 — reconcile name/description/visibility on the open
+    // header + sidebar row without waiting for the 10s /rooms/me poll.
+    const onRoomUpdated = (evt: RoomUpdatedEvent) => {
+      setMyRooms((prev) =>
+        prev
+          ? prev.map((r) =>
+              r.id === evt.roomId
+                ? {
+                    ...r,
+                    name: evt.name,
+                    description: evt.description,
+                    visibility: evt.visibility,
+                  }
+                : r,
+            )
+          : prev,
+      );
+    };
+    socket.on("room.updated", onRoomUpdated);
+
     let cancelled = false;
     void (async () => {
       await new Promise<void>((resolve) => {
@@ -259,6 +280,7 @@ function RoomContent({ roomId }: { roomId: string }) {
       socket.off("message.deleted", onMessageDeleted);
       socket.off("room.member.joined", onMemberJoined);
       socket.off("room.deleted", onRoomDeleted);
+      socket.off("room.updated", onRoomUpdated);
       socket.emit("room.unsubscribe", roomId);
       socket.disconnect();
       socketRef.current = null;
@@ -509,7 +531,17 @@ function RoomContent({ roomId }: { roomId: string }) {
       </nav>
       <main className="flex flex-col min-h-0 overflow-hidden">
         <div className="flex items-center justify-between border-b px-4 py-2 text-sm font-semibold">
-          <span>#{currentRoom?.name ?? roomId}</span>
+          <div className="min-w-0">
+            <div>#{currentRoom?.name ?? roomId}</div>
+            {currentRoom?.description ? (
+              <div
+                className="text-xs font-normal text-muted-foreground truncate"
+                data-testid="room-description"
+              >
+                {currentRoom.description}
+              </div>
+            ) : null}
+          </div>
           <div className="flex items-center gap-1">
             {/* REQ-123 — bell toggle. Optimistically flip mutedUntil so the
                 icon and RoomList pill change instantly; the /rooms/me poll

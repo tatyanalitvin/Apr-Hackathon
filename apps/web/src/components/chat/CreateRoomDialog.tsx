@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { createChatApi } from "@/lib/socket";
 
 interface CreateRoomDialogProps {
@@ -32,6 +33,7 @@ export function CreateRoomDialog({ onCreated }: CreateRoomDialogProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
   const [visibility, setVisibility] = useState<Visibility>("public");
   const [submitting, setSubmitting] = useState(false);
   const [api] = useState(() => createChatApi());
@@ -43,12 +45,18 @@ export function CreateRoomDialog({ onCreated }: CreateRoomDialogProps) {
       toast.error("Enter a room name.");
       return;
     }
+    const trimmedDesc = description.trim();
     setSubmitting(true);
-    const r = await api.createRoom({ name: trimmed, visibility });
+    const r = await api.createRoom({
+      name: trimmed,
+      visibility,
+      ...(trimmedDesc ? { description: trimmedDesc } : {}),
+    });
     setSubmitting(false);
     if (r.ok) {
       setOpen(false);
       setName("");
+      setDescription("");
       setVisibility("public");
       onCreated?.();
       router.push(`/rooms/${r.data.id}`);
@@ -107,6 +115,21 @@ export function CreateRoomDialog({ onCreated }: CreateRoomDialogProps) {
               autoComplete="off"
               disabled={submitting}
               maxLength={64}
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="create-room-description">
+              Description <span className="text-muted-foreground">(optional)</span>
+            </Label>
+            <Textarea
+              id="create-room-description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="What's this room for?"
+              rows={3}
+              maxLength={500}
+              disabled={submitting}
             />
           </div>
 

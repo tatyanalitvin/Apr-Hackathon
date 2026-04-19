@@ -26,6 +26,11 @@ import { isUniqueViolation } from "../lib/pg-error";
 import { checkRoomCreateRateLimit } from "../lib/room-create-rate-limit";
 import { requireFriendshipAuth } from "./friendship";
 
+// REQ-028 — per-room membership cap (v3.docx §3.1, docs/specs/s2-rooms.md R5).
+// Enforced on BOTH membership-creating paths (self-join + invitation accept).
+// Exported so invitations.ts can reuse the same constant and error shape.
+export const ROOM_MEMBER_CAP = 1000;
+
 // Per-user 60/hour rate limit on POST /rooms/:id/join (spec §5).
 // Separate Redis client from friend-rate-limit; both use their own
 // namespaced keys ("rate:room-join:…" vs "rate:friend-req:…") so the
@@ -162,6 +167,29 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(403).send({ error: "banned_from_room" });
       }
 
+      // REQ-028 — per-room 1000 cap. Counted before the insert so we can
+      // short-circuit with 409 room_full. An already-member repeat still
+      // needs to fall through to the idempotent ON CONFLICT path below, so
+      // we skip the cap check when the caller is already in the room.
+      const [existing] = await db
+        .select({ id: roomMember.id })
+        .from(roomMember)
+        .where(
+          and(eq(roomMember.roomId, target.id), eq(roomMember.userId, ctx.userId)),
+        )
+        .limit(1);
+      if (!existing) {
+        const [countRow] = await db
+          .select({ count: sql<number>`COUNT(*)::int` })
+          .from(roomMember)
+          .where(eq(roomMember.roomId, target.id));
+        if ((countRow?.count ?? 0) >= ROOM_MEMBER_CAP) {
+          return reply
+            .status(409)
+            .send({ error: "room_full", cap: ROOM_MEMBER_CAP });
+        }
+      }
+
       // ON CONFLICT on the (user_id, room_id) unique index — insert is a
       // no-op when a membership already exists. rowCount distinguishes the
       // fresh-insert happy path from the idempotent-repeat no-op.
@@ -228,6 +256,7 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
       .select({
         id: room.id,
         name: room.name,
+        description: room.description,
         kind: room.kind,
         visibility: room.visibility,
         memberCount: memberCountExpr,
@@ -256,6 +285,7 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
       .select({
         id: room.id,
         name: room.name,
+        description: room.description,
         kind: room.kind,
         visibility: room.visibility,
         ownerId: room.ownerId,
@@ -277,9 +307,12 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
     // tab visibility (owner|admin see them, member hides them) in a single
     // /rooms/me round trip. DM rows carry role='owner' for the DM creator in
     // the current seed path; ManageRoomModal hides on kind==='dm' anyway.
+    // REQ-022 — description rides along so RoomClient can render it under
+    // `#name` without a dedicated room-detail endpoint.
     const payload = rows.map((r) => ({
       id: r.id,
       name: r.name,
+      description: r.description,
       kind: r.kind,
       visibility: r.visibility,
       ownerId: r.ownerId,
@@ -519,27 +552,55 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(403).send({ error: "not_room_owner" });
       }
 
-      // No-op when the body omits every mutable field. Still a 200 so the
-      // client can treat PATCH as idempotent.
+      // REQ-022 / REQ-088 — name/description/visibility all optional. An
+      // omitted field preserves the current value; `description: null`
+      // explicitly clears a prior value. No-body PATCH stays a no-op 200
+      // so the client can treat it as idempotent.
       const nextName = parsed.data.name ?? target.name;
+      const descriptionProvided = Object.prototype.hasOwnProperty.call(
+        parsed.data,
+        "description",
+      );
+      const nextDescription = descriptionProvided
+        ? (parsed.data.description ?? null)
+        : target.description;
+      const nextVisibility = parsed.data.visibility ?? null;
 
       try {
         const [updated] = await db
           .update(room)
-          .set({ name: nextName })
+          .set({
+            name: nextName,
+            description: nextDescription,
+            ...(nextVisibility ? { visibility: nextVisibility } : {}),
+          })
           .where(eq(room.id, roomId))
           .returning({
             id: room.id,
             name: room.name,
             description: room.description,
+            visibility: room.visibility,
             ownerId: room.ownerId,
             createdAt: room.createdAt,
           });
+        const updatedAt = new Date();
+        // Emit on the room channel so every live subscriber re-keys the
+        // row (browse card, sidebar, header) without a /rooms/me fetch.
+        // Fire-and-forget, at-most-once — same contract as room.deleted.
+        request.server.io.to(roomId).emit("room.updated", {
+          type: "room.updated",
+          roomId,
+          name: updated!.name ?? "",
+          description: updated!.description,
+          visibility: updated!.visibility,
+          updatedBy: ctx.userId,
+          updatedAt: updatedAt.toISOString(),
+        });
         return reply.status(200).send({
           id: updated!.id,
           name: updated!.name,
           description: updated!.description,
-          visibility: "public" as const,
+          visibility: updated!.visibility,
           ownerId: updated!.ownerId!,
           createdAt: updated!.createdAt.toISOString(),
         });
