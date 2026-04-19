@@ -21,24 +21,26 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import request from "supertest";
 import type { FastifyInstance } from "fastify";
 
-import { buildApp } from "../src/app";
+import { buildApp, __setTestRateLimitGlobalMax } from "../src/app";
 
 // Keep TEST_GLOBAL_MAX low enough that each test can trip the 429 path in
 // a handful of requests. Setup.ts leaves the env-level cap generous
-// (10000) for everything else — we pass this override directly to
-// buildApp() to pin the cap for this file only.
+// (10000) for everything else — we install the test-only override BEFORE
+// buildApp() so the @fastify/rate-limit registration picks it up.
 const TEST_GLOBAL_MAX = 5;
 
 describe("REQ-147 global rate-limit ceiling", () => {
   let app: FastifyInstance;
 
   beforeAll(async () => {
-    app = await buildApp({ rateLimitGlobalMax: TEST_GLOBAL_MAX });
+    __setTestRateLimitGlobalMax(TEST_GLOBAL_MAX);
+    app = await buildApp();
     await app.ready();
   });
 
   afterAll(async () => {
     await app.close();
+    __setTestRateLimitGlobalMax(undefined);
   });
 
   test("REQ-147 429 after the configured global cap — shape is {error:'rate_limited', retryAfter}", async () => {

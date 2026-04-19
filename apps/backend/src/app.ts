@@ -43,19 +43,20 @@ declare module "fastify" {
   }
 }
 
-export interface BuildAppOptions {
-  // REQ-147 — per-build override for the global @fastify/rate-limit cap.
-  // Tests need to pin a deterministic, low cap WITHOUT racing the env.ts
-  // module-load that happens when the first import of src/env runs (vitest
-  // singleFork caches modules across test files — whichever test file
-  // imported src/app first pins env.APP_RATE_LIMIT_GLOBAL_MAX for the
-  // whole fork). Passing it via options side-steps that.
-  rateLimitGlobalMax?: number;
+// Test-only escape hatch for the REQ-147 global rate-limit cap. Tests need
+// to pin a deterministic, low cap WITHOUT racing the env.ts module-load that
+// happens when the first import of src/env runs (vitest singleFork caches
+// modules across test files — whichever test file imports src/app first pins
+// env.APP_RATE_LIMIT_GLOBAL_MAX for the whole fork). The double-underscore
+// prefix signals "internal — do not call from production code"; production
+// always falls through to env.APP_RATE_LIMIT_GLOBAL_MAX. See
+// tests/rate-limit-global.test.ts for the only legitimate caller.
+let __testRateLimitGlobalMax: number | undefined;
+export function __setTestRateLimitGlobalMax(max: number | undefined): void {
+  __testRateLimitGlobalMax = max;
 }
 
-export async function buildApp(
-  options: BuildAppOptions = {},
-): Promise<FastifyInstance> {
+export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
     logger: { level: env.LOG_LEVEL },
     trustProxy: true,
@@ -114,7 +115,7 @@ export async function buildApp(
   });
   await app.register(fastifyRateLimit, {
     global: true,
-    max: options.rateLimitGlobalMax ?? env.APP_RATE_LIMIT_GLOBAL_MAX,
+    max: __testRateLimitGlobalMax ?? env.APP_RATE_LIMIT_GLOBAL_MAX,
     timeWindow: "1 minute",
     redis: rateLimitRedis,
     nameSpace: "rl:global:",
