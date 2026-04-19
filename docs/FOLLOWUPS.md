@@ -10,6 +10,14 @@ Convention: when you land the fix, delete the bullet here AND the matching `TODO
 
 - ~~**Implement `pnpm trace` REQ-ID coverage check.**~~ Shipped 2026-04-18 in [scripts/trace-req-ids.mjs](../scripts/trace-req-ids.mjs). Strict by default (exits 1 on missing); set `TRACE_VERBOSE=1` for per-REQ coverage, `TRACE_STRICT=1` to also fail on zombie REQ-IDs in tests that no spec §4 claims.
 
+## Batched verification queue (run before next submission-gate checkpoint)
+
+Rationale: heavy smoke checks (docker compose --build, full browser flow) stall feature development when run per-feature. Queue them and run in a single pass after every 2–3 feature merges, or immediately before a submission-gate checkpoint.
+
+- **Docker-compose submission-gate smoke.** `docker compose down -v && docker compose up --build --abort-on-container-exit` from repo root — confirm migrate + seed exit 0, backend logs `Listening on 0.0.0.0:4000`, web serves `/login` with HTTP 200. Last confirmed: before `feat/s1-rooms`. Re-run after: s1-rooms merge + next 1–2 features. Steps codified in [SMOKE.md §1–§2](./SMOKE.md).
+- **Manual curl smoke for new write endpoints** (create room + leave room happy/403 per [plans/2026-04-19-s1-rooms.md](./plans/2026-04-19-s1-rooms.md#task-10) Step 5). Integration tests cover the behavior; the curl pass just re-confirms the containerized stack wires auth cookies + route prefix `/api/v1` correctly end-to-end. Low incremental value when tests are green; bundle with the docker smoke above.
+- **Playwright multi-browser multi-user** (per `feedback-playwright-multi-user` memory — Chrome + Firefox to exercise concurrent sessions on the same feature). Run at the same checkpoint as the docker smoke so the same running stack serves both.
+
 ## S2 → S3
 
 - **Attachment orphan GC.** `packages/shared/src/schema.ts` keeps `attachment.messageId` nullable so files can be uploaded in step 1 of a 2-step "upload → send message with references" flow. If step 2 never happens (client crash, abandoned tab, rejected send), the file sits in `UPLOAD_DIR` + the DB row lingers forever. At 300 concurrent users for 24h it's negligible; at S3-hardening time we want a sweep.
