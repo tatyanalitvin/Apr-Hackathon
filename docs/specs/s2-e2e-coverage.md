@@ -2,7 +2,7 @@
 
 **Status**: draft (awaiting human approval)
 **Branch**: `feat/e2e-scaffolding` (worktree: `../hackaton-e2e-scaffolding`)
-**Owner (human)**: litvin.tatianka@gmail.com
+**Owner (human)**: hackathon human
 **Owner (agent)**: Claude Code (agent G, parallel run)
 
 **Binding source**: [`/task/2026_04_18_AI_herders_jam_-_requirements_v3.docx`](../../../task/2026_04_18_AI_herders_jam_-_requirements_v3.docx). `/task/*.md` files are AI-prep, REQ-ID hooks only.
@@ -67,7 +67,7 @@ Each R is one browser scenario; REQ-IDs embedded in the R name are the trace anc
 
 - [ ] **R9 (REQ-088)**: Bob's `/rooms` catalog does NOT list Alice's private room before invite+accept. (Already asserted inline in `tests/e2e/s2-invitations.spec.ts:111` — documenting, not re-writing.)
 - [ ] **R10 (REQ-089)**: Alice invites Bob; Bob accepts; Bob lands in the room. (Already in `tests/e2e/s2-invitations.spec.ts`.)
-- [ ] **R11 (REQ-089)**: Alice invites Bob; Bob declines from InboxList; Bob's inbox row disappears, Alice's outgoing list transitions to `declined`. **New test**, sibling file `tests/e2e/s2-invitations-decline.spec.ts` so agent B's file stays untouched.
+- [ ] **R11 (REQ-089)**: Alice invites Bob; Bob declines from InboxList; Bob's inbox row disappears, Alice's `Pending invitations` list drops the row live (client-side filter on `room.invitation.declined` per [InvitationsTab.tsx:62-79](../../apps/web/src/components/chat/manage-room/InvitationsTab.tsx#L62-L79) — no "declined" status badge; the row is simply removed). **New test**, sibling file `tests/e2e/s2-invitations-decline.spec.ts` so agent B's file stays untouched.
 - [ ] **R12 (REQ-089, REQ-089a)**: Cancel asymmetry — already covered in `s2-invitations.spec.ts` second test. Documenting; no new code.
 
 ### Replies (agent C, §2.5.2/3)
@@ -93,7 +93,7 @@ Each R is one browser scenario; REQ-IDs embedded in the R name are the trace anc
 
 `tests/e2e/` (confirmed — `apps/web/tests/` does not exist and `playwright.config.ts` points to `./tests/e2e`). One file per feature area:
 
-```
+```text
 tests/e2e/s2-sessions.spec.ts            # R1, R2, R3
 tests/e2e/s2-moderation.spec.ts          # R4–R8
 tests/e2e/s2-invitations-decline.spec.ts # R11 (sibling to agent B's s2-invitations.spec.ts)
