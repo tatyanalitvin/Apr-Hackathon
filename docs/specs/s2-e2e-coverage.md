@@ -72,7 +72,7 @@ Each R is one browser scenario; REQ-IDs embedded in the R name are the trace anc
 
 ### Replies (agent C, §2.5.2/3)
 
-- [ ] **R13 (REQ-110, REQ-133)**: Alice sends `hello` in `#general`; Bob hovers, clicks Reply, composer shows `[Replying to: Alice ×]`, Bob sends `hi alice`. Alice's `MessageList` shows Bob's message with a quoted block containing `Alice: hello`. (Two BrowserContexts.)
+- [ ] **R13 (REQ-110, REQ-133)**: Alice sends `hello`, then hovers her own message, clicks ⋯ → Reply, composer shows `Replying to Alice`, Alice sends `reply-body`. Bob (observer in the same room) sees Alice's reply message with a quoted block containing `Alice: hello`. (Two BrowserContexts. The cross-user variant is **UI-unreachable** — `MessageList.tsx:166` gates `MessageActions` behind `isOwn`, so a non-author never sees the Reply button. See §7 follow-up.)
 - [ ] **R14 (REQ-110)**: Parent-delete live-flip — Alice sends `parent`; Bob replies; Alice deletes `parent` via MessageActions → Delete; Bob's view of the quoted block flips to `[deleted]` within 2s (no page reload). Asserts spec §4 R11 FE reducer end-to-end.
 - [ ] **R15 (REQ-133)**: Single-browser composer chip — click `×` on the chip clears reply-to state; the next send carries no quoted block. No dual-user needed.
 
@@ -161,6 +161,7 @@ Test names embed REQ-IDs exactly as claimed in §4. Running `TRACE_VERBOSE=1 pnp
 - **Shared helpers under `tests/e2e/_helpers/`.** Extract `registerAndEnterRooms`, `createPublicRoom`, `createPrivateRoom`, `sendMessageAs` once a third spec duplicates them. Not before.
 - **Actual dual-browser smoke runs.** Per `feedback-batched-smoke` these stack with the next docker-compose checkpoint.
 - **R14 cross-room reply rejection (REQ-110 §4 R3 in s2-replies.md).** Not reachable via the browser UI — the composer's reply chip only attaches to messages the user can see, and the send path blocks cross-room at the server. Backend already covers it.
+- **Cross-user Reply button visibility (spec drift vs. merged code).** [s2-replies.md §4 R13](./s2-replies.md#4-requirements-testable) says "Reply is visible on messages as long as `onReply` is supplied AND the message is not soft-deleted", but [MessageList.tsx:166](../../apps/web/src/components/chat/MessageList.tsx#L166) gates the entire `MessageActions` block (Reply included) behind `isOwn`. Net effect: users can only reply to their own messages through the UI. E2e coverage therefore exercises the author-replies-to-own variant. Either the spec's R13 needs to narrow, or `MessageList` needs to unbundle Reply from `isOwn` — resolve with agent C before next ship.
 
 ## 8. Open questions (MUST resolve before approval)
 
