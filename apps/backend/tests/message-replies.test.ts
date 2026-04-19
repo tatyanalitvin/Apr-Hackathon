@@ -410,6 +410,37 @@ describe("REQ-110 send-path parent validation", () => {
     expect(res.body.replyToId).toBeNull();
   });
 
+  test("REQ-110 R7 long-parent send → replyTo.text is truncated to 120 + ellipsis end-to-end", async () => {
+    // R7 is unit-tested via reply-preview.test.ts (120/121/500 char cases).
+    // This integration test proves the helper is wired through the send handler
+    // — guarding against a future refactor that hydrates replyTo elsewhere and
+    // forgets to call previewFromParent / inlines a different truncation rule.
+    const { agent, userId } = await registerAgent(
+      app,
+      "r7-long@example.com",
+      "r7_long",
+    );
+    await createRoom("r-r7-long");
+    await addMember("r-r7-long", userId);
+
+    // 500-char parent body — far above PREVIEW_MAX (120).
+    const longBody = "abcdefghij".repeat(50);
+    const parentRes = await agent
+      .post("/api/v1/rooms/r-r7-long/messages")
+      .send({ body: longBody });
+    expect(parentRes.status).toBe(201);
+    const parentId: string = parentRes.body.id;
+
+    const res = await agent.post("/api/v1/rooms/r-r7-long/messages").send({
+      body: "re: tldr",
+      replyToId: parentId,
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.replyTo.text).toHaveLength(121); // 120 + U+2026
+    expect(res.body.replyTo.text.endsWith("\u2026")).toBe(true);
+    expect(res.body.replyTo.text.slice(0, 120)).toBe(longBody.slice(0, 120));
+  });
+
   test("REQ-110 R16 idempotency with replyToId → same row returned, replyTo preserved", async () => {
     const { agent, userId } = await registerAgent(
       app,

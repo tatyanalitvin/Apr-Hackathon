@@ -26,6 +26,18 @@ describe("REQ-110 R5 previewFromParent shape", () => {
 });
 
 describe("REQ-110 R7 truncation", () => {
+  it("REQ-110 R7 leaves 50-char bodies verbatim (below the cutoff)", () => {
+    const body = "the quick brown fox jumps over the lazy sleeping dog"; // 52 chars
+    const preview = previewFromParent({
+      id: "p1",
+      body,
+      authorUsername: "alice",
+      deletedAt: null,
+    });
+    expect(preview!.text).toBe(body);
+    expect(preview!.text).not.toContain(REPLY_PREVIEW_ELLIPSIS);
+  });
+
   it("REQ-110 R7 leaves bodies <= 120 chars unchanged", () => {
     const body = "x".repeat(120);
     const preview = previewFromParent({
