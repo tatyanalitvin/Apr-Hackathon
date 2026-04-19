@@ -28,6 +28,28 @@ export interface AttachmentPayload {
   downloadUrl: string;
 }
 
+// REQ-110 (s2-replies R5) — quoted-parent preview carried on every reply
+// broadcast + history slice. Semi-snapshot: `authorUsername` is naturally
+// frozen via message.author_username denormalisation; `text` is LIVE (read
+// from parent.body on hydration) per Q1 LIVE decision, so a parent edit
+// drifts the preview on the next fetch but in-memory subscribers keep the
+// original until they refresh; `deletedAt` is LIVE so the renderer flips
+// to "[deleted]" the moment a parent is soft-deleted. See §5 of the spec.
+export interface ReplyToPreview {
+  id: string;
+  text: string;            // truncated server-side to REPLY_PREVIEW_MAX chars
+  authorUsername: string;
+  deletedAt: string | null;
+}
+
+// REQ-110 (s2-replies R7) — server-enforced preview truncation. The
+// serializer slices parent.body to REPLY_PREVIEW_MAX code units and appends
+// REPLY_PREVIEW_ELLIPSIS when a slice was taken. Lives on protocol.ts (not
+// dto.ts) because the constant is a wire-shape invariant, not input
+// validation — clients and servers must agree on the truncated value.
+export const REPLY_PREVIEW_MAX = 120;
+export const REPLY_PREVIEW_ELLIPSIS = "\u2026";
+
 export interface MessagePayload {
   id: string;
   roomId: string;
@@ -40,6 +62,9 @@ export interface MessagePayload {
   body: string;
   seq: string;        // bigint as string
   replyToId: string | null;
+  // REQ-110 (s2-replies R5) — present on every MessagePayload; `null` when
+  // the row is not a reply. Non-null carries the quoted-parent preview.
+  replyTo: ReplyToPreview | null;
   editedAt: string | null;
   // REQ-112/113 — set when the author soft-deletes the message. History
   // endpoint filters deletedAt IS NOT NULL out of GETs; live clients that

@@ -58,7 +58,12 @@ export type LoginInput = z.infer<typeof loginSchema>;
 
 export const sendMessageSchema = z.object({
   body: messageBodySchema,
-  replyToId: z.string().optional(),
+  // REQ-110 (s2-replies R1) — UUID-tightened. The DB column accepts any string
+  // but the route handler always emits `randomUUID()` on fresh messages, so a
+  // non-UUID replyToId could never match an existing parent anyway. Reject at
+  // the boundary so a malformed id hits 400 validation instead of a cryptic
+  // "parent_not_found" further downstream.
+  replyToId: z.uuid().optional(),
   attachmentIds: z.array(z.string()).max(10).optional(),
   // REQ-033 idempotency key — if present, a duplicate submission returns the
   // original row without a new insert. UUID format to keep it free of ambient

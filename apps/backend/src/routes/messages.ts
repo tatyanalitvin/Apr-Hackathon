@@ -134,6 +134,11 @@ export function toMessagePayload(
     body: row.body,
     seq: row.seq.toString(),
     replyToId: row.replyToId ?? null,
+    // REQ-110 (s2-replies R5) — back-compat default. Task 2 extends this
+    // serializer to accept an optional `parent` row and produce the hydrated
+    // ReplyToPreview; callers that don't hydrate still emit `null` so the
+    // wire shape is consistent (field always present).
+    replyTo: null,
     editedAt: row.editedAt ? row.editedAt.toISOString() : null,
     deletedAt: row.deletedAt ? row.deletedAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
