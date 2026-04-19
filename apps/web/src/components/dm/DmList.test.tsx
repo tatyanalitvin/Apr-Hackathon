@@ -5,11 +5,11 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
-import type { DmListItem, DmResult } from "@ai-herders/shared/protocol";
-import type { DmResult as ApiDmResult } from "@/lib/dms-api";
+import type { DmListItem } from "@ai-herders/shared/protocol";
+import type { DmResult } from "@/lib/dms-api";
 import { DmList } from "./DmList";
 
-type ListDmsResult = ApiDmResult<DmListItem[]>;
+type ListDmsResult = DmResult<DmListItem[]>;
 
 const listDmsMock = vi.fn<() => Promise<ListDmsResult>>();
 

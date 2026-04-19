@@ -446,7 +446,7 @@ describe("MessageComposer attach button (REQ-213 — v3 §2.6.2)", () => {
     // Simulate the user picking a file via the native file dialog.
     fireEvent.change(input, { target: { files: [file] } });
     await waitFor(() => expect(onUpload).toHaveBeenCalledTimes(1));
-    expect(onUpload.mock.calls[0][0]).toBe(file);
+    expect(onUpload.mock.calls[0]?.[0]).toBe(file);
   });
 
   it("disables the Paperclip when composer is disabled", () => {
