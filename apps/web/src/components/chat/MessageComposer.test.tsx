@@ -3,6 +3,35 @@ import { fireEvent, render, screen, act, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { MessageComposer } from "./MessageComposer";
 
+// §2.5.2 — stub the heavy `emoji-picker-react` default export so tests don't
+// pay the lazy-chunk + CDN-font cost. The stub exposes two clickable glyphs
+// and re-exports `EmojiStyle` so EmojiPickerButton's `EmojiStyle.NATIVE`
+// reference resolves at import-time.
+vi.mock("emoji-picker-react", () => {
+  const MockPicker = (props: { onEmojiClick: (d: { emoji: string }) => void }) => (
+    <div data-testid="mock-emoji-picker">
+      <button
+        type="button"
+        data-testid="mock-emoji-party"
+        onClick={() => props.onEmojiClick({ emoji: "🎉" })}
+      >
+        🎉
+      </button>
+      <button
+        type="button"
+        data-testid="mock-emoji-smile"
+        onClick={() => props.onEmojiClick({ emoji: "😀" })}
+      >
+        😀
+      </button>
+    </div>
+  );
+  return {
+    default: MockPicker,
+    EmojiStyle: { NATIVE: "native" },
+  };
+});
+
 beforeEach(() => {
   window.localStorage.clear();
 });
@@ -37,7 +66,12 @@ describe("MessageComposer (REQ-046, R5)", () => {
     const ta = screen.getByLabelText("Message");
     await user.type(ta, "hi");
     // Send becomes enabled when trimmed is non-empty.
-    await user.tab();
+    // §2.5.2 introduced the emoji trigger between textarea and Send, so Tab
+    // now passes through it on the way. The R5 contract ("Tab does not
+    // submit") still holds — it just takes two hops to reach Send.
+    await user.tab(); // → emoji-trigger
+    expect(screen.getByTestId("emoji-trigger")).toHaveFocus();
+    await user.tab(); // → Send
     const sendBtn = screen.getByRole("button", { name: /send/i });
     expect(document.activeElement).toBe(sendBtn);
     expect(onSend).not.toHaveBeenCalled();
@@ -288,5 +322,89 @@ describe("MessageComposer reply chip (REQ-133 R12)", () => {
     });
     expect(onSend).toHaveBeenNthCalledWith(2, "retry-me", undefined, "p1");
     expect(onClearReply).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("MessageComposer emoji picker (§2.5.2)", () => {
+  it("§2.5.2 R5: clicking an emoji inserts it at the textarea caret", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn().mockResolvedValue(undefined);
+    render(<MessageComposer userId="u1" roomId="general" onSend={onSend} />);
+
+    const ta = screen.getByLabelText("Message") as HTMLTextAreaElement;
+    await user.type(ta, "hi  there");
+    // Park the caret between the two spaces ("hi |there" — index 3).
+    ta.focus();
+    ta.setSelectionRange(3, 3);
+
+    await user.click(screen.getByTestId("emoji-trigger"));
+    const picker = await screen.findByTestId("mock-emoji-picker");
+    await user.click(picker.querySelector('[data-testid="mock-emoji-party"]')!);
+
+    // Emoji is spliced at index 3, not appended.
+    expect(ta).toHaveValue("hi 🎉 there");
+  });
+
+  it("§2.5.2 R5: Send fires with the emoji included in the body", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn().mockResolvedValue(undefined);
+    render(<MessageComposer userId="u1" roomId="general" onSend={onSend} />);
+
+    // Type the text first; caret lands at the end, so picking the emoji
+    // appends it. Exercises the caret-append branch of insertAtCaret and
+    // sidesteps the RAF-restore race that would otherwise compete with a
+    // follow-up `user.type` call.
+    const ta = screen.getByLabelText("Message");
+    await user.type(ta, "party ");
+
+    await user.click(screen.getByTestId("emoji-trigger"));
+    const picker = await screen.findByTestId("mock-emoji-picker");
+    await user.click(picker.querySelector('[data-testid="mock-emoji-party"]')!);
+
+    expect(ta).toHaveValue("party 🎉");
+
+    // Re-focus the textarea and submit; the emoji round-trips through send.
+    ta.focus();
+    await user.keyboard("{Enter}");
+    expect(onSend).toHaveBeenCalledWith("party 🎉", undefined, undefined);
+  });
+
+  it("§2.5.2 R6: picker popover opens on trigger click and closes after pick", async () => {
+    const user = userEvent.setup();
+    render(<MessageComposer userId="u1" roomId="general" onSend={() => {}} />);
+
+    const trigger = screen.getByTestId("emoji-trigger");
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByTestId("emoji-popover")).toBeNull();
+
+    await user.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    const popover = await screen.findByTestId("emoji-popover");
+    expect(popover).toBeInTheDocument();
+
+    // Picking an emoji closes the popover (§2.5.2 R6 keeps the composer tidy).
+    await user.click(screen.getByTestId("mock-emoji-party"));
+    await waitFor(() =>
+      expect(screen.queryByTestId("emoji-popover")).toBeNull(),
+    );
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("§2.5.2 R6: Escape key closes the picker without inserting", async () => {
+    const user = userEvent.setup();
+    render(<MessageComposer userId="u1" roomId="general" onSend={() => {}} />);
+
+    const ta = screen.getByLabelText("Message") as HTMLTextAreaElement;
+    await user.type(ta, "draft");
+
+    await user.click(screen.getByTestId("emoji-trigger"));
+    await screen.findByTestId("emoji-popover");
+
+    await user.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(screen.queryByTestId("emoji-popover")).toBeNull(),
+    );
+    // Draft untouched — Escape MUST NOT mutate the textarea.
+    expect(ta).toHaveValue("draft");
   });
 });

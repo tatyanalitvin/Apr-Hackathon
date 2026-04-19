@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import TextareaAutosize from "react-textarea-autosize";
 import { Button } from "@/components/ui/button";
+import { EmojiPickerButton } from "@/components/emoji/EmojiPickerButton";
 import { readDraft, writeDraft, clearDraft } from "@/lib/composer-draft";
 
 const MAX_BYTES = 3072;
@@ -75,6 +76,7 @@ export function MessageComposer({
   const [uploadError, setUploadError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sendingRef = useRef(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Hydrate draft on mount / when userId or roomId changes.
   useEffect(() => {
@@ -209,6 +211,28 @@ export function MessageComposer({
     setPending((prev) => prev.filter((p) => p.localId !== localId));
   }, []);
 
+  // §2.5.2 R5 — splice the emoji at the textarea's current selection instead
+  // of appending. Preserves caret position relative to the inserted glyph so
+  // the user can keep typing mid-sentence. Falls back to append when the ref
+  // isn't mounted (e.g. picker opened before first focus — rare but cheap).
+  const insertAtCaret = useCallback((emoji: string) => {
+    const el = textareaRef.current;
+    if (!el) {
+      setValue((v) => v + emoji);
+      return;
+    }
+    const start = el.selectionStart ?? el.value.length;
+    const end = el.selectionEnd ?? el.value.length;
+    setValue((v) => v.slice(0, start) + emoji + v.slice(end));
+    // Restore focus + place caret after the inserted emoji on the next tick,
+    // once React has flushed the new value back to the DOM.
+    requestAnimationFrame(() => {
+      const next = start + emoji.length;
+      el.focus();
+      el.setSelectionRange(next, next);
+    });
+  }, []);
+
   const onDrop = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
       e.preventDefault();
@@ -323,6 +347,7 @@ export function MessageComposer({
       ) : null}
 
       <TextareaAutosize
+        ref={textareaRef}
         aria-label="Message"
         className="w-full resize-none rounded-md border bg-background px-3 py-2 text-sm outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring"
         placeholder={`Message #${roomId}`}
@@ -340,14 +365,21 @@ export function MessageComposer({
         }}
       />
       <div className="flex items-center justify-between">
-        <span
-          className={`text-xs ${overLimit ? "text-destructive" : bytes >= SOFT_WARN_BYTES ? "text-amber-600" : "text-transparent"}`}
-          aria-live="polite"
-          aria-hidden={bytes < SOFT_WARN_BYTES}
-        >
-          {bytes} / {MAX_BYTES}
-        </span>
-        {/* AGENT-F: emoji zone */}
+        {/* AGENT-F: emoji zone — left cluster pairs the bytes counter with the
+            emoji trigger so Send can stay flush-right under justify-between. */}
+        <div className="flex items-center gap-2">
+          <span
+            className={`text-xs ${overLimit ? "text-destructive" : bytes >= SOFT_WARN_BYTES ? "text-amber-600" : "text-transparent"}`}
+            aria-live="polite"
+            aria-hidden={bytes < SOFT_WARN_BYTES}
+          >
+            {bytes} / {MAX_BYTES}
+          </span>
+          <EmojiPickerButton
+            onPick={insertAtCaret}
+            disabled={disabled || sending}
+          />
+        </div>
         <Button size="sm" onClick={() => void send()} disabled={!canSend}>
           {sending ? "Sending…" : anyUploading ? "Uploading…" : "Send"}
         </Button>
