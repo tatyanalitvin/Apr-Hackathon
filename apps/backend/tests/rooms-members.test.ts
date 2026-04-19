@@ -114,11 +114,15 @@ describe("GET /api/v1/rooms/:id/members", () => {
       id: string;
       username: string;
       displayName: string;
+      role: string;
     }>;
+    // REQ-209 — roster now carries `role`; the seeded harness inserts rows
+    // via addMember() which defaults to role='member'. Alphabetical sort
+    // on username is the authoritative ordering contract.
     expect(members).toEqual([
-      { id: alice.userId, username: "rm_alice", displayName: "rm_alice" },
-      { id: bob.userId, username: "rm_bob", displayName: "rm_bob" },
-      { id: carol.userId, username: "rm_carol", displayName: "rm_carol" },
+      { id: alice.userId, username: "rm_alice", displayName: "rm_alice", role: "member" },
+      { id: bob.userId, username: "rm_bob", displayName: "rm_bob", role: "member" },
+      { id: carol.userId, username: "rm_carol", displayName: "rm_carol", role: "member" },
     ]);
   });
 });

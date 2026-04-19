@@ -31,6 +31,8 @@ export interface UploadAttachmentResult {
 // Mirrors backend GET /api/v1/rooms/me payload. bigints arrive as strings
 // per ADR-0003 watermark contract — we keep them as strings at this layer
 // and let callers parse when needed.
+export type RoomRole = "owner" | "admin" | "member";
+
 export interface MyRoomSummary {
   id: string;
   name: string;
@@ -39,6 +41,9 @@ export interface MyRoomSummary {
   lastReadSeq: string;
   roomHeadSeq: string;
   ownerId?: string;
+  // REQ-209 — caller's role in this room. `undefined` kept tolerant for older
+  // backends; treat missing as "member".
+  role?: RoomRole;
   // REQ-123 — ISO timestamp until which the caller has muted this room.
   // null = unmuted. Past timestamps drift to "effectively unmuted" at
   // read time (see lib/notifications.ts).
@@ -131,7 +136,43 @@ export interface RoomMemberEntry {
   id: string;
   username: string;
   displayName: string;
+  // REQ-209 — role is additive; MembersTab renders badges + gates actions.
+  role: RoomRole;
 }
+
+// REQ-206 — one row of GET /api/v1/rooms/:id/bans.
+export interface BanListItem {
+  userId: string;
+  username: string;
+  bannedById: string;
+  bannedByUsername: string;
+  reason: string | null;
+  bannedAt: string;
+}
+
+// Narrow error shape for moderation write endpoints. Superset of the existing
+// RoomMutationError domain plus the 409 codes specific to role changes.
+export type ModerationMutationError =
+  | { code: "validation"; message: string }
+  | { code: "unauthorized" }
+  | { code: "not_admin" }
+  | { code: "not_owner" }
+  | { code: "room_not_found" }
+  | { code: "user_not_found" }
+  | { code: "user_not_member" }
+  | { code: "already_owner" }
+  | { code: "already_banned" }
+  | { code: "ban_not_found" }
+  | { code: "cannot_demote_owner" }
+  | { code: "cannot_kick_owner" }
+  | { code: "admin_cannot_kick_admin" }
+  | { code: "rate_limited"; retryAfterSec?: number }
+  | { code: "network"; message: string }
+  | { code: "unknown"; message: string };
+
+export type ModerationMutationResponse<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: ModerationMutationError };
 
 
 // REQ-089 invitations.
@@ -203,6 +244,29 @@ export interface ChatAPI {
   acceptInvitation(invitationId: string): Promise<InvitationResponse<{ joined: true; roomId: string }>>;
   declineInvitation(invitationId: string): Promise<InvitationResponse<{ declined: true }>>;
   cancelInvitation(invitationId: string): Promise<InvitationResponse<{ cancelled: true }>>;
+  // REQ-201/202/203/204/205/206 — Manage Room moderation surface.
+  promoteAdmin(
+    roomId: string,
+    userId: string,
+  ): Promise<ModerationMutationResponse<{ promoted: boolean; role: "admin" }>>;
+  demoteAdmin(
+    roomId: string,
+    userId: string,
+  ): Promise<ModerationMutationResponse<{ demoted: boolean; role: "member" }>>;
+  kickMember(
+    roomId: string,
+    userId: string,
+  ): Promise<ModerationMutationResponse<{ kicked: true; banned: true }>>;
+  banMember(
+    roomId: string,
+    userId: string,
+    reason?: string,
+  ): Promise<ModerationMutationResponse<{ banned: true; kicked: boolean }>>;
+  unbanMember(
+    roomId: string,
+    userId: string,
+  ): Promise<ModerationMutationResponse<{ unbanned: true }>>;
+  listRoomBans(roomId: string): Promise<BanListItem[]>;
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -405,6 +469,65 @@ export class RealChatAPI implements ChatAPI {
       "DELETE",
     );
   }
+
+  async promoteAdmin(
+    roomId: string,
+    userId: string,
+  ): Promise<ModerationMutationResponse<{ promoted: boolean; role: "admin" }>> {
+    return moderationMutation<{ promoted: boolean; role: "admin" }>(
+      `${BACKEND_URL}/api/v1/rooms/${encodeURIComponent(roomId)}/admins/${encodeURIComponent(userId)}`,
+      "POST",
+    );
+  }
+
+  async demoteAdmin(
+    roomId: string,
+    userId: string,
+  ): Promise<ModerationMutationResponse<{ demoted: boolean; role: "member" }>> {
+    return moderationMutation<{ demoted: boolean; role: "member" }>(
+      `${BACKEND_URL}/api/v1/rooms/${encodeURIComponent(roomId)}/admins/${encodeURIComponent(userId)}`,
+      "DELETE",
+    );
+  }
+
+  async kickMember(
+    roomId: string,
+    userId: string,
+  ): Promise<ModerationMutationResponse<{ kicked: true; banned: true }>> {
+    return moderationMutation<{ kicked: true; banned: true }>(
+      `${BACKEND_URL}/api/v1/rooms/${encodeURIComponent(roomId)}/members/${encodeURIComponent(userId)}`,
+      "DELETE",
+    );
+  }
+
+  async banMember(
+    roomId: string,
+    userId: string,
+    reason?: string,
+  ): Promise<ModerationMutationResponse<{ banned: true; kicked: boolean }>> {
+    return moderationMutation<{ banned: true; kicked: boolean }>(
+      `${BACKEND_URL}/api/v1/rooms/${encodeURIComponent(roomId)}/bans`,
+      "POST",
+      reason && reason.length > 0 ? { userId, reason } : { userId },
+    );
+  }
+
+  async unbanMember(
+    roomId: string,
+    userId: string,
+  ): Promise<ModerationMutationResponse<{ unbanned: true }>> {
+    return moderationMutation<{ unbanned: true }>(
+      `${BACKEND_URL}/api/v1/rooms/${encodeURIComponent(roomId)}/bans/${encodeURIComponent(userId)}`,
+      "DELETE",
+    );
+  }
+
+  async listRoomBans(roomId: string): Promise<BanListItem[]> {
+    const { bans } = await fetchJson<{ bans: BanListItem[] }>(
+      `${BACKEND_URL}/api/v1/rooms/${encodeURIComponent(roomId)}/bans`,
+    );
+    return bans;
+  }
 }
 
 // REQ-089 — maps backend `{ error: <code>, ... }` onto the InvitationError
@@ -558,6 +681,90 @@ async function roomMutation<T>(
     error: {
       code: "unknown",
       message: `HTTP ${res.status}${payload.error ? `: ${payload.error}` : ""}`,
+    },
+  };
+}
+
+// Shared adapter for the five moderation endpoints (REQ-201..REQ-206). Maps
+// status codes + `{error}` payloads into ModerationMutationError so the tabs
+// can surface precise toasts (already_banned vs ban_not_found etc.) without
+// re-parsing HTTP at every call site.
+async function moderationMutation<T>(
+  url: string,
+  method: "POST" | "DELETE",
+  body?: unknown,
+): Promise<ModerationMutationResponse<T>> {
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method,
+      credentials: "include",
+      headers: body !== undefined ? { "content-type": "application/json" } : undefined,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      error: {
+        code: "network",
+        message: err instanceof Error ? err.message : "network error",
+      },
+    };
+  }
+
+  if (res.status === 204) return { ok: true, data: null as T };
+  if (res.status === 200 || res.status === 201) {
+    const data = (await res.json().catch(() => null)) as T | null;
+    if (data === null) {
+      return { ok: false, error: { code: "unknown", message: "empty body" } };
+    }
+    return { ok: true, data };
+  }
+
+  const payload = (await res.json().catch(() => ({}))) as {
+    error?: string;
+    retryAfterSec?: number;
+  };
+  const err = typeof payload.error === "string" ? payload.error : "";
+
+  if (res.status === 401) return { ok: false, error: { code: "unauthorized" } };
+  if (res.status === 400)
+    return {
+      ok: false,
+      error: { code: "validation", message: err || "invalid request" },
+    };
+  if (res.status === 429)
+    return {
+      ok: false,
+      error: { code: "rate_limited", retryAfterSec: payload.retryAfterSec },
+    };
+  if (res.status === 404 && err === "room_not_found")
+    return { ok: false, error: { code: "room_not_found" } };
+  if (res.status === 404 && err === "user_not_found")
+    return { ok: false, error: { code: "user_not_found" } };
+  if (res.status === 404 && err === "user_not_member")
+    return { ok: false, error: { code: "user_not_member" } };
+  if (res.status === 404 && err === "ban_not_found")
+    return { ok: false, error: { code: "ban_not_found" } };
+  if (res.status === 403 && err === "not_owner")
+    return { ok: false, error: { code: "not_owner" } };
+  if (res.status === 403 && err === "not_admin")
+    return { ok: false, error: { code: "not_admin" } };
+  if (res.status === 403 && err === "admin_cannot_kick_admin")
+    return { ok: false, error: { code: "admin_cannot_kick_admin" } };
+  if (res.status === 409 && err === "already_owner")
+    return { ok: false, error: { code: "already_owner" } };
+  if (res.status === 409 && err === "already_banned")
+    return { ok: false, error: { code: "already_banned" } };
+  if (res.status === 409 && err === "cannot_demote_owner")
+    return { ok: false, error: { code: "cannot_demote_owner" } };
+  if (res.status === 409 && err === "cannot_kick_owner")
+    return { ok: false, error: { code: "cannot_kick_owner" } };
+  return {
+    ok: false,
+    error: {
+      code: "unknown",
+      message: `HTTP ${res.status}${err ? `: ${err}` : ""}`,
     },
   };
 }

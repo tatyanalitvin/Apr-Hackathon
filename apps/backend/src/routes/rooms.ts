@@ -9,10 +9,11 @@
 
 import type { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { aliasedTable, and, asc, desc, eq, sql } from "drizzle-orm";
 import { createClient, type RedisClientType } from "redis";
-import { message, messageSeq, room, roomMember, user } from "@ai-herders/shared/schema";
+import { message, messageSeq, room, roomBan, roomMember, user } from "@ai-herders/shared/schema";
 import {
+  createBanSchema,
   createRoomSchema,
   roomCreateResponseSchema,
   updateRoomSchema,
@@ -146,6 +147,20 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(403).send({ error: "room_not_joinable" });
       }
 
+      // REQ-203/204 — ban gate. Kick-as-ban and pre-emptive ban both land a
+      // `room_ban` row; until an admin hits REQ-205 unban, the target's
+      // rejoin attempt must fail. Checked after the rate-limit so a banned
+      // user can't burn someone else's bucket, but before the insert so the
+      // membership is never restored.
+      const [banRow] = await db
+        .select({ id: roomBan.id })
+        .from(roomBan)
+        .where(and(eq(roomBan.roomId, target.id), eq(roomBan.userId, ctx.userId)))
+        .limit(1);
+      if (banRow) {
+        return reply.status(403).send({ error: "banned_from_room" });
+      }
+
       // ON CONFLICT on the (user_id, room_id) unique index — insert is a
       // no-op when a membership already exists. rowCount distinguishes the
       // fresh-insert happy path from the idempotent-repeat no-op.
@@ -225,6 +240,7 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
         kind: room.kind,
         visibility: room.visibility,
         ownerId: room.ownerId,
+        role: roomMember.role,
         lastReadSeq: roomMember.lastReadSeq,
         mutedUntil: roomMember.mutedUntil,
         headSeq: messageSeq.seq,
@@ -235,20 +251,20 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
       .leftJoin(messageSeq, eq(messageSeq.roomId, roomMember.roomId))
       .leftJoin(message, eq(message.roomId, roomMember.roomId))
       .where(eq(roomMember.userId, ctx.userId))
-      .groupBy(room.id, roomMember.lastReadSeq, roomMember.mutedUntil, messageSeq.seq)
+      .groupBy(room.id, roomMember.role, roomMember.lastReadSeq, roomMember.mutedUntil, messageSeq.seq)
       .orderBy(sql`MAX(${message.createdAt}) DESC NULLS LAST`, asc(room.name));
 
-    // S2 room-mgmt — expose ownerId so the web can gate the Rename/Delete
-    // settings controls on owner === session.user.id without a second round
-    // trip. DM rows (ownerId may be non-null after recent DM seeding) still
-    // reject modify via their dedicated 403 path; the UI hides settings on
-    // kind === "dm" regardless.
+    // REQ-209/210 — expose `role` so ManageRoomModal can gate the moderation
+    // tab visibility (owner|admin see them, member hides them) in a single
+    // /rooms/me round trip. DM rows carry role='owner' for the DM creator in
+    // the current seed path; ManageRoomModal hides on kind==='dm' anyway.
     const payload = rows.map((r) => ({
       id: r.id,
       name: r.name,
       kind: r.kind,
       visibility: r.visibility,
       ownerId: r.ownerId,
+      role: r.role,
       lastReadSeq: r.lastReadSeq.toString(),
       roomHeadSeq: (r.headSeq ?? 0n).toString(),
       mutedUntil: r.mutedUntil ? r.mutedUntil.toISOString() : null,
@@ -358,11 +374,14 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(403).send({ error: "room_not_member" });
       }
 
+      // REQ-209 — additive `role` on each roster row so MembersTab/AdminsTab
+      // can render role badges + gate action buttons without a second fetch.
       const members = await db
         .select({
           id: user.id,
           username: user.username,
           displayName: user.name,
+          role: roomMember.role,
         })
         .from(roomMember)
         .innerJoin(user, eq(user.id, roomMember.userId))
@@ -583,6 +602,493 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
       await db.delete(room).where(eq(room.id, roomId));
 
       return reply.status(204).send();
+    },
+  );
+
+  // REQ-201 — POST /api/v1/rooms/:id/admins/:userId. Owner-only promote
+  // member→admin. Idempotent: already-admin returns {promoted:false} (silent);
+  // owner target is 409 already_owner (v3.docx §2.4.7 "owner cannot lose
+  // admin rights" — you can't re-promote an owner). Fanout on real promotions.
+  //
+  // Ordering (mirrors PATCH/DELETE above minus rate-limit — moderation RL is
+  // punted to S3 per docs/FOLLOWUPS.md): auth → resolve room → authz
+  // (owner?) → resolve target membership → state branch → UPDATE → emit.
+  app.post<{ Params: { id: string; userId: string } }>(
+    "/rooms/:id/admins/:userId",
+    async (request, reply) => {
+      const ctx = await requireFriendshipAuth(request, reply);
+      if (!ctx) return;
+
+      const { id: roomId, userId: targetUserId } = request.params;
+
+      const [target] = await db
+        .select({ id: room.id, ownerId: room.ownerId })
+        .from(room)
+        .where(eq(room.id, roomId))
+        .limit(1);
+      if (!target) {
+        return reply.status(404).send({ error: "room_not_found" });
+      }
+      if (target.ownerId !== ctx.userId) {
+        return reply.status(403).send({ error: "not_owner" });
+      }
+
+      const [membership] = await db
+        .select({ role: roomMember.role })
+        .from(roomMember)
+        .where(
+          and(
+            eq(roomMember.roomId, roomId),
+            eq(roomMember.userId, targetUserId),
+          ),
+        )
+        .limit(1);
+      if (!membership) {
+        return reply.status(404).send({ error: "user_not_member" });
+      }
+      if (membership.role === "owner") {
+        return reply.status(409).send({ error: "already_owner" });
+      }
+      if (membership.role === "admin") {
+        return reply.status(200).send({ promoted: false, role: "admin" });
+      }
+
+      await db
+        .update(roomMember)
+        .set({ role: "admin" })
+        .where(
+          and(
+            eq(roomMember.roomId, roomId),
+            eq(roomMember.userId, targetUserId),
+          ),
+        );
+
+      const changedAt = new Date().toISOString();
+      request.server.io.to(roomId).emit("room.role.changed", {
+        type: "room.role.changed",
+        roomId,
+        userId: targetUserId,
+        role: "admin",
+        changedBy: ctx.userId,
+        changedAt,
+      });
+
+      return reply.status(200).send({ promoted: true, role: "admin" });
+    },
+  );
+
+  // REQ-202 — DELETE /api/v1/rooms/:id/admins/:userId. Owner-only demote
+  // admin→member. Idempotent: already-member returns {demoted:false} (silent);
+  // owner target is 409 cannot_demote_owner (v3.docx §2.4.7 — you can't demote
+  // an owner). Fanout on real demotions.
+  app.delete<{ Params: { id: string; userId: string } }>(
+    "/rooms/:id/admins/:userId",
+    async (request, reply) => {
+      const ctx = await requireFriendshipAuth(request, reply);
+      if (!ctx) return;
+
+      const { id: roomId, userId: targetUserId } = request.params;
+
+      const [target] = await db
+        .select({ id: room.id, ownerId: room.ownerId })
+        .from(room)
+        .where(eq(room.id, roomId))
+        .limit(1);
+      if (!target) {
+        return reply.status(404).send({ error: "room_not_found" });
+      }
+      if (target.ownerId !== ctx.userId) {
+        return reply.status(403).send({ error: "not_owner" });
+      }
+
+      const [membership] = await db
+        .select({ role: roomMember.role })
+        .from(roomMember)
+        .where(
+          and(
+            eq(roomMember.roomId, roomId),
+            eq(roomMember.userId, targetUserId),
+          ),
+        )
+        .limit(1);
+      if (!membership) {
+        return reply.status(404).send({ error: "user_not_member" });
+      }
+      if (membership.role === "owner") {
+        return reply.status(409).send({ error: "cannot_demote_owner" });
+      }
+      if (membership.role === "member") {
+        return reply.status(200).send({ demoted: false, role: "member" });
+      }
+
+      await db
+        .update(roomMember)
+        .set({ role: "member" })
+        .where(
+          and(
+            eq(roomMember.roomId, roomId),
+            eq(roomMember.userId, targetUserId),
+          ),
+        );
+
+      const changedAt = new Date().toISOString();
+      request.server.io.to(roomId).emit("room.role.changed", {
+        type: "room.role.changed",
+        roomId,
+        userId: targetUserId,
+        role: "member",
+        changedBy: ctx.userId,
+        changedAt,
+      });
+
+      return reply.status(200).send({ demoted: true, role: "member" });
+    },
+  );
+
+  // REQ-203 — DELETE /api/v1/rooms/:id/members/:userId. Kick-as-ban per
+  // v3.docx §2.4.8 ("removal is treated as a ban"). Transaction: INSERT
+  // room_ban (ON CONFLICT DO NOTHING) → DELETE room_member → emit
+  // `room.member.kicked` → force every one of the target user's sockets out
+  // of the room channel (REQ-208). `user:${userId}` is auto-joined in
+  // socket-auth.ts:44. We use `.local.socketsLeave()`: the Redis adapter's
+  // non-local path is fire-and-forget pub/sub (see redis-adapter delSockets
+  // at index.js:599) so `await` doesn't actually wait; `.local` falls
+  // through to the in-memory adapter's synchronous `socket.leave()` loop.
+  // Correct for our single-backend deployment (and any sticky-session
+  // cluster, since a user's sockets land on one server). Re-subscription by
+  // those sockets is blocked by the membership gate at
+  // socket-handlers.ts:101-110 (no room_member row → ack({ok:false})).
+  app.delete<{ Params: { id: string; userId: string } }>(
+    "/rooms/:id/members/:userId",
+    async (request, reply) => {
+      const ctx = await requireFriendshipAuth(request, reply);
+      if (!ctx) return;
+
+      const { id: roomId, userId: targetUserId } = request.params;
+
+      const [target] = await db
+        .select({ id: room.id, ownerId: room.ownerId })
+        .from(room)
+        .where(eq(room.id, roomId))
+        .limit(1);
+      if (!target) {
+        return reply.status(404).send({ error: "room_not_found" });
+      }
+
+      const [callerMembership] = await db
+        .select({ role: roomMember.role })
+        .from(roomMember)
+        .where(
+          and(eq(roomMember.roomId, roomId), eq(roomMember.userId, ctx.userId)),
+        )
+        .limit(1);
+      if (
+        !callerMembership ||
+        (callerMembership.role !== "owner" && callerMembership.role !== "admin")
+      ) {
+        return reply.status(403).send({ error: "not_admin" });
+      }
+
+      const [targetMembership] = await db
+        .select({ role: roomMember.role })
+        .from(roomMember)
+        .where(
+          and(eq(roomMember.roomId, roomId), eq(roomMember.userId, targetUserId)),
+        )
+        .limit(1);
+      if (!targetMembership) {
+        return reply.status(404).send({ error: "user_not_member" });
+      }
+      if (targetMembership.role === "owner") {
+        return reply.status(409).send({ error: "cannot_kick_owner" });
+      }
+      if (
+        targetMembership.role === "admin" &&
+        callerMembership.role !== "owner"
+      ) {
+        // Admins can't kick other admins — prevents admin-vs-admin wars.
+        return reply.status(403).send({ error: "admin_cannot_kick_admin" });
+      }
+
+      await db.transaction(async (tx) => {
+        await tx
+          .insert(roomBan)
+          .values({
+            id: randomUUID(),
+            roomId,
+            userId: targetUserId,
+            bannedById: ctx.userId,
+            reason: null,
+          })
+          .onConflictDoNothing({
+            target: [roomBan.roomId, roomBan.userId],
+          });
+        await tx
+          .delete(roomMember)
+          .where(
+            and(
+              eq(roomMember.roomId, roomId),
+              eq(roomMember.userId, targetUserId),
+            ),
+          );
+      });
+
+      const kickedAt = new Date().toISOString();
+      request.server.io.to(roomId).emit("room.member.kicked", {
+        type: "room.member.kicked",
+        roomId,
+        userId: targetUserId,
+        kickedBy: ctx.userId,
+        kickedAt,
+      });
+
+      // REQ-208 — force every one of the target user's sockets to leave the
+      // room channel. `.local` routes through the in-memory adapter, whose
+      // `delSockets` is synchronous (calls `socket.leave(room)` in a loop)
+      // — so after this line returns, no subsequent fanout to `roomId` can
+      // reach the kicked user. Matters for the 500-ms dual-socket invariant.
+      request.server.io.in(`user:${targetUserId}`).local.socketsLeave(roomId);
+
+      return reply.status(200).send({ kicked: true, banned: true });
+    },
+  );
+
+  // REQ-204 — POST /api/v1/rooms/:id/bans. Explicit pre-emptive ban (target
+  // MAY not be a current member). If target IS a current member the handler
+  // additionally deletes the membership row, emits `room.member.kicked`
+  // (stronger signal — see protocol.ts note on `room.member.banned`), and
+  // force-leaves the target's sockets (REQ-208). Response `{banned, kicked}`
+  // where `kicked` = true iff a membership row was also removed.
+  app.post<{ Params: { id: string } }>(
+    "/rooms/:id/bans",
+    async (request, reply) => {
+      const ctx = await requireFriendshipAuth(request, reply);
+      if (!ctx) return;
+
+      const parsed = createBanSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply
+          .status(400)
+          .send({ error: "invalid_body", details: parsed.error.flatten() });
+      }
+      const { userId: targetUserId, reason: reasonInput } = parsed.data;
+      const reason = reasonInput ?? null;
+
+      const { id: roomId } = request.params;
+
+      const [target] = await db
+        .select({ id: room.id })
+        .from(room)
+        .where(eq(room.id, roomId))
+        .limit(1);
+      if (!target) {
+        return reply.status(404).send({ error: "room_not_found" });
+      }
+
+      const [callerMembership] = await db
+        .select({ role: roomMember.role })
+        .from(roomMember)
+        .where(
+          and(eq(roomMember.roomId, roomId), eq(roomMember.userId, ctx.userId)),
+        )
+        .limit(1);
+      if (
+        !callerMembership ||
+        (callerMembership.role !== "owner" && callerMembership.role !== "admin")
+      ) {
+        return reply.status(403).send({ error: "not_admin" });
+      }
+
+      const [targetUser] = await db
+        .select({ id: user.id })
+        .from(user)
+        .where(eq(user.id, targetUserId))
+        .limit(1);
+      if (!targetUser) {
+        return reply.status(404).send({ error: "user_not_found" });
+      }
+
+      const [existingBan] = await db
+        .select({ id: roomBan.id })
+        .from(roomBan)
+        .where(and(eq(roomBan.roomId, roomId), eq(roomBan.userId, targetUserId)))
+        .limit(1);
+      if (existingBan) {
+        return reply.status(409).send({ error: "already_banned" });
+      }
+
+      const [targetMembership] = await db
+        .select({ role: roomMember.role })
+        .from(roomMember)
+        .where(
+          and(eq(roomMember.roomId, roomId), eq(roomMember.userId, targetUserId)),
+        )
+        .limit(1);
+
+      const wasMember = !!targetMembership;
+
+      await db.transaction(async (tx) => {
+        await tx.insert(roomBan).values({
+          id: randomUUID(),
+          roomId,
+          userId: targetUserId,
+          bannedById: ctx.userId,
+          reason,
+        });
+        if (wasMember) {
+          await tx
+            .delete(roomMember)
+            .where(
+              and(
+                eq(roomMember.roomId, roomId),
+                eq(roomMember.userId, targetUserId),
+              ),
+            );
+        }
+      });
+
+      const atIso = new Date().toISOString();
+      if (wasMember) {
+        // kick-path — emit `room.member.kicked` (not `banned`) because
+        // clients already treat kicked as "leave now"; broadcasting both
+        // would be redundant (spec §4 REQ-207).
+        request.server.io.to(roomId).emit("room.member.kicked", {
+          type: "room.member.kicked",
+          roomId,
+          userId: targetUserId,
+          kickedBy: ctx.userId,
+          kickedAt: atIso,
+        });
+        // REQ-208 — same `.local.socketsLeave` rationale as REQ-203 kick
+        // (Redis adapter's non-local delSockets is fire-and-forget pub/sub).
+        request.server.io.in(`user:${targetUserId}`).local.socketsLeave(roomId);
+      } else {
+        request.server.io.to(roomId).emit("room.member.banned", {
+          type: "room.member.banned",
+          roomId,
+          userId: targetUserId,
+          bannedBy: ctx.userId,
+          reason,
+          bannedAt: atIso,
+        });
+      }
+
+      return reply.status(200).send({ banned: true, kicked: wasMember });
+    },
+  );
+
+  // REQ-205 — DELETE /api/v1/rooms/:id/bans/:userId. Owner/admin removes an
+  // active ban. Does NOT restore membership — target must POST /rooms/:id/join
+  // again (existing S2 rooms handler). Emits `room.member.unbanned` to the
+  // room channel so Manage Room → Banned tab updates live for other admins.
+  app.delete<{ Params: { id: string; userId: string } }>(
+    "/rooms/:id/bans/:userId",
+    async (request, reply) => {
+      const ctx = await requireFriendshipAuth(request, reply);
+      if (!ctx) return;
+
+      const { id: roomId, userId: targetUserId } = request.params;
+
+      const [target] = await db
+        .select({ id: room.id })
+        .from(room)
+        .where(eq(room.id, roomId))
+        .limit(1);
+      if (!target) {
+        return reply.status(404).send({ error: "room_not_found" });
+      }
+
+      const [callerMembership] = await db
+        .select({ role: roomMember.role })
+        .from(roomMember)
+        .where(
+          and(eq(roomMember.roomId, roomId), eq(roomMember.userId, ctx.userId)),
+        )
+        .limit(1);
+      if (
+        !callerMembership ||
+        (callerMembership.role !== "owner" && callerMembership.role !== "admin")
+      ) {
+        return reply.status(403).send({ error: "not_admin" });
+      }
+
+      const deleteResult = await db
+        .delete(roomBan)
+        .where(and(eq(roomBan.roomId, roomId), eq(roomBan.userId, targetUserId)));
+      if ((deleteResult.rowCount ?? 0) === 0) {
+        return reply.status(404).send({ error: "ban_not_found" });
+      }
+
+      const unbannedAt = new Date().toISOString();
+      request.server.io.to(roomId).emit("room.member.unbanned", {
+        type: "room.member.unbanned",
+        roomId,
+        userId: targetUserId,
+        unbannedBy: ctx.userId,
+        unbannedAt,
+      });
+
+      return reply.status(200).send({ unbanned: true });
+    },
+  );
+
+  // REQ-206 — GET /api/v1/rooms/:id/bans. Owner/admin only. Ordered by
+  // bannedAt DESC. Joins `user` twice (target + actor) to resolve usernames
+  // in a single query; no N+1. DB column `created_at` is aliased to
+  // `bannedAt` on the wire per spec §5.
+  app.get<{ Params: { id: string } }>(
+    "/rooms/:id/bans",
+    async (request, reply) => {
+      const ctx = await requireFriendshipAuth(request, reply);
+      if (!ctx) return;
+
+      const { id: roomId } = request.params;
+
+      const [target] = await db
+        .select({ id: room.id })
+        .from(room)
+        .where(eq(room.id, roomId))
+        .limit(1);
+      if (!target) {
+        return reply.status(404).send({ error: "room_not_found" });
+      }
+
+      const [callerMembership] = await db
+        .select({ role: roomMember.role })
+        .from(roomMember)
+        .where(
+          and(eq(roomMember.roomId, roomId), eq(roomMember.userId, ctx.userId)),
+        )
+        .limit(1);
+      if (
+        !callerMembership ||
+        (callerMembership.role !== "owner" && callerMembership.role !== "admin")
+      ) {
+        return reply.status(403).send({ error: "not_admin" });
+      }
+
+      const bannedByUser = aliasedTable(user, "banned_by_user");
+      const rows = await db
+        .select({
+          userId: roomBan.userId,
+          username: user.username,
+          bannedById: roomBan.bannedById,
+          bannedByUsername: bannedByUser.username,
+          reason: roomBan.reason,
+          bannedAt: roomBan.createdAt,
+        })
+        .from(roomBan)
+        .innerJoin(user, eq(user.id, roomBan.userId))
+        .innerJoin(bannedByUser, eq(bannedByUser.id, roomBan.bannedById))
+        .where(eq(roomBan.roomId, roomId))
+        .orderBy(desc(roomBan.createdAt));
+
+      return reply.status(200).send({
+        bans: rows.map((r) => ({
+          ...r,
+          bannedAt: r.bannedAt.toISOString(),
+        })),
+      });
     },
   );
 }
