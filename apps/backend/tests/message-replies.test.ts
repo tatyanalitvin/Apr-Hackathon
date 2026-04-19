@@ -563,6 +563,120 @@ describe("REQ-110 R5 message.new event carries replyTo", () => {
     }
   });
 
+  test("REQ-110 R6 history GET hydrates replyTo for reply rows; null for non-replies", async () => {
+    const { agent, userId } = await registerAgent(
+      app,
+      "r6-hydrate@example.com",
+      "r6_hydrate",
+    );
+    await createRoom("r-r6-hydrate");
+    await addMember("r-r6-hydrate", userId);
+
+    // Seed 5 messages: 2 non-replies (parent P1, parent P2), 3 replies
+    // (R1/R2 → P1; R3 → P2). Contract: all 5 rows returned; replies have
+    // hydrated replyTo; non-replies have replyTo: null.
+    const p1 = await agent
+      .post("/api/v1/rooms/r-r6-hydrate/messages")
+      .send({ body: "first parent" });
+    const p2 = await agent
+      .post("/api/v1/rooms/r-r6-hydrate/messages")
+      .send({ body: "second parent" });
+    const r1 = await agent
+      .post("/api/v1/rooms/r-r6-hydrate/messages")
+      .send({ body: "reply one", replyToId: p1.body.id });
+    const r2 = await agent
+      .post("/api/v1/rooms/r-r6-hydrate/messages")
+      .send({ body: "reply two", replyToId: p1.body.id });
+    const r3 = await agent
+      .post("/api/v1/rooms/r-r6-hydrate/messages")
+      .send({ body: "reply three", replyToId: p2.body.id });
+    for (const res of [p1, p2, r1, r2, r3]) expect(res.status).toBe(201);
+
+    const historyRes = await agent.get(
+      "/api/v1/rooms/r-r6-hydrate/messages?fromSeq=1&toSeq=5",
+    );
+    expect(historyRes.status).toBe(200);
+    expect(historyRes.body.messages).toHaveLength(5);
+
+    const byId = new Map<string, MessagePayload>(
+      historyRes.body.messages.map((m: MessagePayload) => [m.id, m]),
+    );
+    expect(byId.get(p1.body.id)!.replyTo).toBeNull();
+    expect(byId.get(p2.body.id)!.replyTo).toBeNull();
+    expect(byId.get(r1.body.id)!.replyTo).toEqual({
+      id: p1.body.id,
+      text: "first parent",
+      authorUsername: "r6_hydrate",
+      deletedAt: null,
+    });
+    expect(byId.get(r2.body.id)!.replyTo).toEqual({
+      id: p1.body.id,
+      text: "first parent",
+      authorUsername: "r6_hydrate",
+      deletedAt: null,
+    });
+    expect(byId.get(r3.body.id)!.replyTo).toEqual({
+      id: p2.body.id,
+      text: "second parent",
+      authorUsername: "r6_hydrate",
+      deletedAt: null,
+    });
+  });
+
+  test("REQ-110 R6 history GET fires exactly one LEFT JOIN on message (no N+1)", async () => {
+    // Wrap `pool.query` to capture SQL text for the history request.
+    // Drizzle routes every SELECT through pool.query, so a self-join on
+    // message appears in the captured SQL exactly once per call; a N+1
+    // would surface as N extra SELECTs against `"message"` for parent
+    // hydration. The author-deletion SELECT against `"user"` and the
+    // attachment SELECT against `"attachment"` are separate existing
+    // queries — we only match on `from "message"` + `left join` so the
+    // assertion doesn't over-reach.
+    const { pool } = await import("../src/db");
+    const { agent, userId } = await registerAgent(
+      app,
+      "r6-sql@example.com",
+      "r6_sql",
+    );
+    await createRoom("r-r6-sql");
+    await addMember("r-r6-sql", userId);
+
+    const parent = await agent
+      .post("/api/v1/rooms/r-r6-sql/messages")
+      .send({ body: "the parent" });
+    await agent
+      .post("/api/v1/rooms/r-r6-sql/messages")
+      .send({ body: "the reply", replyToId: parent.body.id });
+
+    const captured: string[] = [];
+    const originalQuery = pool.query.bind(pool);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (pool as any).query = (...args: unknown[]) => {
+      const text = typeof args[0] === "string" ? args[0] : (args[0] as { text: string }).text;
+      captured.push(text);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return (originalQuery as any)(...args);
+    };
+    try {
+      const historyRes = await agent.get(
+        "/api/v1/rooms/r-r6-sql/messages?fromSeq=1&toSeq=2",
+      );
+      expect(historyRes.status).toBe(200);
+    } finally {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (pool as any).query = originalQuery;
+    }
+
+    const messageSelects = captured.filter((sql) =>
+      /from\s+"message"/i.test(sql),
+    );
+    expect(messageSelects.length).toBeGreaterThan(0);
+    const leftJoinCount = messageSelects.filter((sql) =>
+      /left\s+join/i.test(sql),
+    ).length;
+    expect(leftJoinCount).toBe(1);
+  });
+
   test("REQ-110 R5 non-reply send emits message.new with replyTo: null", async () => {
     const alice = await registerWithCookie(
       app,

@@ -18,7 +18,7 @@ import type {
 } from "fastify";
 import { randomUUID } from "node:crypto";
 import type { ZodType } from "zod";
-import { and, asc, eq, gte, inArray, isNull, lte } from "drizzle-orm";
+import { aliasedTable, and, asc, eq, gte, inArray, isNull, lte } from "drizzle-orm";
 import { createClient, type RedisClientType } from "redis";
 import {
   editMessageSchema,
@@ -410,12 +410,33 @@ export async function messagesRoutes(app: FastifyInstance): Promise<void> {
       // the serializer swaps in "[deleted user]". A separate SELECT (vs a
       // JOIN in the main query) keeps the message path's plan stable and
       // doesn't risk changing row multiplicity.
-      const rows =
+      // REQ-110 (s2-replies R6) — LEFT JOIN message ONTO itself on
+      // reply_to_id so a single round trip carries the quoted-parent preview
+      // for every reply in the slice. Plan-stability note: alias keeps the
+      // join explicit; cross-room replies were rejected at send time (R3), so
+      // we can blindly select the parent row without a room-id filter on the
+      // alias.
+      const parent = aliasedTable(message, "parent");
+      type HistoryRow = {
+        message: Message;
+        parentId: string | null;
+        parentBody: string | null;
+        parentAuthorUsername: string | null;
+        parentDeletedAt: Date | null;
+      };
+      const typedRows: HistoryRow[] =
         roomHeadSeq === 0n
           ? []
           : await db
-              .select()
+              .select({
+                message: message,
+                parentId: parent.id,
+                parentBody: parent.body,
+                parentAuthorUsername: parent.authorUsername,
+                parentDeletedAt: parent.deletedAt,
+              })
               .from(message)
+              .leftJoin(parent, eq(parent.id, message.replyToId))
               .where(
                 and(
                   eq(message.roomId, roomId),
@@ -428,8 +449,8 @@ export async function messagesRoutes(app: FastifyInstance): Promise<void> {
               .limit(parsed.data.limit);
 
       const deletedAuthorIds = new Set<string>();
-      if (rows.length > 0) {
-        const authorIds = [...new Set(rows.map((r) => r.authorId))];
+      if (typedRows.length > 0) {
+        const authorIds = [...new Set(typedRows.map((r) => r.message.authorId))];
         const authorRows = await db
           .select({ id: user.id, deletedAt: user.deletedAt })
           .from(user)
@@ -439,9 +460,22 @@ export async function messagesRoutes(app: FastifyInstance): Promise<void> {
         }
       }
 
-      const payloads = rows.map((r) =>
-        toMessagePayload(r, deletedAuthorIds.has(r.authorId)),
-      );
+      const payloads = typedRows.map((r) => {
+        const parentRow =
+          r.parentId != null
+            ? {
+                id: r.parentId,
+                body: r.parentBody ?? "",
+                authorUsername: r.parentAuthorUsername ?? "",
+                deletedAt: r.parentDeletedAt ?? null,
+              }
+            : null;
+        return toMessagePayload(
+          r.message,
+          deletedAuthorIds.has(r.message.authorId),
+          parentRow,
+        );
+      });
       if (payloads.length > 0) {
         const byMessageId = await loadAttachmentPayloadsForMessages(
           payloads.map((p) => p.id),
