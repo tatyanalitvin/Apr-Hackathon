@@ -86,8 +86,17 @@ export const auth = betterAuth({
   // caller.user.id`; that lookup needs the row to exist in Postgres. Forcing
   // storeSessionInDatabase=true keeps Postgres as the source of truth for
   // sessions — Redis is only used for rate-limit counters.
+  //
+  // REQ-014 — session lifetime. Spec target is ≥ 7 days so users who ticked
+  // "keep me signed in" aren't kicked back to /login daily. better-auth 1.6.x
+  // already defaults to 7 days, but we pin it explicitly here so a silent
+  // upstream default change can't shorten sessions without a visible diff.
+  // updateAge=1d slides the expiry when an active session is used, which is
+  // the usual "refresh on activity" UX.
   session: {
     storeSessionInDatabase: true,
+    expiresIn: 60 * 60 * 24 * 7,
+    updateAge: 60 * 60 * 24,
   },
   // Task #10 — rate-limit pinning (REQ-014). `customRules["/sign-in/email"]`
   // caps wrong-creds at 5 within a 60s window so the REQ-014 "≤10 attempts"
