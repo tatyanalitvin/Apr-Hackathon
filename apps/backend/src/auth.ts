@@ -133,6 +133,26 @@ export const auth = betterAuth({
   databaseHooks: {
     user: {
       create: {
+        // REQ-003 / REQ-005 — case-insensitive uniqueness. better-auth 1.6.5
+        // lowercases `email` on sign-up and lookup (sign-up.mjs:163,
+        // internal-adapter.mjs:448/488), but `username` is an additionalField
+        // and is NOT normalized. Normalize both here so the DB's
+        // `LOWER(email)` / `LOWER(username)` unique indexes see a consistent
+        // canonical form regardless of sign-up surface. Hook signature is
+        // `before(user) => { data }` (verified in
+        // node_modules/@better-auth/core/.../types/init-options.d.mts).
+        before: async (newUser) => {
+          const u = newUser as typeof newUser & { username?: string };
+          return {
+            data: {
+              ...u,
+              email: u.email.toLowerCase(),
+              ...(typeof u.username === "string"
+                ? { username: u.username.toLowerCase() }
+                : {}),
+            },
+          };
+        },
         after: async (newUser) => {
           try {
             const [general] = await db
