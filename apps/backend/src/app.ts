@@ -25,7 +25,11 @@ import { accountRoutes } from "./routes/account";
 import { readReceiptsRoutes } from "./routes/read-receipts";
 import { mutesRoutes } from "./routes/mutes";
 import { recordHttpError, shouldCountHttpError } from "./lib/metrics";
-import { csrfPreHandler } from "./lib/csrf";
+import {
+  csrfPreHandler,
+  generateCsrfToken,
+  issueCsrfCookie,
+} from "./lib/csrf";
 import { createSocketIO, type ChatIOServer } from "./socket";
 import { installSocketAuth } from "./socket-auth";
 import { registerSocketHandlers } from "./socket-handlers";
@@ -214,6 +218,28 @@ async function proxyToBetterAuth(request: FastifyRequest, reply: FastifyReply) {
 
   reply.status(response.status);
   response.headers.forEach((v, k) => reply.header(k, v));
+
+  // REQ-146 — stamp the companion csrf_token cookie whenever better-auth
+  // issued a fresh session cookie. The actual cookie name is
+  // `better-auth.session_token=` (better-auth namespaces its cookies with
+  // the library prefix; confirmed via live-run debug). It only writes this
+  // cookie on successful sign-up, sign-in, and token-refresh paths — failed
+  // logins and validation errors leave the existing csrf cookie untouched.
+  // Hook runs AFTER the response headers have been copied so we don't
+  // accidentally drop a better-auth Set-Cookie.
+  const outgoingCookies = reply.getHeader("set-cookie");
+  const cookieList = Array.isArray(outgoingCookies)
+    ? outgoingCookies.map(String)
+    : outgoingCookies
+      ? [String(outgoingCookies)]
+      : [];
+  const establishedSession = cookieList.some((c) =>
+    /^better-auth\.session_token=/.test(c),
+  );
+  if (establishedSession) {
+    issueCsrfCookie(reply, generateCsrfToken());
+  }
+
   const text = await response.text();
   return reply.send(text.length === 0 ? null : text);
 }

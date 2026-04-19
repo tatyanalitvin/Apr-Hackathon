@@ -71,7 +71,20 @@ export function issueCsrfCookie(reply: FastifyReply, token: string): void {
   // Intentionally NOT HttpOnly — the client must read the value to echo it
   // in the X-CSRF-Token header. The same-origin policy still prevents a
   // third-party page from reading the cookie via document.cookie.
-  reply.header("Set-Cookie", parts.join("; "));
+  //
+  // APPEND to any existing Set-Cookie header (better-auth has already stamped
+  // its auth.session_token cookie on the sign-up/sign-in response). A bare
+  // `reply.header("Set-Cookie", ...)` overwrites. Fastify's .header() coerces
+  // arrays into multiple Set-Cookie lines, which is what we want.
+  const existing = reply.getHeader("set-cookie");
+  const csrfLine = parts.join("; ");
+  if (Array.isArray(existing)) {
+    reply.header("Set-Cookie", [...existing.map(String), csrfLine]);
+  } else if (existing) {
+    reply.header("Set-Cookie", [String(existing), csrfLine]);
+  } else {
+    reply.header("Set-Cookie", csrfLine);
+  }
 }
 
 // Parse the csrf_token value out of a Cookie header. Fastify doesn't have a
