@@ -151,3 +151,19 @@ export const roomCreateResponseSchema = z.object({
   createdAt: z.string().datetime(),
 });
 export type RoomCreateResponse = z.infer<typeof roomCreateResponseSchema>;
+
+// ──────────────────────────────────────────────────────────────────────────
+// room-mgmt (S2) — REQ-087 rename, REQ-089 delete.
+// Binding: .human/S2_ROOM_MGMT_UI_AGENT_BRIEF.md §1a.
+// ──────────────────────────────────────────────────────────────────────────
+
+// Extracted from `createRoomSchema.shape.name` so create and rename share the
+// exact same REQ-021 constraints (3–64 chars, [A-Za-z0-9 _-], NFC).
+export const roomNameSchema = createRoomSchema.shape.name;
+
+// REQ-087: body `{ name?: string }` — name-only rename. Description / visibility
+// edits are out of scope for S2 (brief §2).
+export const updateRoomSchema = z.object({
+  name: roomNameSchema.optional(),
+});
+export type UpdateRoomInput = z.infer<typeof updateRoomSchema>;

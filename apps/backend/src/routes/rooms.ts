@@ -12,7 +12,11 @@ import { randomUUID } from "node:crypto";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { createClient, type RedisClientType } from "redis";
 import { message, messageSeq, room, roomMember } from "@ai-herders/shared/schema";
-import { createRoomSchema, roomCreateResponseSchema } from "@ai-herders/shared/dto";
+import {
+  createRoomSchema,
+  roomCreateResponseSchema,
+  updateRoomSchema,
+} from "@ai-herders/shared/dto";
 
 import { db } from "../db";
 import { env } from "../env";
@@ -58,6 +62,48 @@ async function checkJoinRateLimit(
   return {
     allowed: false,
     retryAfterSec: ttl > 0 ? ttl : JOIN_RATE_WINDOW_SECONDS,
+  };
+}
+
+// REQ-087 / REQ-089 — room-mgmt per-user rate limits. PATCH 10/hr, DELETE 5/hr.
+// Modest ceilings (brief §3): rename + delete are owner-driven and shouldn't
+// fire more than a handful of times per session. Own Redis client so FLUSHDB
+// during tests doesn't disturb unrelated buckets. Both PATCH and DELETE share
+// this client but use distinct key prefixes.
+const ROOM_MGMT_WINDOW_SECONDS = 60 * 60;
+const ROOM_PATCH_LIMIT = 10;
+const ROOM_DELETE_LIMIT = 5;
+let roomMgmtRateClient: RedisClientType | undefined;
+
+async function getRoomMgmtRateClient(): Promise<RedisClientType> {
+  if (!roomMgmtRateClient) {
+    const c: RedisClientType = createClient({ url: env.REDIS_URL });
+    c.on("error", (err) => {
+      // eslint-disable-next-line no-console
+      console.error("[room-mgmt-rate-limit] redis error:", err);
+    });
+    await c.connect();
+    roomMgmtRateClient = c;
+  }
+  return roomMgmtRateClient;
+}
+
+async function checkRoomMgmtRateLimit(
+  key: string,
+  limit: number,
+): Promise<{ allowed: boolean; retryAfterSec: number }> {
+  const c = await getRoomMgmtRateClient();
+  const count = await c.incr(key);
+  if (count === 1) {
+    await c.expire(key, ROOM_MGMT_WINDOW_SECONDS);
+  }
+  if (count <= limit) {
+    return { allowed: true, retryAfterSec: 0 };
+  }
+  const ttl = await c.ttl(key);
+  return {
+    allowed: false,
+    retryAfterSec: ttl > 0 ? ttl : ROOM_MGMT_WINDOW_SECONDS,
   };
 }
 
@@ -317,6 +363,94 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
         );
 
       return reply.status(204).send();
+    },
+  );
+
+  // REQ-087 — PATCH /api/v1/rooms/:id rename. Owner-only (room.ownerId ===
+  // auth.user.id). DM rooms rejected (brief §3 pre-resolved — DMs mutate via
+  // their own flow). Binding: .human/S2_ROOM_MGMT_UI_AGENT_BRIEF.md §1a.
+  //
+  // Ordering mirrors POST /rooms: auth → rate-limit → zod parse → resolve →
+  // authz. Rate-limit runs before resolve so probing invalid ids still burns
+  // the bucket (same rationale as the join handler above).
+  app.patch<{ Params: { id: string } }>(
+    "/rooms/:id",
+    async (request, reply) => {
+      const ctx = await requireFriendshipAuth(request, reply);
+      if (!ctx) return;
+
+      const rl = await checkRoomMgmtRateLimit(
+        `rate:room-patch:${ctx.userId}`,
+        ROOM_PATCH_LIMIT,
+      );
+      if (!rl.allowed) {
+        return reply
+          .status(429)
+          .send({ error: "rate_limited", retryAfterSec: rl.retryAfterSec });
+      }
+
+      const parsed = updateRoomSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply
+          .status(400)
+          .send({ error: "invalid_body", details: parsed.error.flatten() });
+      }
+
+      const roomId = request.params.id;
+      const [target] = await db
+        .select({
+          id: room.id,
+          name: room.name,
+          description: room.description,
+          kind: room.kind,
+          ownerId: room.ownerId,
+          createdAt: room.createdAt,
+        })
+        .from(room)
+        .where(eq(room.id, roomId))
+        .limit(1);
+      if (!target) {
+        return reply.status(404).send({ error: "room_not_found" });
+      }
+      if (target.kind === "dm") {
+        return reply
+          .status(403)
+          .send({ error: "cannot_modify_dm_via_this_route" });
+      }
+      if (target.ownerId !== ctx.userId) {
+        return reply.status(403).send({ error: "not_room_owner" });
+      }
+
+      // No-op when the body omits every mutable field. Still a 200 so the
+      // client can treat PATCH as idempotent.
+      const nextName = parsed.data.name ?? target.name;
+
+      try {
+        const [updated] = await db
+          .update(room)
+          .set({ name: nextName })
+          .where(eq(room.id, roomId))
+          .returning({
+            id: room.id,
+            name: room.name,
+            description: room.description,
+            ownerId: room.ownerId,
+            createdAt: room.createdAt,
+          });
+        return reply.status(200).send({
+          id: updated!.id,
+          name: updated!.name,
+          description: updated!.description,
+          visibility: "public" as const,
+          ownerId: updated!.ownerId!,
+          createdAt: updated!.createdAt.toISOString(),
+        });
+      } catch (err) {
+        if (isUniqueViolation(err, "room_name_ci_uq")) {
+          return reply.status(409).send({ error: "name_taken" });
+        }
+        throw err;
+      }
     },
   );
 }

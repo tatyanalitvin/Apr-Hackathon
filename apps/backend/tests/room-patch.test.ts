@@ -8,9 +8,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import request from "supertest";
 import type { FastifyInstance } from "fastify";
+import { randomUUID } from "node:crypto";
 import { createClient } from "redis";
 import { eq } from "drizzle-orm";
-import { room, user } from "@ai-herders/shared/schema";
+import { message, messageSeq, room, roomMember, user } from "@ai-herders/shared/schema";
 
 import { buildApp } from "../src/app";
 import { env } from "../src/env";
@@ -138,17 +139,24 @@ describe("REQ-087 PATCH /api/v1/rooms/:id rename", () => {
   });
 
   test("REQ-087 DM rename rejected → 403", async () => {
-    // Create two users, form a DM, confirm rename is blocked.
+    // Mint a kind='dm' room directly; the DM creation flow requires a
+    // friendship precondition that would be noise for this guard test.
     const alice = await registerAgent(app, "r087da@example.com", "r087_da");
     const barry = await registerAgent(app, "r087db@example.com", "r087_db");
 
-    // Alice creates a DM with Barry. The DMs route mints kind='dm' rooms.
-    const dmRes = await alice.agent
-      .post("/api/v1/dms")
-      .send({ userId: barry.userId });
-    expect(dmRes.status).toBeLessThan(300);
-    const dmRoomId = (dmRes.body.roomId ?? dmRes.body.id) as string;
-    expect(typeof dmRoomId).toBe("string");
+    const [lo, hi] =
+      alice.userId < barry.userId
+        ? [alice.userId, barry.userId]
+        : [barry.userId, alice.userId];
+    const dmRoomId = randomUUID();
+    await getTestDb().insert(room).values({
+      id: dmRoomId,
+      name: null,
+      kind: "dm",
+      visibility: "private",
+      ownerId: alice.userId,
+      dmPairKey: `${lo}:${hi}`,
+    });
 
     const res = await alice.agent
       .patch(`/api/v1/rooms/${dmRoomId}`)
