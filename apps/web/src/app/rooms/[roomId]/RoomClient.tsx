@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import type {
   MessagePayload,
   MessageNewEvent,
+  MessageEditedEvent,
+  MessageDeletedEvent,
   RoomDeletedEvent,
   RoomMemberJoinedEvent,
 } from "@ai-herders/shared/protocol";
@@ -115,6 +117,38 @@ function RoomContent({ roomId }: { roomId: string }) {
     };
     socket.on("message.new", onMessageNew);
 
+    // REQ-110/111 — live reconcile on author edit. The event carries the new
+    // body + editedAt only; seq is unchanged (brief §6 non-neg #5), so we
+    // don't feed it through the watermark — we just patch the local row.
+    // Messages that have been scrolled out of the window and evicted simply
+    // no-op here (brief §1e "skip silently").
+    const onMessageEdited = (evt: MessageEditedEvent) => {
+      if (evt.roomId !== roomId) return;
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === evt.messageId
+            ? { ...m, body: evt.body, editedAt: evt.editedAt }
+            : m,
+        ),
+      );
+    };
+    socket.on("message.edited", onMessageEdited);
+
+    // REQ-112/113 — soft-delete arrival. Flip the row to tombstone mode by
+    // setting deletedAt + clearing body/attachments. Row stays in the list so
+    // seq continuity holds and the scroll position doesn't jump.
+    const onMessageDeleted = (evt: MessageDeletedEvent) => {
+      if (evt.roomId !== roomId) return;
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === evt.messageId
+            ? { ...m, body: "", attachments: [], deletedAt: evt.deletedAt }
+            : m,
+        ),
+      );
+    };
+    socket.on("message.deleted", onMessageDeleted);
+
     // S2 Q1 — a best-effort in-room notification when someone self-joins. We
     // only receive this for rooms already subscribed to (server uses
     // `.to(roomId).emit`), so a no-op in foreign rooms is guaranteed.
@@ -158,6 +192,8 @@ function RoomContent({ roomId }: { roomId: string }) {
       cancelled = true;
       detachPresence();
       socket.off("message.new", onMessageNew);
+      socket.off("message.edited", onMessageEdited);
+      socket.off("message.deleted", onMessageDeleted);
       socket.off("room.member.joined", onMemberJoined);
       socket.off("room.deleted", onRoomDeleted);
       socket.emit("room.unsubscribe", roomId);
@@ -212,6 +248,77 @@ function RoomContent({ roomId }: { roomId: string }) {
       return apiRef.current.uploadAttachment({ roomId, file });
     },
     [roomId],
+  );
+
+  // REQ-110 — author clicks Save in the inline editor. We optimistic-update
+  // so the edit lands in the UI before the server round-trip; the socket
+  // `message.edited` broadcast will overwrite with the canonical row anyway,
+  // so there's no risk of divergence. On error (auth, rate limit, 410) we
+  // toast and rethrow so the form surfaces the failure.
+  const handleEditMessage = useCallback(
+    async (messageId: string, body: string) => {
+      setMessages((prev) =>
+        prev.map((m) => (m.id === messageId ? { ...m, body } : m)),
+      );
+      const res = await apiRef.current.editMessage(roomId, messageId, body);
+      if (!res.ok) {
+        const msg =
+          res.error.code === "gone"
+            ? "Message was deleted."
+            : res.error.code === "not_message_author"
+              ? "You can only edit your own messages."
+              : res.error.code === "rate_limited"
+                ? "Slow down — try again in a moment."
+                : res.error.code === "validation"
+                  ? res.error.message
+                  : "Edit failed.";
+        toast.error(msg);
+        throw new Error(msg);
+      }
+    },
+    [roomId],
+  );
+
+  // REQ-112/113 — author clicks Confirm on the delete affordance. Optimistic
+  // tombstone so the UI feels instant; the socket `message.deleted` event
+  // will arrive and confirm (idempotent — same shape either way). Failures
+  // revert via a refetch of the original row from history is overkill for
+  // the hackathon — we toast and leave the optimistic state, since the next
+  // reload pulls authoritative data from /messages anyway.
+  const handleDeleteMessage = useCallback(
+    async (messageId: string) => {
+      const original = messages.find((m) => m.id === messageId);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId
+            ? {
+                ...m,
+                body: "",
+                attachments: [],
+                deletedAt: new Date().toISOString(),
+              }
+            : m,
+        ),
+      );
+      const res = await apiRef.current.deleteMessage(roomId, messageId);
+      if (!res.ok) {
+        // Revert optimistic tombstone so the user isn't left staring at a
+        // false delete after an authz failure.
+        if (original) {
+          setMessages((prev) =>
+            prev.map((m) => (m.id === messageId ? original : m)),
+          );
+        }
+        const msg =
+          res.error.code === "not_message_author"
+            ? "You can only delete your own messages."
+            : res.error.code === "rate_limited"
+              ? "Slow down — try again in a moment."
+              : "Delete failed.";
+        toast.error(msg);
+      }
+    },
+    [messages, roomId],
   );
 
   // Make sure the current room always appears even if /rooms/me hasn't yet
@@ -274,6 +381,9 @@ function RoomContent({ roomId }: { roomId: string }) {
           hasMoreOlder={hasMoreOlder}
           onLoadOlder={loadOlder}
           firstItemIndex={firstItemIndex}
+          currentUserId={data?.user?.id}
+          onEditMessage={handleEditMessage}
+          onDeleteMessage={handleDeleteMessage}
         />
         <MessageComposer userId={userId} roomId={roomId} onSend={handleSend} onUpload={handleUpload} />
       </main>

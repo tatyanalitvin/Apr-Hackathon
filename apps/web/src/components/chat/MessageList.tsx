@@ -1,5 +1,9 @@
 // REQ-047: Virtualized message list with lazy older-page loading.
 // REQ-048: Auto-scroll pin + "↓ N new messages" pill when user is scrolled up.
+// REQ-110/111/112/113/114: Per-row Edit/Delete hover menu (author-only),
+// inline edit form, (edited) timestamp marker, and tombstone rendering for
+// soft-deleted messages. Wiring lives in this file; the mutate fetches and
+// socket reconciliation live in RoomClient.
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -8,6 +12,8 @@ import type { AttachmentPayload, MessagePayload } from "@ai-herders/shared/proto
 import { Button } from "@/components/ui/button";
 import { AttachmentImage } from "@/components/chat/AttachmentImage";
 import { AttachmentChip } from "@/components/chat/AttachmentChip";
+import { MessageActions } from "@/components/chat/MessageActions";
+import { EditMessageForm } from "@/components/chat/EditMessageForm";
 
 const IMAGE_MIME_RE = /^image\/(png|jpe?g|gif|webp)$/i;
 
@@ -20,11 +26,26 @@ export interface MessageListProps {
   hasMoreOlder: boolean;
   onLoadOlder: () => Promise<void> | void;
   firstItemIndex: number;
+  // Optional because legacy callers (tests, unused routes) still mount without
+  // edit wiring. When undefined the row simply never shows actions, preserving
+  // the pre-S2 behavior.
+  currentUserId?: string;
+  onEditMessage?: (messageId: string, body: string) => Promise<void>;
+  onDeleteMessage?: (messageId: string) => Promise<void>;
 }
 
-export function MessageList({ messages, hasMoreOlder, onLoadOlder, firstItemIndex }: MessageListProps) {
+export function MessageList({
+  messages,
+  hasMoreOlder,
+  onLoadOlder,
+  firstItemIndex,
+  currentUserId,
+  onEditMessage,
+  onDeleteMessage,
+}: MessageListProps) {
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const lastMessageCountRef = useRef(messages.length);
   const lastFirstIndexRef = useRef(firstItemIndex);
   const ref = useRef<VirtuosoHandle>(null);
@@ -54,6 +75,15 @@ export function MessageList({ messages, hasMoreOlder, onLoadOlder, firstItemInde
     setUnreadCount(0);
   }, []);
 
+  const handleEditSave = useCallback(
+    async (messageId: string, body: string) => {
+      if (!onEditMessage) return;
+      await onEditMessage(messageId, body);
+      setEditingId((cur) => (cur === messageId ? null : cur));
+    },
+    [onEditMessage],
+  );
+
   return (
     <div className="relative flex-1 min-h-0">
       <Virtuoso
@@ -65,7 +95,17 @@ export function MessageList({ messages, hasMoreOlder, onLoadOlder, firstItemInde
         atBottomStateChange={handleAtBottomStateChange}
         atBottomThreshold={100}
         startReached={handleStartReached}
-        itemContent={(_index, message) => <MessageRow message={message} />}
+        itemContent={(_index, message) => (
+          <MessageRow
+            message={message}
+            currentUserId={currentUserId}
+            isEditing={editingId === message.id}
+            onStartEdit={() => setEditingId(message.id)}
+            onCancelEdit={() => setEditingId(null)}
+            onSaveEdit={(body) => handleEditSave(message.id, body)}
+            onDelete={onDeleteMessage ? () => onDeleteMessage(message.id) : undefined}
+          />
+        )}
         components={{
           Header: () => hasMoreOlder ? <div className="p-4 text-center text-xs text-muted-foreground">Loading older…</div> : null,
         }}
@@ -81,20 +121,80 @@ export function MessageList({ messages, hasMoreOlder, onLoadOlder, firstItemInde
   );
 }
 
-function MessageRow({ message }: { message: MessagePayload }) {
+interface MessageRowProps {
+  message: MessagePayload;
+  currentUserId?: string;
+  isEditing: boolean;
+  onStartEdit: () => void;
+  onCancelEdit: () => void;
+  onSaveEdit: (body: string) => Promise<void> | void;
+  onDelete?: () => Promise<void> | void;
+}
+
+function MessageRow({
+  message,
+  currentUserId,
+  isEditing,
+  onStartEdit,
+  onCancelEdit,
+  onSaveEdit,
+  onDelete,
+}: MessageRowProps) {
   const ts = new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const attachments = message.attachments ?? [];
+  const isDeleted = Boolean(message.deletedAt);
+  const isOwn = Boolean(currentUserId && message.authorId === currentUserId);
+  const showActions = isOwn && !isDeleted && !isEditing && Boolean(onDelete);
+
+  // REQ-113 tombstone — deleted messages render a greyed-out "[message deleted]"
+  // placeholder with the author's name intact. No attachments, no actions.
+  if (isDeleted) {
+    return (
+      <div className="px-4 py-2 opacity-60">
+        <div className="flex items-baseline gap-2">
+          <span className="font-semibold text-sm">{message.authorName}</span>
+          <span className="text-xs text-muted-foreground">@{message.authorUsername}</span>
+          <span className="text-xs text-muted-foreground">{ts}</span>
+        </div>
+        <div className="italic text-sm text-muted-foreground" data-testid="message-tombstone">
+          [message deleted]
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="px-4 py-2">
+    <div className="group px-4 py-2">
       <div className="flex items-baseline gap-2">
         <span className="font-semibold text-sm">{message.authorName}</span>
         <span className="text-xs text-muted-foreground">@{message.authorUsername}</span>
         <span className="text-xs text-muted-foreground">{ts}</span>
+        {/* REQ-111 — indicator that survives reloads (editedAt persists server-side). */}
+        {message.editedAt ? (
+          <span
+            className="text-xs text-muted-foreground"
+            title={`Edited ${new Date(message.editedAt).toLocaleString()}`}
+            data-testid="message-edited-indicator"
+          >
+            (edited)
+          </span>
+        ) : null}
+        {showActions ? (
+          <div className="ml-auto">
+            <MessageActions onEdit={onStartEdit} onDelete={() => void onDelete?.()} />
+          </div>
+        ) : null}
       </div>
-      {message.body ? (
+      {isEditing ? (
+        <EditMessageForm
+          initialBody={message.body}
+          onSave={onSaveEdit}
+          onCancel={onCancelEdit}
+        />
+      ) : message.body ? (
         <div className="whitespace-pre-wrap break-words text-sm">{message.body}</div>
       ) : null}
-      {attachments.length > 0 ? (
+      {!isEditing && attachments.length > 0 ? (
         <div className="mt-1 flex flex-col gap-2">
           {attachments.map((att) =>
             isImage(att) ? (
