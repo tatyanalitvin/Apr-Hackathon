@@ -15,7 +15,11 @@ export async function downloadAccountExport(): Promise<void> {
   }
   const disposition = res.headers.get("content-disposition") ?? "";
   const match = disposition.match(/filename="?([^"]+)"?/i);
-  const filename = match?.[1] ?? `ai-herders-export-${Date.now()}.json`;
+  // Backend emits `user-data-export-<username>-<ts>.json` via Content-Disposition.
+  // When CORS hides that header (see docs/FOLLOWUPS.md "Export download uses
+  // client-generated filename"), we fall back to the same prefix without the
+  // username — the client doesn't have it cheaply here.
+  const filename = match?.[1] ?? `user-data-export-${Date.now()}.json`;
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
