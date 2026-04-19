@@ -265,6 +265,7 @@ export async function dmsRoutes(app: FastifyInstance): Promise<void> {
       .select({
         roomId: roomMember.roomId,
         dmPairKey: room.dmPairKey,
+        lastReadSeq: roomMember.lastReadSeq,
       })
       .from(roomMember)
       .innerJoin(room, eq(room.id, roomMember.roomId))
@@ -272,6 +273,25 @@ export async function dmsRoutes(app: FastifyInstance): Promise<void> {
     const roomIds = callerMemberships.map((r) => r.roomId);
     if (roomIds.length === 0) {
       return reply.status(200).send({ dms: [] });
+    }
+
+    // REQ-214 — v3 §2.7.1/§4.4 unread math. Same shape as rooms/me (rooms.ts
+    // :251-293): unread = max(0, headSeq - lastReadSeq) per room, where
+    // headSeq comes from messageSeq (the allocator's monotonic per-room
+    // watermark) and lastReadSeq from the caller's roomMember row. DM count
+    // is bounded by friend count so one batched fetch is fine.
+    const headSeqByRoom = new Map<string, bigint>();
+    const headRows = await db
+      .select({ roomId: messageSeq.roomId, seq: messageSeq.seq })
+      .from(messageSeq)
+      .where(inArray(messageSeq.roomId, roomIds));
+    for (const h of headRows) headSeqByRoom.set(h.roomId, h.seq);
+
+    const unreadByRoom = new Map<string, number>();
+    for (const m of callerMemberships) {
+      const head = headSeqByRoom.get(m.roomId) ?? 0n;
+      const diff = head - m.lastReadSeq;
+      unreadByRoom.set(m.roomId, diff > 0n ? Number(diff) : 0);
     }
 
     // Pair-key parse: `${low}:${high}` (see buildDmPairKey). The peer is the
@@ -418,7 +438,7 @@ export async function dmsRoutes(app: FastifyInstance): Promise<void> {
           roomId,
           other: { userId: "", username: "", name: "", deleted: true },
           lastMessage: null,
-          unreadCount: 0,
+          unreadCount: unreadByRoom.get(roomId) ?? 0,
           frozen: true,
           frozenReason: "user_deleted" as DmFrozenReason,
         };
@@ -461,8 +481,7 @@ export async function dmsRoutes(app: FastifyInstance): Promise<void> {
         roomId,
         other,
         lastMessage,
-        // TODO(hackathon): wire real unread count when s2-unread spec lands.
-        unreadCount: 0,
+        unreadCount: unreadByRoom.get(roomId) ?? 0,
         frozen,
         frozenReason: reason,
       };
