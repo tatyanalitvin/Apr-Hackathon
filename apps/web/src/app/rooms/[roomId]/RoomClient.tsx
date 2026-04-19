@@ -545,6 +545,8 @@ function RoomContent({ roomId }: { roomId: string }) {
           firstItemIndex={firstItemIndex}
           onAtBottomChange={setAtBottom}
           currentUserId={data?.user?.id}
+          currentUserRole={settingsRole ?? undefined}
+          roomKind={currentRoom?.kind}
           onEditMessage={handleEditMessage}
           onDeleteMessage={handleDeleteMessage}
           onReply={handleReply}

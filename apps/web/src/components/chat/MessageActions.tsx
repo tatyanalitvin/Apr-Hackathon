@@ -18,7 +18,9 @@
 import { useState } from "react";
 
 export interface MessageActionsProps {
-  onEdit: () => void;
+  // REQ-212 — optional so admin-delete callers (who can't edit) render
+  // the menu without Edit. Authors still pass onEdit; admins omit it.
+  onEdit?: () => void;
   onDelete: () => void;
   onReply?: () => void;
 }
@@ -57,18 +59,20 @@ export function MessageActions({ onEdit, onDelete, onReply }: MessageActionsProp
           Reply
         </button>
       ) : null}
-      <button
-        type="button"
-        data-testid="message-edit"
-        onClick={() => {
-          setOpen(false);
-          setConfirmingDelete(false);
-          onEdit();
-        }}
-        className="rounded bg-muted px-2 py-0.5 hover:bg-muted-foreground/20"
-      >
-        Edit
-      </button>
+      {onEdit ? (
+        <button
+          type="button"
+          data-testid="message-edit"
+          onClick={() => {
+            setOpen(false);
+            setConfirmingDelete(false);
+            onEdit();
+          }}
+          className="rounded bg-muted px-2 py-0.5 hover:bg-muted-foreground/20"
+        >
+          Edit
+        </button>
+      ) : null}
       {confirmingDelete ? (
         <button
           type="button"

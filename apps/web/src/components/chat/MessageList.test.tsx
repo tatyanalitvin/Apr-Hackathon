@@ -113,3 +113,131 @@ describe("MessageList MessageRow quoted-block (REQ-110 R14)", () => {
     expect(screen.queryByTestId("reply-quoted-block")).toBeNull();
   });
 });
+
+// REQ-212 — v3 §2.5.5 grants admins/owners the right to soft-delete other
+// members' messages in group rooms. MessageRow must reveal the ⋯ actions
+// button on non-own messages when the caller's role is owner/admin AND
+// the room is a group chat. DMs (v3 §2.5.1) have no admin concept, so
+// the actions button must stay hidden there even for role='owner'.
+describe("MessageList admin-delete gate (REQ-212)", () => {
+  it("reveals ⋯ actions on a non-own message when viewer is group admin", () => {
+    const other = msg({
+      id: "m-admin-1",
+      authorId: "u-bob",
+      authorUsername: "bob",
+      body: "bob speaks",
+    });
+    render(
+      <MessageList
+        messages={[other]}
+        hasMoreOlder={false}
+        onLoadOlder={() => {}}
+        firstItemIndex={0}
+        currentUserId="u-alice"
+        currentUserRole="admin"
+        roomKind="group"
+        onDeleteMessage={async () => {}}
+      />,
+    );
+    expect(screen.getByTestId("message-actions-toggle")).toBeInTheDocument();
+  });
+
+  it("reveals ⋯ actions on a non-own message when viewer is group owner", () => {
+    const other = msg({
+      id: "m-owner-1",
+      authorId: "u-bob",
+      authorUsername: "bob",
+    });
+    render(
+      <MessageList
+        messages={[other]}
+        hasMoreOlder={false}
+        onLoadOlder={() => {}}
+        firstItemIndex={0}
+        currentUserId="u-alice"
+        currentUserRole="owner"
+        roomKind="group"
+        onDeleteMessage={async () => {}}
+      />,
+    );
+    expect(screen.getByTestId("message-actions-toggle")).toBeInTheDocument();
+  });
+
+  it("hides ⋯ actions on a non-own message when viewer is a plain member", () => {
+    const other = msg({ id: "m-mbr-1", authorId: "u-bob" });
+    render(
+      <MessageList
+        messages={[other]}
+        hasMoreOlder={false}
+        onLoadOlder={() => {}}
+        firstItemIndex={0}
+        currentUserId="u-alice"
+        currentUserRole="member"
+        roomKind="group"
+        onDeleteMessage={async () => {}}
+      />,
+    );
+    expect(screen.queryByTestId("message-actions-toggle")).toBeNull();
+  });
+
+  it("hides ⋯ actions on a non-own message in a DM even when role=owner (no admin concept)", () => {
+    const other = msg({ id: "m-dm-1", authorId: "u-bob" });
+    render(
+      <MessageList
+        messages={[other]}
+        hasMoreOlder={false}
+        onLoadOlder={() => {}}
+        firstItemIndex={0}
+        currentUserId="u-alice"
+        currentUserRole="owner"
+        roomKind="dm"
+        onDeleteMessage={async () => {}}
+      />,
+    );
+    expect(screen.queryByTestId("message-actions-toggle")).toBeNull();
+  });
+
+  it("hides Edit button for admin on non-own message (admins delete only)", async () => {
+    const userEvt = (await import("@testing-library/user-event")).default;
+    const ue = userEvt.setup();
+    const other = msg({ id: "m-adm-edit", authorId: "u-bob" });
+    render(
+      <MessageList
+        messages={[other]}
+        hasMoreOlder={false}
+        onLoadOlder={() => {}}
+        firstItemIndex={0}
+        currentUserId="u-alice"
+        currentUserRole="admin"
+        roomKind="group"
+        onEditMessage={async () => {}}
+        onDeleteMessage={async () => {}}
+      />,
+    );
+    await ue.click(screen.getByTestId("message-actions-toggle"));
+    expect(screen.queryByTestId("message-edit")).toBeNull();
+    expect(screen.getByTestId("message-delete")).toBeInTheDocument();
+  });
+
+  it("keeps Edit available on own message for author", async () => {
+    const userEvt = (await import("@testing-library/user-event")).default;
+    const ue = userEvt.setup();
+    const own = msg({ id: "m-own", authorId: "u-alice" });
+    render(
+      <MessageList
+        messages={[own]}
+        hasMoreOlder={false}
+        onLoadOlder={() => {}}
+        firstItemIndex={0}
+        currentUserId="u-alice"
+        currentUserRole="owner"
+        roomKind="group"
+        onEditMessage={async () => {}}
+        onDeleteMessage={async () => {}}
+      />,
+    );
+    await ue.click(screen.getByTestId("message-actions-toggle"));
+    expect(screen.getByTestId("message-edit")).toBeInTheDocument();
+    expect(screen.getByTestId("message-delete")).toBeInTheDocument();
+  });
+});

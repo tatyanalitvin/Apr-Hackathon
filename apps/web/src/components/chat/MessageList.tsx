@@ -33,6 +33,11 @@ export interface MessageListProps {
   // edit wiring. When undefined the row simply never shows actions, preserving
   // the pre-S2 behavior.
   currentUserId?: string;
+  // REQ-212 — v3 §2.5.5. When role is owner/admin AND roomKind is 'group',
+  // the row reveals Delete on other members' messages. DMs (roomKind='dm')
+  // have no admin concept (v3 §2.5.1) — gate stays closed regardless of role.
+  currentUserRole?: "owner" | "admin" | "member";
+  roomKind?: "group" | "dm";
   onEditMessage?: (messageId: string, body: string) => Promise<void>;
   onDeleteMessage?: (messageId: string) => Promise<void>;
   // REQ-133 R13 — opens a reply target on the parent (RoomClient). When
@@ -47,6 +52,8 @@ export function MessageList({
   firstItemIndex,
   onAtBottomChange,
   currentUserId,
+  currentUserRole,
+  roomKind,
   onEditMessage,
   onDeleteMessage,
   onReply,
@@ -111,6 +118,8 @@ export function MessageList({
           <MessageRow
             message={message}
             currentUserId={currentUserId}
+            currentUserRole={currentUserRole}
+            roomKind={roomKind}
             isEditing={editingId === message.id}
             onStartEdit={() => setEditingId(message.id)}
             onCancelEdit={() => setEditingId(null)}
@@ -141,6 +150,8 @@ export function MessageList({
 interface MessageRowProps {
   message: MessagePayload;
   currentUserId?: string;
+  currentUserRole?: "owner" | "admin" | "member";
+  roomKind?: "group" | "dm";
   isEditing: boolean;
   onStartEdit: () => void;
   onCancelEdit: () => void;
@@ -152,6 +163,8 @@ interface MessageRowProps {
 function MessageRow({
   message,
   currentUserId,
+  currentUserRole,
+  roomKind,
   isEditing,
   onStartEdit,
   onCancelEdit,
@@ -163,7 +176,15 @@ function MessageRow({
   const attachments = message.attachments ?? [];
   const isDeleted = Boolean(message.deletedAt);
   const isOwn = Boolean(currentUserId && message.authorId === currentUserId);
-  const showActions = isOwn && !isDeleted && !isEditing && Boolean(onDelete);
+  // REQ-212 — v3 §2.5.5 admin-delete gate. Owners/admins of a GROUP room
+  // see the ⋯ menu on other members' messages (Delete only; see onEdit
+  // handling below). DMs lack an admin concept → gate stays closed.
+  const isGroupAdmin =
+    roomKind === "group" &&
+    (currentUserRole === "owner" || currentUserRole === "admin");
+  const canAdminDelete = isGroupAdmin && !isOwn;
+  const showActions =
+    (isOwn || canAdminDelete) && !isDeleted && !isEditing && Boolean(onDelete);
   // REQ-110 R14 — quoted-block above body when this message is a reply.
   // Parent soft-delete flips `replyTo.deletedAt` (R11 reducer) to swap the
   // text for `[deleted]` without mutating any other row's body.
@@ -206,7 +227,7 @@ function MessageRow({
         {showActions ? (
           <div className="ml-auto">
             <MessageActions
-              onEdit={onStartEdit}
+              onEdit={isOwn ? onStartEdit : undefined}
               onDelete={() => void onDelete?.()}
               onReply={onReply}
             />
