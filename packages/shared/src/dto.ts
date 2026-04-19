@@ -203,10 +203,26 @@ export type InvitationInboxResponse = z.infer<typeof invitationInboxResponseSche
 // exact same REQ-021 constraints (3–64 chars, [A-Za-z0-9 _-], NFC).
 export const roomNameSchema = createRoomSchema.shape.name;
 
-// REQ-087: body `{ name?: string }` — name-only rename. Description / visibility
-// edits are out of scope for S2 (brief §2).
+// REQ-022 / REQ-087 / REQ-088 — S3 hardening widens the S2 name-only PATCH
+// to also accept description (≤500 NFC-normalised chars, nullable) and a
+// visibility flip (public ↔ private). `description: null` explicitly clears
+// a previously-set value; omitting the field preserves it. `visibility` is
+// optional for the same reason — owners can rename without toggling it.
 export const updateRoomSchema = z.object({
   name: roomNameSchema.optional(),
+  description: z
+    .string()
+    .max(500)
+    .nullable()
+    .optional()
+    .transform((s) =>
+      s == null
+        ? s
+        : s
+            .normalize("NFC")
+            .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, ""),
+    ),
+  visibility: z.enum(["public", "private"]).optional(),
 });
 export type UpdateRoomInput = z.infer<typeof updateRoomSchema>;
 

@@ -28,6 +28,7 @@ import { createInvitationSchema } from "@ai-herders/shared/dto";
 import { db } from "../db";
 import { env } from "../env";
 import { requireFriendshipAuth } from "./friendship";
+import { ROOM_MEMBER_CAP } from "./rooms";
 
 // REQ-089 startup probe — §5 cross-agent coordination. If the flag is on but
 // the `room_ban` relation is missing (agent A's 0007 slipped), log a warning
@@ -364,6 +365,19 @@ export async function invitationsRoutes(app: FastifyInstance): Promise<void> {
       }
       if (invite.status !== "pending" || invite.expiresAt <= new Date()) {
         return reply.status(409).send({ error: "invitation_not_pending" });
+      }
+
+      // REQ-028 — per-room 1000 cap. Checked before the transaction so the
+      // invite row stays 'pending' on a full-room path (inviter can retry
+      // later after the room is trimmed, rather than having to re-send).
+      const [countRow] = await db
+        .select({ count: sql<number>`COUNT(*)::int` })
+        .from(roomMember)
+        .where(eq(roomMember.roomId, invite.roomId));
+      if ((countRow?.count ?? 0) >= ROOM_MEMBER_CAP) {
+        return reply
+          .status(409)
+          .send({ error: "room_full", cap: ROOM_MEMBER_CAP });
       }
 
       const acceptedAt = new Date();
