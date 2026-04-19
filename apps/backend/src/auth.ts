@@ -42,6 +42,13 @@ export const auth = betterAuth({
         "password reset requested (stub — no email sent)",
       );
     },
+    // REQ-017/REQ-018 — drop all active sessions when the password is reset
+    // via token. Matches the S2 forgot-password UI brief's contract: a
+    // successful /api/auth/reset-password call logs the user out of every
+    // device they previously signed in on. Handled by better-auth's
+    // `deleteSessions(userId)` call in api/routes/password.mjs:164 when this
+    // flag is true.
+    revokeSessionsOnPasswordReset: true,
   },
   // §5 + ADR-0004: username is validated at the sign-up boundary and
   // written atomically with the user row. The zod `registerSchema` in
