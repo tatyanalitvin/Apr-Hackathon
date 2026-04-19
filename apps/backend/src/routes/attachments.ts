@@ -174,8 +174,73 @@ export async function attachmentsRoutes(app: FastifyInstance): Promise<void> {
       request: FastifyRequest<{ Params: { id: string } }>,
       reply: FastifyReply,
     ) => {
-      void resolveStorageAbsolute;
-      return reply.status(501).send({ error: "not_implemented" });
+      const headers = toFetchHeaders(request);
+      const session = await auth.api.getSession({ headers });
+      if (!session) {
+        return reply.status(401).send({ error: "unauthorized" });
+      }
+      const userId = session.user.id;
+
+      const [row] = await db
+        .select({
+          id: attachment.id,
+          roomId: attachment.roomId,
+          originalName: attachment.originalName,
+          storagePath: attachment.storagePath,
+          mimeType: attachment.mimeType,
+          sizeBytes: attachment.sizeBytes,
+        })
+        .from(attachment)
+        .where(eq(attachment.id, request.params.id))
+        .limit(1);
+      if (!row) {
+        return reply.status(404).send({ error: "not_found" });
+      }
+
+      // R6 / REQ-083 — membership recomputed on every request. No signed URLs,
+      // no cached grants. Former members → 403 (even the uploader, per R14 /
+      // ADR-0006 deviation from v4's `/uploads/mine`).
+      const [membership] = await db
+        .select({ id: roomMember.id })
+        .from(roomMember)
+        .where(
+          and(
+            eq(roomMember.roomId, row.roomId),
+            eq(roomMember.userId, userId),
+          ),
+        )
+        .limit(1);
+      if (!membership) {
+        return reply.status(403).send({ error: "forbidden" });
+      }
+
+      const onDisk = resolveStorageAbsolute(row.storagePath);
+      if (!fs.existsSync(onDisk)) {
+        request.log.error({ onDisk, id: row.id }, "attachment file missing");
+        return reply.status(500).send({ error: "storage_gone" });
+      }
+
+      // R11 — RFC 5987 Content-Disposition. `filename*=UTF-8''<pct-encoded>`
+      // survives unicode filenames (REQ-078 + R4). Always `attachment` so the
+      // browser never auto-executes scripts; inline preview is S3-owned.
+      const encoded = encodeRFC5987(row.originalName);
+      reply.header("content-type", row.mimeType);
+      reply.header("content-length", row.sizeBytes);
+      reply.header(
+        "content-disposition",
+        `attachment; filename*=UTF-8''${encoded}`,
+      );
+
+      return reply.send(fs.createReadStream(onDisk));
     },
   );
+}
+
+// RFC 5987 §3.2.1 — percent-encode every byte that is not an attr-char
+// (ALPHA / DIGIT / "!" / "#" / "$" / "&" / "+" / "-" / "." / "^" / "_" / "`" /
+// "|" / "~"). encodeURIComponent covers most of this but leaves !*'() alone,
+// so we escape those afterwards.
+function encodeRFC5987(value: string): string {
+  return encodeURIComponent(value)
+    .replace(/['()*!]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
 }
