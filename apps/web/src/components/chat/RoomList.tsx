@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { DmList } from "@/components/dm/DmList";
 
 export interface RoomListItem {
   id: string;
@@ -24,6 +25,7 @@ export function RoomList({ rooms, currentRoomId }: { rooms: RoomListItem[]; curr
         );
       })}
       {/* TODO(S2): add "Create room" button once backend endpoint exists. */}
+      <DmList currentRoomId={currentRoomId} />
     </nav>
   );
 }
