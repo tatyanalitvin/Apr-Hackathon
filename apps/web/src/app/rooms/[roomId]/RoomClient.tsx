@@ -326,8 +326,11 @@ function RoomContent({ roomId }: { roomId: string }) {
   }, []);
 
   const handleUpload = useCallback(
-    async (file: File) => {
-      return apiRef.current.uploadAttachment({ roomId, file });
+    // REQ-E-UI-COMPOSER-COMMENT — forward optional comment from the composer
+    // into the backend multipart field. Ownership extension approved for this
+    // narrow plumb-through on 2026-04-19.
+    async (file: File, options?: { comment?: string }) => {
+      return apiRef.current.uploadAttachment({ roomId, file, comment: options?.comment });
     },
     [roomId],
   );

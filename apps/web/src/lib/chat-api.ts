@@ -26,6 +26,9 @@ export interface UploadAttachmentInput {
 
 export interface UploadAttachmentResult {
   attachmentId: string;
+  // REQ-E-UPLOAD-RESP — echoes the persisted comment (post-NFC, `null`
+  // when the client didn't send one or sent an empty string).
+  comment: string | null;
 }
 
 // Mirrors backend GET /api/v1/rooms/me payload. bigints arrive as strings
