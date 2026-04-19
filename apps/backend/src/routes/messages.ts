@@ -19,7 +19,12 @@ import type {
 import { randomUUID } from "node:crypto";
 import type { ZodType } from "zod";
 import { and, asc, eq, gte, inArray, isNull, lte } from "drizzle-orm";
-import { historyQuerySchema, sendMessageSchema } from "@ai-herders/shared/dto";
+import { createClient, type RedisClientType } from "redis";
+import {
+  editMessageSchema,
+  historyQuerySchema,
+  sendMessageSchema,
+} from "@ai-herders/shared/dto";
 import {
   attachment,
   message,
@@ -31,11 +36,14 @@ import {
 import type {
   AttachmentPayload,
   HistorySliceResponse,
+  MessageDeletedEvent,
+  MessageEditedEvent,
   MessageNewEvent,
   MessagePayload,
 } from "@ai-herders/shared/protocol";
 
 import { db } from "../db";
+import { env } from "../env";
 import { isDmFrozen } from "../lib/dm-freeze";
 import { requireRoomMember } from "../lib/message-auth";
 import { normalizeBody } from "../lib/message-text";
@@ -45,6 +53,49 @@ import {
   AttachmentLinkError,
 } from "../lib/seq-allocator";
 import { DELETED_USER_DISPLAY } from "../lib/users";
+
+// REQ-110/112 — per-user rate limits for message edit + delete. Generous
+// ceilings (brief §1b): editing a just-sent typo is normal, so 60/min on
+// edit; delete is rarer so 30/min. Window is 60s — tight enough that a
+// burst of UI-triggered retries can't starve a real user for long.
+// Own Redis client mirrors the pattern from routes/rooms.ts so FLUSHDB in
+// tests doesn't disturb unrelated buckets.
+const MESSAGE_RATE_WINDOW_SECONDS = 60;
+const MESSAGE_EDIT_LIMIT = 60;
+const MESSAGE_DELETE_LIMIT = 30;
+let messageRateClient: RedisClientType | undefined;
+
+async function getMessageRateClient(): Promise<RedisClientType> {
+  if (!messageRateClient) {
+    const c: RedisClientType = createClient({ url: env.REDIS_URL });
+    c.on("error", (err) => {
+      // eslint-disable-next-line no-console
+      console.error("[message-rate-limit] redis error:", err);
+    });
+    await c.connect();
+    messageRateClient = c;
+  }
+  return messageRateClient;
+}
+
+async function checkMessageRateLimit(
+  key: string,
+  limit: number,
+): Promise<{ allowed: boolean; retryAfterSec: number }> {
+  const c = await getMessageRateClient();
+  const count = await c.incr(key);
+  if (count === 1) {
+    await c.expire(key, MESSAGE_RATE_WINDOW_SECONDS);
+  }
+  if (count <= limit) {
+    return { allowed: true, retryAfterSec: 0 };
+  }
+  const ttl = await c.ttl(key);
+  return {
+    allowed: false,
+    retryAfterSec: ttl > 0 ? ttl : MESSAGE_RATE_WINDOW_SECONDS,
+  };
+}
 
 function zodBodyGuard<T>(schema: ZodType<T>): preHandlerHookHandler {
   return async (request: FastifyRequest, reply: FastifyReply) => {
@@ -84,6 +135,7 @@ export function toMessagePayload(
     seq: row.seq.toString(),
     replyToId: row.replyToId ?? null,
     editedAt: row.editedAt ? row.editedAt.toISOString() : null,
+    deletedAt: row.deletedAt ? row.deletedAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -368,6 +420,202 @@ export async function messagesRoutes(app: FastifyInstance): Promise<void> {
         messages: payloads,
       };
       return reply.status(200).send(response);
+    },
+  );
+
+  // REQ-110/111/114 — PATCH /api/v1/rooms/:roomId/messages/:messageId
+  //
+  // Author-only edit. Updates `body` + stamps `editedAt`, leaves `seq`
+  // untouched (watermark discipline, brief §6 non-neg #5). A
+  // `message.edited` broadcast goes out on success so other subscribers of
+  // the room reconcile the new text without an extra fetch. Deleted
+  // messages reject with 410 — authors can't resurrect soft-deleted rows.
+  //
+  // Ordering mirrors the room-mgmt handlers: auth → room-member gate →
+  // rate-limit → zod parse → resolve → authz → UPDATE → emit.
+  app.patch<{
+    Params: { id: string; messageId: string };
+    Body: { body: string };
+  }>(
+    "/:id/messages/:messageId",
+    async (request, reply) => {
+      const roomId = request.params.id;
+      const messageId = request.params.messageId;
+
+      const ctx = await requireRoomMember(request, reply, roomId);
+      if (!ctx) return;
+
+      const rl = await checkMessageRateLimit(
+        `rate:message-edit:${ctx.userId}`,
+        MESSAGE_EDIT_LIMIT,
+      );
+      if (!rl.allowed) {
+        return reply
+          .status(429)
+          .send({ error: "rate_limited", retryAfterSec: rl.retryAfterSec });
+      }
+
+      const parsed = editMessageSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.status(400).send({
+          error: "validation",
+          issues: parsed.error.issues.map((i) => ({
+            path: i.path,
+            message: i.message,
+            code: i.code,
+          })),
+        });
+      }
+
+      const normalized = normalizeBody(parsed.data.body);
+      if (normalized.length === 0) {
+        return reply.status(400).send({
+          error: "validation",
+          issues: [
+            {
+              path: ["body"],
+              message: "body reduces to empty after normalization",
+              code: "custom",
+            },
+          ],
+        });
+      }
+
+      const [target] = await db
+        .select()
+        .from(message)
+        .where(eq(message.id, messageId))
+        .limit(1);
+      // 404 for both "missing" and "in a different room" so edit cannot be
+      // used as a cross-room id oracle (same rationale as sessions / room
+      // auth gates).
+      if (!target || target.roomId !== roomId) {
+        return reply.status(404).send({ error: "message_not_found" });
+      }
+      // Author-only — brief §6 non-neg #3. Admin moderation is out of scope
+      // (brief §2 — s3-hardening territory).
+      if (target.authorId !== ctx.userId) {
+        return reply.status(403).send({ error: "not_message_author" });
+      }
+      if (target.deletedAt !== null) {
+        // 410 Gone — row exists but has been soft-deleted. Brief §1b:
+        // "can't edit a deleted message". Prefer 410 over 404 so the client
+        // knows the id was valid and can fetch history to render the
+        // tombstone state.
+        return reply.status(410).send({ error: "message_deleted" });
+      }
+
+      const editedAt = new Date();
+      const [updated] = await db
+        .update(message)
+        .set({ body: normalized, editedAt })
+        .where(eq(message.id, messageId))
+        .returning();
+      if (!updated) {
+        throw new Error(`PATCH message returned no row (id=${messageId})`);
+      }
+
+      const payload = toMessagePayload(updated);
+      const atts = await loadAttachmentPayloads(messageId);
+      if (atts.length > 0) payload.attachments = atts;
+
+      // roomHeadSeq for the edited event — the broadcast doesn't change the
+      // head (edits don't advance seq), so read the current value from the
+      // allocator table. Stays consistent with the ADR-0003 watermark shape.
+      const [seqRow] = await db
+        .select({ seq: messageSeq.seq })
+        .from(messageSeq)
+        .where(eq(messageSeq.roomId, roomId))
+        .limit(1);
+      const roomHeadSeq = seqRow?.seq ?? updated.seq;
+
+      const evt: MessageEditedEvent = {
+        type: "message.edited",
+        roomId,
+        seq: updated.seq.toString(),
+        roomHeadSeq: roomHeadSeq.toString(),
+        messageId,
+        body: normalized,
+        editedAt: editedAt.toISOString(),
+      };
+      request.server.io.to(roomId).emit("message.edited", evt);
+
+      return reply.status(200).send(payload);
+    },
+  );
+
+  // REQ-112/113/114 — DELETE /api/v1/rooms/:roomId/messages/:messageId
+  //
+  // Author-only soft-delete. Clears body, sets deletedAt, cascades to
+  // attachment rows (brief §1b: "delete attachment rows (if any)"). Seq
+  // stays put so roomHeadSeq/unread counters don't jitter. Re-delete is
+  // idempotent: 204 without a re-broadcast, deletedAt unchanged.
+  app.delete<{ Params: { id: string; messageId: string } }>(
+    "/:id/messages/:messageId",
+    async (request, reply) => {
+      const roomId = request.params.id;
+      const messageId = request.params.messageId;
+
+      const ctx = await requireRoomMember(request, reply, roomId);
+      if (!ctx) return;
+
+      const rl = await checkMessageRateLimit(
+        `rate:message-delete:${ctx.userId}`,
+        MESSAGE_DELETE_LIMIT,
+      );
+      if (!rl.allowed) {
+        return reply
+          .status(429)
+          .send({ error: "rate_limited", retryAfterSec: rl.retryAfterSec });
+      }
+
+      const [target] = await db
+        .select()
+        .from(message)
+        .where(eq(message.id, messageId))
+        .limit(1);
+      if (!target || target.roomId !== roomId) {
+        return reply.status(404).send({ error: "message_not_found" });
+      }
+      if (target.authorId !== ctx.userId) {
+        return reply.status(403).send({ error: "not_message_author" });
+      }
+      // Idempotent re-delete — no-op 204. Don't re-broadcast; subscribers
+      // already saw the first `message.deleted` fanout.
+      if (target.deletedAt !== null) {
+        return reply.status(204).send();
+      }
+
+      const deletedAt = new Date();
+      await db.transaction(async (tx) => {
+        // Hard-delete the attachment rows. Brief §1b:
+        // "attachments are per-message and no other row references them".
+        // The message row itself is retained for seq continuity.
+        await tx.delete(attachment).where(eq(attachment.messageId, messageId));
+        await tx
+          .update(message)
+          .set({ body: "", deletedAt })
+          .where(eq(message.id, messageId));
+      });
+
+      const [seqRow] = await db
+        .select({ seq: messageSeq.seq })
+        .from(messageSeq)
+        .where(eq(messageSeq.roomId, roomId))
+        .limit(1);
+      const roomHeadSeq = seqRow?.seq ?? target.seq;
+
+      const evt: MessageDeletedEvent = {
+        type: "message.deleted",
+        roomId,
+        seq: target.seq.toString(),
+        roomHeadSeq: roomHeadSeq.toString(),
+        messageId,
+        deletedAt: deletedAt.toISOString(),
+      };
+      request.server.io.to(roomId).emit("message.deleted", evt);
+
+      return reply.status(204).send();
     },
   );
 }
