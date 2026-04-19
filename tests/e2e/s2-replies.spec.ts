@@ -4,15 +4,6 @@
 // docs/specs/s2-replies.md §4 R1–R15 covers the unit + component layers;
 // this file is the browser round-trip.
 //
-// Constraint discovered during scaffolding: MessageList.tsx:166 gates
-// MessageActions (Reply, Edit, Delete) behind `isOwn`, so the Reply
-// button is only visible on the current user's own messages. That
-// contradicts docs/specs/s2-replies.md §4 R13 ("Reply is visible on
-// messages as long as onReply is supplied"). Noted in
-// s2-e2e-coverage.md §7 as spec drift; e2e exercises the author-
-// replies-to-own variant, which is enough to cover the REQ-110 replyTo
-// payload, broadcast fanout, and REQ-133 composer chip wiring.
-//
 // Scenarios:
 //   s1 (REQ-110 + REQ-133 round-trip) — Alice sends "hello", replies
 //       to it via her own message's ⋯ reveal; Bob (observer) sees the
@@ -23,6 +14,10 @@
 //   s3 (REQ-133 composer chip clear) — Alice initiates a reply, clicks
 //       the chip's "Cancel reply" button; the next send has no reply
 //       chip and no quoted block attached. Single browser context.
+//   s4 (REQ-133 R13 cross-user Reply) — Alice posts a message; Bob
+//       (second BrowserContext) hovers Alice's row, opens the ⋯ reveal,
+//       clicks Reply and sends; Alice sees Bob's reply with her own
+//       original quoted above it. Guards the author-agnostic Reply gate.
 
 import { test, expect, type Page, type BrowserContext } from "@playwright/test";
 
@@ -205,6 +200,74 @@ test.describe("REQ-110 REQ-133 — replies browser flows", () => {
       // s2-replies.md §4 R11).
       await expect(bobQuoted).toContainText(/\[deleted\]/, { timeout: 10_000 });
       await expect(bobQuoted).not.toContainText(parentBody);
+    } finally {
+      await aliceCtx.close();
+      await bobCtx.close();
+    }
+  });
+
+  test("REQ-133 R13 — Bob replies to Alice's message across BrowserContexts; Alice sees the quoted block", async ({
+    browser,
+  }) => {
+    const suffix = stamp();
+    const alice = {
+      email: `rep4-a-${suffix}@herders.local`,
+      username: `rep4A${suffix}`,
+      name: "Rep4 Alice",
+      password: "playwright-rep-1234",
+    };
+    const bob = {
+      email: `rep4-b-${suffix}@herders.local`,
+      username: `rep4B${suffix}`,
+      name: "Rep4 Bob",
+      password: "playwright-rep-1234",
+    };
+    const roomName = `rep-r13cross-${suffix}`;
+    const aliceBody = `hello from alice ${suffix}`;
+    const bobReplyBody = `hi alice ${suffix}`;
+
+    const aliceCtx: BrowserContext = await browser.newContext();
+    const bobCtx: BrowserContext = await browser.newContext();
+    try {
+      const alicePage = await aliceCtx.newPage();
+      const bobPage = await bobCtx.newPage();
+
+      await registerAndEnterRooms(alicePage, alice);
+      await registerAndEnterRooms(bobPage, bob);
+      await createPublicRoom(alicePage, roomName);
+      await joinFromBrowse(bobPage, roomName);
+
+      // Alice posts the message Bob will reply to.
+      await sendMessage(alicePage, aliceBody);
+
+      // Bob must see Alice's message land before he can act on it.
+      await expect(bobPage.getByText(aliceBody).first()).toBeVisible({
+        timeout: 15_000,
+      });
+
+      // Bob hovers Alice's row and opens the ⋯ reveal. REQ-133 R13 — the
+      // Reply button must be present on a non-own message, while the
+      // author-scoped Edit/Delete buttons must NOT render.
+      await openActionsOn(bobPage, aliceBody);
+      await expect(bobPage.getByTestId("message-reply")).toBeVisible();
+      await expect(bobPage.getByTestId("message-edit")).toHaveCount(0);
+      await expect(bobPage.getByTestId("message-delete")).toHaveCount(0);
+      await bobPage.getByTestId("message-reply").click();
+
+      const chip = bobPage.getByTestId("reply-chip");
+      await expect(chip).toBeVisible();
+      await expect(chip).toContainText(new RegExp(alice.username, "i"));
+
+      await sendMessage(bobPage, bobReplyBody);
+
+      // Alice sees Bob's reply render with the quoted "hello from alice"
+      // block above the body (REQ-110 R14 applied to Bob's payload).
+      const aliceReplyRow = alicePage.getByText(bobReplyBody).first();
+      await expect(aliceReplyRow).toBeVisible({ timeout: 15_000 });
+      const aliceQuoted = alicePage.getByTestId("reply-quoted-block").first();
+      await expect(aliceQuoted).toBeVisible();
+      await expect(aliceQuoted).toContainText(new RegExp(alice.username, "i"));
+      await expect(aliceQuoted).toContainText(aliceBody);
     } finally {
       await aliceCtx.close();
       await bobCtx.close();
