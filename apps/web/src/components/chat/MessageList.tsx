@@ -4,8 +4,16 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
-import type { MessagePayload } from "@ai-herders/shared/protocol";
+import type { AttachmentPayload, MessagePayload } from "@ai-herders/shared/protocol";
 import { Button } from "@/components/ui/button";
+import { AttachmentImage } from "@/components/chat/AttachmentImage";
+import { AttachmentChip } from "@/components/chat/AttachmentChip";
+
+const IMAGE_MIME_RE = /^image\/(png|jpe?g|gif|webp)$/i;
+
+function isImage(att: AttachmentPayload): boolean {
+  return IMAGE_MIME_RE.test(att.mimeType);
+}
 
 export interface MessageListProps {
   messages: MessagePayload[];
@@ -75,6 +83,7 @@ export function MessageList({ messages, hasMoreOlder, onLoadOlder, firstItemInde
 
 function MessageRow({ message }: { message: MessagePayload }) {
   const ts = new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const attachments = message.attachments ?? [];
   return (
     <div className="px-4 py-2">
       <div className="flex items-baseline gap-2">
@@ -82,7 +91,20 @@ function MessageRow({ message }: { message: MessagePayload }) {
         <span className="text-xs text-muted-foreground">@{message.authorUsername}</span>
         <span className="text-xs text-muted-foreground">{ts}</span>
       </div>
-      <div className="whitespace-pre-wrap break-words text-sm">{message.body}</div>
+      {message.body ? (
+        <div className="whitespace-pre-wrap break-words text-sm">{message.body}</div>
+      ) : null}
+      {attachments.length > 0 ? (
+        <div className="mt-1 flex flex-col gap-2">
+          {attachments.map((att) =>
+            isImage(att) ? (
+              <AttachmentImage key={att.id} attachment={att} />
+            ) : (
+              <AttachmentChip key={att.id} attachment={att} />
+            ),
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }
