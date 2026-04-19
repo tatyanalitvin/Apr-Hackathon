@@ -11,7 +11,7 @@ import request from "supertest";
 import type { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
-import { friendRequest, user } from "@ai-herders/shared/schema";
+import { friendRequest, friendship, user } from "@ai-herders/shared/schema";
 
 import { buildApp } from "../src/app";
 import { getTestDb } from "./db-helpers";
@@ -62,6 +62,15 @@ async function insertFriendRequest(
   return id;
 }
 
+async function insertFriendship(userXId: string, userYId: string): Promise<void> {
+  const [a, b] = userXId < userYId ? [userXId, userYId] : [userYId, userXId];
+  await getTestDb().insert(friendship).values({
+    id: randomUUID(),
+    userAId: a,
+    userBId: b,
+  });
+}
+
 describe("REQ-055 POST /api/v1/friends/requests duplicate branches", () => {
   let app: FastifyInstance;
 
@@ -109,10 +118,14 @@ describe("REQ-055 POST /api/v1/friends/requests duplicate branches", () => {
     expect(allRows).toHaveLength(1);
   });
 
-  test("REQ-055 accepted duplicate → 409 already_friends", async () => {
+  test("REQ-055 accepted duplicate with friendship row → 409 already_friends", async () => {
+    // REQ-051/REQ-059: 409 requires BOTH friend_request.status='accepted' AND
+    // a live friendship row. Without the friendship row the pair has been
+    // unfriended and a resend must be allowed (see friends-send-after-unfriend).
     const alice = await registerAgent(app, "r055a-alice@example.com", "r055a_alice");
     const bob = await registerAgent(app, "r055a-bob@example.com", "r055a_bob");
     await insertFriendRequest(alice.userId, bob.userId, "accepted");
+    await insertFriendship(alice.userId, bob.userId);
 
     const res = await alice.agent
       .post("/api/v1/friends/requests")

@@ -229,7 +229,37 @@ export async function friendshipRoutes(app: FastifyInstance): Promise<void> {
 
       if (existing) {
         if (existing.status === "accepted") {
-          return reply.status(409).send({ error: "already_friends" });
+          // REQ-051/REQ-059 — after DELETE /friends/:userId the friendship row
+          // is gone but this friend_request lingers at 'accepted'. Consult the
+          // friendship table: row present → still friends → 409; absent → the
+          // pair was unfriended, flip back to 'pending' and return 201.
+          const [userAId, userBId] =
+            ctx.userId < targetId
+              ? [ctx.userId, targetId]
+              : [targetId, ctx.userId];
+          const [friendshipRow] = await db
+            .select({ id: friendship.id })
+            .from(friendship)
+            .where(
+              and(
+                eq(friendship.userAId, userAId),
+                eq(friendship.userBId, userBId),
+              ),
+            )
+            .limit(1);
+          if (friendshipRow) {
+            return reply.status(409).send({ error: "already_friends" });
+          }
+          await db
+            .update(friendRequest)
+            .set({
+              status: "pending",
+              message: messageText,
+              createdAt: new Date(),
+              respondedAt: null,
+            })
+            .where(eq(friendRequest.id, existing.id));
+          return reply.status(201).send({ id: existing.id, status: "pending" });
         }
         if (existing.status === "rejected") {
           return reply.status(409).send({ error: "request_declined" });
