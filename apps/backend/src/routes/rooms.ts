@@ -266,4 +266,57 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
       throw err;
     }
   });
+
+  // REQ-027 — DELETE /api/v1/rooms/:id/members/me. Members leave freely;
+  // owners cannot leave (they must delete the room — deferred to S2).
+  // Binding spec: docs/specs/s1-rooms.md §4 R9/R10/R11/R12/R13.
+  //
+  // Order matters: check room existence FIRST (R12 404 is distinct from
+  // the R10 idempotent non-member 204), THEN check role (R11 403 takes
+  // precedence over R9/R10), THEN delete.
+  app.delete<{ Params: { id: string } }>(
+    "/rooms/:id/members/me",
+    async (request, reply) => {
+      const ctx = await requireFriendshipAuth(request, reply);
+      if (!ctx) return;
+
+      const roomId = request.params.id;
+
+      const [roomRow] = await db
+        .select({ id: room.id })
+        .from(room)
+        .where(eq(room.id, roomId))
+        .limit(1);
+      if (!roomRow) {
+        return reply.status(404).send({ error: "room_not_found" });
+      }
+
+      const [membership] = await db
+        .select({ role: roomMember.role })
+        .from(roomMember)
+        .where(
+          and(
+            eq(roomMember.userId, ctx.userId),
+            eq(roomMember.roomId, roomId),
+          ),
+        )
+        .limit(1);
+      if (membership?.role === "owner") {
+        return reply.status(403).send({ error: "owner_cannot_leave" });
+      }
+
+      // Delete is idempotent by design: if no row exists the DELETE is a
+      // no-op and we still return 204 (R10). No need to branch on row count.
+      await db
+        .delete(roomMember)
+        .where(
+          and(
+            eq(roomMember.userId, ctx.userId),
+            eq(roomMember.roomId, roomId),
+          ),
+        );
+
+      return reply.status(204).send();
+    },
+  );
 }
