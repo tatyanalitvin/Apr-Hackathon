@@ -16,6 +16,7 @@ import { io as ioClient, type Socket as ClientSocket } from "socket.io-client";
 import { and, eq } from "drizzle-orm";
 import { sendMessageSchema } from "@ai-herders/shared/dto";
 import {
+  friendship,
   message,
   messageSeq,
   room,
@@ -748,5 +749,108 @@ describe("REQ-110 R5 message.new event carries replyTo", () => {
     } finally {
       bobClient.close();
     }
+  });
+});
+
+// ─── REQ-110 R8 — DM parity ─────────────────────────────────────────────────
+//
+// Replies behave identically in DMs because DMs are group rooms with
+// kind='dm' (ADR-0007) and the send/history/DM-list handlers all serialize
+// through `toMessagePayload`. Two assertions:
+//   1. Round-trip: bob replies to alice's DM message; response carries
+//      populated replyTo (validates the send path hits the same code as
+//      group rooms).
+//   2. `GET /api/v1/dms` — lastMessage.replyTo is populated when the latest
+//      message in the DM is a reply. Requires task 8 (batched parent fetch
+//      in dms.ts `latestByRoom`) to pass; flagged TDD-red until then.
+
+async function addFriendship(a: string, b: string): Promise<void> {
+  const [userAId, userBId] = a < b ? [a, b] : [b, a];
+  await getTestDb()
+    .insert(friendship)
+    .values({ id: randomUUID(), userAId, userBId });
+}
+
+describe("REQ-110 R8 DM parity for replies", () => {
+  let app: FastifyInstance;
+
+  beforeAll(async () => {
+    app = await buildApp();
+    await app.ready();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  test("REQ-110 R8 reply in a DM room → 201 with replyTo populated (round-trip)", async () => {
+    const alice = await registerAgent(app, "r8-alice@example.com", "r8_alice");
+    const bob = await registerAgent(app, "r8-bob@example.com", "r8_bob");
+    await addFriendship(alice.userId, bob.userId);
+
+    const dmRes = await alice.agent
+      .post("/api/v1/dms")
+      .send({ userId: bob.userId });
+    expect(dmRes.status).toBe(201);
+    const roomId: string = dmRes.body.roomId;
+
+    const parentRes = await alice.agent
+      .post(`/api/v1/rooms/${roomId}/messages`)
+      .send({ body: "hi" });
+    expect(parentRes.status).toBe(201);
+    const parentId: string = parentRes.body.id;
+
+    const replyRes = await bob.agent
+      .post(`/api/v1/rooms/${roomId}/messages`)
+      .send({ body: "hey", replyToId: parentId });
+    expect(replyRes.status).toBe(201);
+    expect(replyRes.body.replyToId).toBe(parentId);
+    expect(replyRes.body.replyTo).toEqual({
+      id: parentId,
+      text: "hi",
+      authorUsername: "r8_alice",
+      deletedAt: null,
+    });
+  });
+
+  test("REQ-110 R8 GET /api/v1/dms → lastMessage.replyTo populated when last message is a reply", async () => {
+    // Task 8 guard: dms.ts `latestByRoom` must batch-fetch parents for any
+    // lastMessage row where replyToId is non-null and call previewFromParent
+    // so the listing carries the same ReplyToPreview shape as the history
+    // slice. Until task 8 lands this assertion fails (lastMessage.replyTo
+    // stays null).
+    const alice = await registerAgent(app, "r8-list-a@example.com", "r8_list_a");
+    const bob = await registerAgent(app, "r8-list-b@example.com", "r8_list_b");
+    await addFriendship(alice.userId, bob.userId);
+
+    const dmRes = await alice.agent
+      .post("/api/v1/dms")
+      .send({ userId: bob.userId });
+    expect(dmRes.status).toBe(201);
+    const roomId: string = dmRes.body.roomId;
+
+    const parentRes = await alice.agent
+      .post(`/api/v1/rooms/${roomId}/messages`)
+      .send({ body: "hi from alice" });
+    const parentId: string = parentRes.body.id;
+
+    const replyRes = await bob.agent
+      .post(`/api/v1/rooms/${roomId}/messages`)
+      .send({ body: "hey back", replyToId: parentId });
+    expect(replyRes.status).toBe(201);
+
+    const listRes = await alice.agent.get("/api/v1/dms");
+    expect(listRes.status).toBe(200);
+    const item = listRes.body.dms.find((d: { roomId: string }) => d.roomId === roomId);
+    expect(item).toBeDefined();
+    expect(item.lastMessage).not.toBeNull();
+    expect(item.lastMessage.replyToId).toBe(parentId);
+    // Task 8 flips this from null → populated.
+    expect(item.lastMessage.replyTo).toEqual({
+      id: parentId,
+      text: "hi from alice",
+      authorUsername: "r8_list_a",
+      deletedAt: null,
+    });
   });
 });
