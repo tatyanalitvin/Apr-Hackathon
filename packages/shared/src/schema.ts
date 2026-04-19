@@ -109,7 +109,9 @@ export const room = pgTable(
   {
     id: text("id").primaryKey(),
     // §2.4.2 unique for group rooms. Nullable because DM rooms derive display names.
-    name: text("name").unique(),
+    // Uniqueness is now enforced by the `nameCiUq` partial index below — case-insensitive,
+    // scoped to kind='group' + non-soft-deleted rows. See docs/specs/s1-rooms.md §5.
+    name: text("name"),
     description: text("description"),
     kind: roomKind("kind").notNull().default("group"),
     visibility: roomVisibility("visibility").notNull().default("public"),
@@ -131,6 +133,11 @@ export const room = pgTable(
     dmPairUq: uniqueIndex("room_dm_pair_uq")
       .on(t.dmPairKey)
       .where(sql`${t.kind} = 'dm'`),
+    // REQ-021 — case-insensitive uniqueness for group-room names. Partial so
+    // DM rooms (name=NULL) and soft-deleted rows don't compete in the namespace.
+    nameCiUq: uniqueIndex("room_name_ci_uq")
+      .on(sql`lower(${t.name})`)
+      .where(sql`${t.kind} = 'group' AND ${t.deletedAt} IS NULL`),
   }),
 );
 
