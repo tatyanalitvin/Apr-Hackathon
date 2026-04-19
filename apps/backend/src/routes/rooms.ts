@@ -10,10 +10,53 @@
 import type { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
+import { createClient, type RedisClientType } from "redis";
 import { room, roomMember } from "@ai-herders/shared/schema";
 
 import { db } from "../db";
+import { env } from "../env";
 import { requireFriendshipAuth } from "./friendship";
+
+// Per-user 60/hour rate limit on POST /rooms/:id/join (spec §5).
+// Separate Redis client from friend-rate-limit; both use their own
+// namespaced keys ("rate:room-join:…" vs "rate:friend-req:…") so the
+// buckets can't collide on FLUSHDB in tests. INCR + EXPIRE-on-first
+// self-cleans; no external sweep needed.
+const JOIN_RATE_WINDOW_SECONDS = 60 * 60;
+const JOIN_RATE_LIMIT = 60;
+let joinRateClient: RedisClientType | undefined;
+
+async function getJoinRateClient(): Promise<RedisClientType> {
+  if (!joinRateClient) {
+    const c: RedisClientType = createClient({ url: env.REDIS_URL });
+    c.on("error", (err) => {
+      // eslint-disable-next-line no-console
+      console.error("[room-join-rate-limit] redis error:", err);
+    });
+    await c.connect();
+    joinRateClient = c;
+  }
+  return joinRateClient;
+}
+
+async function checkJoinRateLimit(
+  userId: string,
+): Promise<{ allowed: boolean; retryAfterSec: number }> {
+  const c = await getJoinRateClient();
+  const key = `rate:room-join:${userId}`;
+  const count = await c.incr(key);
+  if (count === 1) {
+    await c.expire(key, JOIN_RATE_WINDOW_SECONDS);
+  }
+  if (count <= JOIN_RATE_LIMIT) {
+    return { allowed: true, retryAfterSec: 0 };
+  }
+  const ttl = await c.ttl(key);
+  return {
+    allowed: false,
+    retryAfterSec: ttl > 0 ? ttl : JOIN_RATE_WINDOW_SECONDS,
+  };
+}
 
 export async function roomsRoutes(app: FastifyInstance): Promise<void> {
   // R2 / REQ-026 — POST /api/v1/rooms/:id/join.
@@ -27,6 +70,16 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const ctx = await requireFriendshipAuth(request, reply);
       if (!ctx) return;
+
+      // §5 ordering: rate-limit runs BEFORE the resolve step so probing
+      // invalid ids still burns the bucket (same rationale as friendship
+      // REQ-054: bucketless lookups are free enumeration).
+      const rl = await checkJoinRateLimit(ctx.userId);
+      if (!rl.allowed) {
+        return reply
+          .status(429)
+          .send({ error: "rate_limited", retryAfterSec: rl.retryAfterSec });
+      }
 
       const [target] = await db
         .select({
