@@ -262,6 +262,7 @@ export function MessageComposer({
         </div>
       ) : null}
 
+      {/* AGENT-E: attachment preview zone */}
       {pending.length > 0 ? (
         <div className="flex flex-wrap gap-2 pb-1">
           {pending.map((p) => (
@@ -346,6 +347,7 @@ export function MessageComposer({
         >
           {bytes} / {MAX_BYTES}
         </span>
+        {/* AGENT-F: emoji zone */}
         <Button size="sm" onClick={() => void send()} disabled={!canSend}>
           {sending ? "Sending…" : anyUploading ? "Uploading…" : "Send"}
         </Button>

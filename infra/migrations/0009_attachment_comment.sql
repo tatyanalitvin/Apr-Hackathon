@@ -1,0 +1,2 @@
+-- Reserved for wave-2 agent E (§2.6.3 attachment comment)
+-- ALTER TABLE attachment ADD COLUMN comment text;
