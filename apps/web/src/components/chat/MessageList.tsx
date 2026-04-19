@@ -20,9 +20,12 @@ export interface MessageListProps {
   hasMoreOlder: boolean;
   onLoadOlder: () => Promise<void> | void;
   firstItemIndex: number;
+  // REQ-120 — parent needs the at-bottom signal to gate mark-read. Optional
+  // so older callers (e.g. DM views) don't have to thread it.
+  onAtBottomChange?: (atBottom: boolean) => void;
 }
 
-export function MessageList({ messages, hasMoreOlder, onLoadOlder, firstItemIndex }: MessageListProps) {
+export function MessageList({ messages, hasMoreOlder, onLoadOlder, firstItemIndex, onAtBottomChange }: MessageListProps) {
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [unreadCount, setUnreadCount] = useState(0);
   const lastMessageCountRef = useRef(messages.length);
@@ -40,10 +43,14 @@ export function MessageList({ messages, hasMoreOlder, onLoadOlder, firstItemInde
     lastFirstIndexRef.current = firstItemIndex;
   }, [messages.length, firstItemIndex, isAtBottom]);
 
-  const handleAtBottomStateChange = useCallback((atBottom: boolean) => {
-    setIsAtBottom(atBottom);
-    if (atBottom) setUnreadCount(0);
-  }, []);
+  const handleAtBottomStateChange = useCallback(
+    (atBottom: boolean) => {
+      setIsAtBottom(atBottom);
+      if (atBottom) setUnreadCount(0);
+      onAtBottomChange?.(atBottom);
+    },
+    [onAtBottomChange],
+  );
 
   const handleStartReached = useCallback(() => {
     if (hasMoreOlder) void onLoadOlder();

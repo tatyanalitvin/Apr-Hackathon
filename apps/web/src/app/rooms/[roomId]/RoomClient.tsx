@@ -27,6 +27,10 @@ import { createWatermark } from "@/lib/watermark";
 import { toast } from "sonner";
 import type { MyRoomSummary } from "@/lib/chat-api";
 import { useIdleDetector, type IdleState } from "@/lib/use-idle-detector";
+import { MuteToggle } from "@/components/chat/MuteToggle";
+import { computeUnreadList } from "@/lib/unread";
+import { useMarkRead } from "@/lib/use-mark-read";
+import { useUnreadNotifications } from "@/lib/use-unread-notifications";
 
 const INITIAL_FIRST_INDEX = 1_000_000;
 const HISTORY_PAGE_SIZE = 50;
@@ -61,6 +65,13 @@ function RoomContent({ roomId }: { roomId: string }) {
   // REQ-103 — track the local idle state so the Header self-pill can render
   // it before the server round-trips `presence.changed` back.
   const [selfPresence, setSelfPresence] = useState<IdleState>("online");
+  // REQ-120 — scroll-lock signal from MessageList gates debounced mark-read.
+  const [atBottom, setAtBottom] = useState(true);
+  // REQ-120/122 — focus state drives mark-read eligibility + title-flash
+  // suppression for the focused tab.
+  const [isFocused, setIsFocused] = useState(
+    typeof document === "undefined" ? true : document.visibilityState === "visible",
+  );
 
   const apiRef = useRef(createChatApi());
   const socketRef = useRef<ChatSocket | null>(null);
@@ -80,6 +91,36 @@ function RoomContent({ roomId }: { roomId: string }) {
   useEffect(() => {
     void refreshMyRooms();
   }, [refreshMyRooms]);
+
+  // REQ-120 — lightweight polling of /rooms/me so unread badges for *other*
+  // rooms surface without a page reload. The socket is only subscribed to
+  // the current room, so we can't react to their message.new events directly.
+  // 10s cadence keeps the network noise low for the 300-user brief while
+  // still feeling "live" enough for the demo.
+  useEffect(() => {
+    const id = setInterval(() => {
+      void refreshMyRooms();
+    }, 10_000);
+    return () => clearInterval(id);
+  }, [refreshMyRooms]);
+
+  // REQ-122 — track window focus so title flash / desktop notifications fire
+  // only when the tab isn't the one the user is looking at. We update on
+  // both `visibilitychange` (tab switches) and `focus/blur` (window switches).
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const update = () =>
+      setIsFocused(document.visibilityState === "visible" && document.hasFocus());
+    update();
+    document.addEventListener("visibilitychange", update);
+    window.addEventListener("focus", update);
+    window.addEventListener("blur", update);
+    return () => {
+      document.removeEventListener("visibilitychange", update);
+      window.removeEventListener("focus", update);
+      window.removeEventListener("blur", update);
+    };
+  }, []);
 
   const emit = useCallback((m: MessagePayload) => {
     setMessages((prev) => {
@@ -214,16 +255,68 @@ function RoomContent({ roomId }: { roomId: string }) {
     [roomId],
   );
 
-  // Make sure the current room always appears even if /rooms/me hasn't yet
-  // resolved (or transiently lacks membership while reconciling).
+  // REQ-120 — annotate rooms with unread counts (roomHeadSeq - lastReadSeq)
+  // and mute state so RoomList renders the pills. For the currently open
+  // room, we derive head seq from the live messages array so the count
+  // reflects just-arrived messages before /rooms/me catches up.
+  const currentHeadSeqLocal: bigint = useMemo(() => {
+    let max = 0n;
+    for (const m of messages) {
+      try {
+        const s = BigInt(m.seq);
+        if (s > max) max = s;
+      } catch {
+        // malformed seq ignored — watermark contract says they're stringified bigints
+      }
+    }
+    return max;
+  }, [messages]);
+
   const displayedRooms: RoomListItem[] = useMemo(() => {
-    const base: RoomListItem[] = myRooms
-      ? myRooms.map((r) => ({ id: r.id, name: r.name }))
-      : FALLBACK_ROOMS;
-    return base.some((r) => r.id === roomId)
-      ? base
-      : [...base, { id: roomId, name: roomId }];
+    if (!myRooms) {
+      return FALLBACK_ROOMS.some((r) => r.id === roomId)
+        ? FALLBACK_ROOMS
+        : [...FALLBACK_ROOMS, { id: roomId, name: roomId }];
+    }
+    const entries = computeUnreadList(myRooms);
+    const byId = new Map(entries.map((e) => [e.id, e]));
+    const items = myRooms.map((r): RoomListItem => {
+      const e = byId.get(r.id);
+      return {
+        id: r.id,
+        name: r.name,
+        unreadCount: e?.count ?? 0,
+        muted: e?.muted ?? false,
+      };
+    });
+    return items.some((r) => r.id === roomId)
+      ? items
+      : [...items, { id: roomId, name: roomId }];
   }, [myRooms, roomId]);
+
+  // REQ-120 — debounced mark-read. Fire when the tab is focused AND the
+  // list is scroll-locked at the bottom. We feed the hook the local head
+  // seq so a burst of arrivals collapses into one POST per tick.
+  useMarkRead({
+    roomId,
+    headSeq: currentHeadSeqLocal,
+    canMarkRead: isFocused && atBottom && currentHeadSeqLocal > 0n,
+    onMarked: useCallback(
+      (seq: bigint) => {
+        setMyRooms((prev) =>
+          prev
+            ? prev.map((r) =>
+                r.id === roomId ? { ...r, lastReadSeq: seq.toString() } : r,
+              )
+            : prev,
+        );
+      },
+      [roomId],
+    ),
+  });
+
+  // REQ-121/122/124 — title flash + desktop notifications + cross-tab dedupe.
+  useUnreadNotifications({ rooms: myRooms, currentRoomId: roomId });
 
   // REQ-087/089 — surface the settings modal only when we have a membership
   // row for this room and it's a group room (DMs mutate via their own flow).
@@ -259,21 +352,40 @@ function RoomContent({ roomId }: { roomId: string }) {
       <main className="flex flex-col min-h-0 overflow-hidden">
         <div className="flex items-center justify-between border-b px-4 py-2 text-sm font-semibold">
           <span>#{currentRoom?.name ?? roomId}</span>
-          {settingsRole !== null ? (
-            <RoomSettingsModal
+          <div className="flex items-center gap-1">
+            {/* REQ-123 — bell toggle. Optimistically flip mutedUntil so the
+                icon and RoomList pill change instantly; the /rooms/me poll
+                reconciles authoritative server state. */}
+            <MuteToggle
               roomId={roomId}
-              roomName={currentRoom?.name ?? roomId}
-              role={settingsRole}
-              onRenamed={refreshMyRooms}
-              onLeftOrDeleted={refreshMyRooms}
+              mutedUntil={currentRoom?.mutedUntil ?? null}
+              onChanged={(next) =>
+                setMyRooms((prev) =>
+                  prev
+                    ? prev.map((r) =>
+                        r.id === roomId ? { ...r, mutedUntil: next } : r,
+                      )
+                    : prev,
+                )
+              }
             />
-          ) : null}
+            {settingsRole !== null ? (
+              <RoomSettingsModal
+                roomId={roomId}
+                roomName={currentRoom?.name ?? roomId}
+                role={settingsRole}
+                onRenamed={refreshMyRooms}
+                onLeftOrDeleted={refreshMyRooms}
+              />
+            ) : null}
+          </div>
         </div>
         <MessageList
           messages={messages}
           hasMoreOlder={hasMoreOlder}
           onLoadOlder={loadOlder}
           firstItemIndex={firstItemIndex}
+          onAtBottomChange={setAtBottom}
         />
         <MessageComposer userId={userId} roomId={roomId} onSend={handleSend} onUpload={handleUpload} />
       </main>
