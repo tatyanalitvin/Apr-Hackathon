@@ -41,13 +41,13 @@ export interface MyRoomSummary {
 }
 
 // Mirrors POST /api/v1/rooms → 201 (REQ-023/REQ-015) and PATCH /api/v1/rooms/:id
-// → 200 (REQ-087). `visibility` is always "public" for the create endpoint;
-// kept non-nullable so callers don't have to null-check in template strings.
+// → 200 (REQ-087). Visibility is now caller-supplied (REQ-088 private rooms);
+// the server-side clamp-to-public was superseded on feat/invitations.
 export interface RoomMutationResult {
   id: string;
   name: string;
   description: string | null;
-  visibility: "public";
+  visibility: "public" | "private";
   ownerId: string;
   createdAt: string;
 }
@@ -69,6 +69,9 @@ export interface JoinRoomResult {
 export interface CreateRoomInput {
   name: string;
   description?: string;
+  // REQ-088 — default "public". Omitted = server default; "private" creates
+  // an invite-only room whose only entry path is a REQ-089 invitation.
+  visibility?: "public" | "private";
 }
 
 export interface UpdateRoomInput {
@@ -126,6 +129,52 @@ export interface RoomMemberEntry {
 }
 
 
+// REQ-089 invitations.
+export interface InboxInvitation {
+  id: string;
+  roomId: string;
+  roomName: string;
+  inviterUsername: string;
+  createdAt: string;
+  expiresAt: string;
+}
+
+export interface OutgoingInvitation {
+  id: string;
+  inviterUsername: string;
+  inviteeUsername: string;
+  createdAt: string;
+  expiresAt: string;
+}
+
+export interface SendInvitationResult {
+  invitationId: string;
+  expiresAt: string;
+}
+
+// Narrow union for the R3 error surface — maps 1:1 to backend `error` codes
+// so InvitationsTab can switch on code instead of re-parsing HTTP semantics.
+export type InvitationError =
+  | { code: "unauthorized" }
+  | { code: "room_not_found" }
+  | { code: "not_a_member" }
+  | { code: "forbidden_role" }         // 403 R3 — non-owner/admin on private room
+  | { code: "invitee_not_found" }
+  | { code: "invitee_already_member" }
+  | { code: "invitee_banned" }
+  | { code: "invite_pending" }
+  | { code: "invitation_not_found" }   // R5/R6/R7
+  | { code: "not_invitee" }            // R5/R6
+  | { code: "not_inviter" }            // R7
+  | { code: "invitation_not_pending" } // R5/R6/R7 terminal/expired
+  | { code: "validation"; message?: string }
+  | { code: "network"; message: string }
+  | { code: "unknown"; message: string };
+
+export type InvitationResponse<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: InvitationError };
+
 export interface ChatAPI {
   sendMessage(roomId: string, input: SendMessageInput): Promise<MessagePayload>;
   fetchHistory(roomId: string, input: FetchHistoryInput): Promise<HistorySliceResponse>;
@@ -142,6 +191,13 @@ export interface ChatAPI {
   editMessage(roomId: string, messageId: string, body: string): Promise<MessageMutationResponse<MessagePayload>>;
   deleteMessage(roomId: string, messageId: string): Promise<MessageMutationResponse<null>>;
   listRoomMembers(roomId: string): Promise<RoomMemberEntry[]>;
+  // REQ-089 invitations.
+  listInbox(): Promise<InboxInvitation[]>;
+  listRoomInvitations(roomId: string): Promise<OutgoingInvitation[]>;
+  sendInvitation(roomId: string, inviteeUsername: string): Promise<InvitationResponse<SendInvitationResult>>;
+  acceptInvitation(invitationId: string): Promise<InvitationResponse<{ joined: true; roomId: string }>>;
+  declineInvitation(invitationId: string): Promise<InvitationResponse<{ declined: true }>>;
+  cancelInvitation(invitationId: string): Promise<InvitationResponse<{ cancelled: true }>>;
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -292,6 +348,134 @@ export class RealChatAPI implements ChatAPI {
     );
     return members;
   }
+
+  async listInbox(): Promise<InboxInvitation[]> {
+    const { invitations } = await fetchJson<{ invitations: InboxInvitation[] }>(
+      `${BACKEND_URL}/api/v1/invitations`,
+    );
+    return invitations;
+  }
+
+  async listRoomInvitations(roomId: string): Promise<OutgoingInvitation[]> {
+    const { invitations } = await fetchJson<{
+      invitations: OutgoingInvitation[];
+    }>(`${BACKEND_URL}/api/v1/rooms/${encodeURIComponent(roomId)}/invitations`);
+    return invitations;
+  }
+
+  async sendInvitation(
+    roomId: string,
+    inviteeUsername: string,
+  ): Promise<InvitationResponse<SendInvitationResult>> {
+    return invitationMutation<SendInvitationResult>(
+      `${BACKEND_URL}/api/v1/rooms/${encodeURIComponent(roomId)}/invitations`,
+      "POST",
+      { inviteeUsername },
+    );
+  }
+
+  async acceptInvitation(
+    invitationId: string,
+  ): Promise<InvitationResponse<{ joined: true; roomId: string }>> {
+    return invitationMutation<{ joined: true; roomId: string }>(
+      `${BACKEND_URL}/api/v1/invitations/${encodeURIComponent(invitationId)}/accept`,
+      "POST",
+    );
+  }
+
+  async declineInvitation(
+    invitationId: string,
+  ): Promise<InvitationResponse<{ declined: true }>> {
+    return invitationMutation<{ declined: true }>(
+      `${BACKEND_URL}/api/v1/invitations/${encodeURIComponent(invitationId)}/decline`,
+      "POST",
+    );
+  }
+
+  async cancelInvitation(
+    invitationId: string,
+  ): Promise<InvitationResponse<{ cancelled: true }>> {
+    return invitationMutation<{ cancelled: true }>(
+      `${BACKEND_URL}/api/v1/invitations/${encodeURIComponent(invitationId)}`,
+      "DELETE",
+    );
+  }
+}
+
+// REQ-089 — maps backend `{ error: <code>, ... }` onto the InvitationError
+// union so the UI doesn't re-parse HTTP. Mirrors roomMutation's shape.
+async function invitationMutation<T>(
+  url: string,
+  method: "POST" | "DELETE",
+  body?: unknown,
+): Promise<InvitationResponse<T>> {
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method,
+      credentials: "include",
+      headers:
+        body !== undefined ? { "content-type": "application/json" } : undefined,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      error: {
+        code: "network",
+        message: err instanceof Error ? err.message : "network error",
+      },
+    };
+  }
+
+  if (res.status === 200 || res.status === 201) {
+    const data = (await res.json().catch(() => null)) as T | null;
+    if (data === null) {
+      return { ok: false, error: { code: "unknown", message: "empty body" } };
+    }
+    return { ok: true, data };
+  }
+
+  const payload = (await res.json().catch(() => ({}))) as {
+    error?: string;
+    message?: string;
+  };
+  if (res.status === 401) return { ok: false, error: { code: "unauthorized" } };
+  if (res.status === 400) {
+    return {
+      ok: false,
+      error: { code: "validation", message: payload.message ?? payload.error },
+    };
+  }
+  const known = [
+    "room_not_found",
+    "not_a_member",
+    "forbidden_role",
+    "invitee_not_found",
+    "invitee_already_member",
+    "invitee_banned",
+    "invite_pending",
+    "invitation_not_found",
+    "not_invitee",
+    "not_inviter",
+    "invitation_not_pending",
+  ] as const;
+  if (typeof payload.error === "string" && (known as readonly string[]).includes(payload.error)) {
+    return {
+      ok: false,
+      error: { code: payload.error as (typeof known)[number] },
+    };
+  }
+  return {
+    ok: false,
+    error: {
+      code: "unknown",
+      message:
+        typeof payload.error === "string"
+          ? payload.error
+          : `HTTP ${res.status}`,
+    },
+  };
 }
 
 // Shared adapter for POST/PATCH/DELETE /rooms routes. Normalises backend

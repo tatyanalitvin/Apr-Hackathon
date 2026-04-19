@@ -188,11 +188,14 @@ export async function invitationsRoutes(app: FastifyInstance): Promise<void> {
 
       // Best-effort at-most-once fanout to the invitee's per-user channel.
       // Emit AFTER the INSERT commits so a rollback can't leak a phantom event.
+      // `room.name` is nullable in schema (DMs have null), but invites are
+      // only created against group rooms whose name is never null — coerce
+      // to "" to satisfy the protocol string type without a runtime branch.
       request.server.io.to(`user:${invitee.id}`).emit("room.invitation.sent", {
         type: "room.invitation.sent",
         invitationId: created.id,
         roomId: targetRoom.id,
-        roomName: targetRoom.name,
+        roomName: targetRoom.name ?? "",
         inviterId: ctx.userId,
         inviterUsername: ctx.username,
         createdAt: created.createdAt.toISOString(),
@@ -243,6 +246,71 @@ export async function invitationsRoutes(app: FastifyInstance): Promise<void> {
       })),
     });
   });
+
+  // ─── REQ-089 — GET /rooms/:id/invitations (outgoing list, per room) ────
+  // Implied by spec §6 UI (InvitationsTab "list of pending-outgoing invites
+  // for this room"). Not numbered in §4 R*; semantics: any room member can
+  // see the pending-live invites authored against the room. 403 for non-
+  // members (same gate as the R3 send path) so private-room invite state
+  // isn't leaked to outsiders.
+  app.get<{ Params: { id: string } }>(
+    "/rooms/:id/invitations",
+    async (request, reply) => {
+      const ctx = await requireFriendshipAuth(request, reply);
+      if (!ctx) return;
+      const roomId = request.params.id;
+
+      const [targetRoom] = await db
+        .select({ id: room.id, deletedAt: room.deletedAt })
+        .from(room)
+        .where(eq(room.id, roomId))
+        .limit(1);
+      if (!targetRoom || targetRoom.deletedAt != null) {
+        return reply.status(404).send({ error: "room_not_found" });
+      }
+
+      const [membership] = await db
+        .select({ role: roomMember.role })
+        .from(roomMember)
+        .where(
+          and(eq(roomMember.roomId, roomId), eq(roomMember.userId, ctx.userId)),
+        )
+        .limit(1);
+      if (!membership) {
+        return reply.status(403).send({ error: "not_a_member" });
+      }
+
+      const rows = await db
+        .select({
+          id: roomInvite.id,
+          inviterUsername: user.username,
+          inviteeId: roomInvite.inviteeId,
+          inviteeUsername: sql<string>`(SELECT username FROM "user" u2 WHERE u2.id = ${roomInvite.inviteeId})`,
+          createdAt: roomInvite.createdAt,
+          expiresAt: roomInvite.expiresAt,
+        })
+        .from(roomInvite)
+        .innerJoin(user, eq(user.id, roomInvite.inviterId))
+        .where(
+          and(
+            eq(roomInvite.roomId, roomId),
+            eq(roomInvite.status, "pending"),
+            gt(roomInvite.expiresAt, new Date()),
+          ),
+        )
+        .orderBy(desc(roomInvite.createdAt));
+
+      return reply.status(200).send({
+        invitations: rows.map((r) => ({
+          id: r.id,
+          inviterUsername: r.inviterUsername,
+          inviteeUsername: r.inviteeUsername,
+          createdAt: r.createdAt.toISOString(),
+          expiresAt: r.expiresAt.toISOString(),
+        })),
+      });
+    },
+  );
 
   // ─── R5 / REQ-089 — POST /invitations/:id/accept ───────────────────────
   // Atomic transaction: UPDATE invite → INSERT room_member. The forced-

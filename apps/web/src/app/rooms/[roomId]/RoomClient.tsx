@@ -14,6 +14,7 @@ import type {
 import { RequireSession } from "@/components/chat/RequireSession";
 import { Header } from "@/components/chat/Header";
 import { RoomList, type RoomListItem } from "@/components/chat/RoomList";
+import { InboxList } from "@/components/invitations/InboxList";
 import { ManageRoomModal } from "@/components/chat/manage-room/ManageRoomModal";
 import { MemberList, type MemberListItem } from "@/components/chat/MemberList";
 import { MessageList } from "@/components/chat/MessageList";
@@ -466,7 +467,8 @@ function RoomContent({ roomId }: { roomId: string }) {
   return (
     <div className="h-dvh grid grid-cols-1 grid-rows-[auto_1fr_auto] lg:grid-cols-[16rem_1fr_18rem] lg:grid-rows-[auto_1fr]">
       <Header className="lg:col-span-3" selfPresence={selfPresence} />
-      <nav className="hidden lg:block border-r min-h-0">
+      <nav className="hidden lg:flex lg:flex-col border-r min-h-0 overflow-y-auto">
+        <InboxList onAccepted={() => refreshMyRooms()} />
         <RoomList rooms={displayedRooms} currentRoomId={roomId} onRoomCreated={refreshMyRooms} />
       </nav>
       <main className="flex flex-col min-h-0 overflow-hidden">
@@ -519,6 +521,7 @@ function RoomContent({ roomId }: { roomId: string }) {
       <div className="lg:hidden contents">
         <details className="border-t">
           <summary className="px-4 py-2 text-sm font-medium cursor-pointer">Rooms</summary>
+          <InboxList onAccepted={() => refreshMyRooms()} />
           <RoomList rooms={displayedRooms} currentRoomId={roomId} onRoomCreated={refreshMyRooms} />
         </details>
         <details className="border-t">
