@@ -179,3 +179,22 @@ export const deleteAccountSchema = z.object({
   password: z.string().min(1),
 });
 export type DeleteAccountInput = z.infer<typeof deleteAccountSchema>;
+
+// ──────────────────────────────────────────────────────────────────────────
+// notifications (S2 unread + mute — REQ-120, REQ-123).
+// Binding: .human/S2_UNREAD_MUTE_AGENT_BRIEF.md §1b.
+//
+// `lastReadSeq` is bigint-on-the-wire-as-string (ADR-0003). Accept a decimal
+// string and coerce to bigint so the handler gets a native bigint to compare.
+// `mutedUntil` is ISO-8601 datetime OR null (unmuted).
+// ──────────────────────────────────────────────────────────────────────────
+
+export const markRoomReadSchema = z.object({
+  lastReadSeq: z.coerce.bigint(),
+});
+export type MarkRoomReadInput = z.infer<typeof markRoomReadSchema>;
+
+export const muteRoomSchema = z.object({
+  mutedUntil: z.string().datetime().nullable(),
+});
+export type MuteRoomInput = z.infer<typeof muteRoomSchema>;
