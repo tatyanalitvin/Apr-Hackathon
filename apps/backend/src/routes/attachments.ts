@@ -230,10 +230,12 @@ export async function attachmentsRoutes(app: FastifyInstance): Promise<void> {
         )
         .where(eq(attachment.id, request.params.id))
         .limit(1);
-      if (!row) {
-        return reply.status(404).send({ error: "not_found" });
-      }
-      if (!row.memberId || row.banId) {
+      // Probe-oracle suppression: collapse "row missing" and "gate failed"
+      // into the same 403. Brief §2.6.4 calls this defense-in-depth — a
+       // caller without a valid membership cannot tell apart "wrong id" from
+      // "right id, no access," so attachment-id existence isn't a leak vector
+      // even if UUIDv4 entropy were ever weakened.
+      if (!row || !row.memberId || row.banId) {
         return reply.status(403).send({ error: "forbidden" });
       }
 

@@ -23,7 +23,7 @@ The uploader-loses-access clause is the one that trips naive designs. Today's `r
 - "My uploads" uploader-retention view (v4 REQ-085, deferred; §2.6.5 explicitly says a kicked user "can no longer see, download, or manage" the file).
 - Per-attachment comment editing after upload. Comment is write-once at upload time; the brief's §2.6.3 phrasing is "optional comment when uploading", not "editable caption".
 - DM-specific gate logic. DM rooms already have two `room_member` rows; the room-member + room-ban gate covers them without a `kind='dm'` branch.
-- Changing the existing 404-on-unknown-id behaviour. The "ban-oracle" concern is covered by 403-not-404 when the row *exists* but caller fails the gate (current + new behaviour). Unknown-id 404 is already an existing test (`REQ-083 unknown id → 404`) and was ratified by the s2-attachments spec.
+- ~~Changing the existing 404-on-unknown-id behaviour.~~ **Updated 2026-04-20**: the unknown-id branch was tightened to 403 alongside the gate-fail branch (full probe-oracle suppression — see [routes/attachments.ts](../../apps/backend/src/routes/attachments.ts) GET handler). Test renamed to `§2.6.4 unknown id → 403 (probe-oracle suppression)`.
 
 ## 3. Pre-existing state (no work)
 

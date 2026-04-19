@@ -244,7 +244,10 @@ describe("REQ-083 R6 R16 download access control", () => {
     expect(res.status).toBe(403);
   });
 
-  test("REQ-083 unknown id → 404", async () => {
+  test("§2.6.4 unknown id → 403 (probe-oracle suppression)", async () => {
+    // Defense-in-depth per docs/specs/s2-attachments-enhance.md §2.6.4 —
+    // a caller without membership cannot distinguish "wrong id" from
+    // "right id, no access." Same 403 shape as the not-a-member branch.
     const alice = await registerAgent(
       app,
       "r083-404@example.com",
@@ -254,7 +257,8 @@ describe("REQ-083 R6 R16 download access control", () => {
     const res = await alice.agent.get(
       "/api/v1/attachments/does-not-exist-at-all",
     );
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(403);
+    expect(res.body).toMatchObject({ error: "forbidden" });
   });
 
   test("R14 uploader removed from room → 403; remaining member → 200", async () => {
