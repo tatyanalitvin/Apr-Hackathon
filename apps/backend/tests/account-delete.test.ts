@@ -73,13 +73,14 @@ async function insertFriendship(a: string, b: string): Promise<string> {
   return id;
 }
 
-async function insertRoom(): Promise<string> {
+async function insertRoom(ownerId?: string): Promise<string> {
   const id = randomUUID();
   await getTestDb().insert(room).values({
     id,
     name: `cascade-${id.slice(0, 8)}`,
     kind: "group",
     visibility: "public",
+    ownerId: ownerId ?? null,
   });
   return id;
 }
@@ -228,5 +229,60 @@ describe("REQ-018 DELETE /api/v1/users/me cascade (task S2-account)", () => {
       .from(user)
       .where(eq(user.id, carol.userId));
     expect(carolRow.deletedAt).toBeNull();
+  });
+
+  // v3.docx §2.1.5: "only chat rooms owned by that user are deleted · all
+  // messages, files, and images in those deleted rooms are deleted permanently
+  // · membership in other rooms is removed". The owner-room row must be gone
+  // (FK CASCADE then wipes messages/members/attachments/bans/invites). Rooms
+  // the user merely *joined* must survive — their membership is already pruned
+  // by the existing roomMember cascade.
+  test("REQ-018 §2.1.5 owned rooms deleted, joined rooms survive", async () => {
+    const db = getTestDb();
+    const anna = await registerAgent(app, "s2del-owner@example.com", "s2del_owner");
+    const bob = await registerAgent(app, "s2del-joiner@example.com", "s2del_joiner");
+
+    const ownedRoomId = await insertRoom(anna.userId);
+    await insertRoomMember(anna.userId, ownedRoomId);
+    await insertRoomMember(bob.userId, ownedRoomId);
+
+    const foreignRoomId = await insertRoom(bob.userId);
+    await insertRoomMember(anna.userId, foreignRoomId);
+    await insertRoomMember(bob.userId, foreignRoomId);
+
+    const del = await anna.agent
+      .delete("/api/v1/users/me")
+      .send({ password: "password1234" });
+    expect(del.status).toBe(204);
+
+    // Owned room row is gone.
+    const ownedRows = await db
+      .select({ id: room.id })
+      .from(room)
+      .where(eq(room.id, ownedRoomId));
+    expect(ownedRows).toHaveLength(0);
+
+    // Membership rows in owned room gone (FK cascade).
+    const ownedMembers = await db
+      .select({ id: roomMember.id })
+      .from(roomMember)
+      .where(eq(roomMember.roomId, ownedRoomId));
+    expect(ownedMembers).toHaveLength(0);
+
+    // Foreign room survives.
+    const foreignRows = await db
+      .select({ id: room.id, ownerId: room.ownerId })
+      .from(room)
+      .where(eq(room.id, foreignRoomId));
+    expect(foreignRows).toHaveLength(1);
+    expect(foreignRows[0].ownerId).toBe(bob.userId);
+
+    // Bob's membership in foreign room survives; anna's is gone (existing
+    // relationship cascade in the delete transaction handles this).
+    const foreignMembers = await db
+      .select({ userId: roomMember.userId })
+      .from(roomMember)
+      .where(eq(roomMember.roomId, foreignRoomId));
+    expect(foreignMembers.map((m) => m.userId).sort()).toEqual([bob.userId]);
   });
 });

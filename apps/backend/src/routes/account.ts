@@ -95,11 +95,47 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const userId = me.user.id;
+
+    // v3.docx §2.1.5 — owned rooms are deleted along with the account. Collect
+    // them before the tx so we can fan out `room.deleted` to live subscribers
+    // before their member rows disappear (same emit-before-delete ordering as
+    // DELETE /rooms/:id in routes/rooms.ts:670-682). Scoped to kind='group'
+    // because DMs have no owner concept — the DM row is pruned only if the
+    // deleting user happens to also be listed as its ownerId (never set by
+    // the current create-DM path, defensive anyway).
+    const ownedRooms = await db
+      .select({ id: room.id })
+      .from(room)
+      .where(eq(room.ownerId, userId));
+    const deletedAtIso = new Date().toISOString();
+    for (const r of ownedRooms) {
+      request.server.io.to(r.id).emit("room.deleted", {
+        type: "room.deleted",
+        roomId: r.id,
+        deletedAt: deletedAtIso,
+        deletedBy: userId,
+      });
+    }
+
     // Single transaction so a mid-cascade failure leaves the user row
     // un-stamped (caller can retry). Relationship tables use FK `onDelete:
     // cascade` to user.id, but the user row STAYS — so the relationship
     // cleanup can't ride the FK; we do it explicitly here.
     await db.transaction(async (tx) => {
+      // Delete owned rooms FIRST so their FK CASCADE wipes room_member /
+      // message / message_seq / attachment / room_ban / room_invite rows
+      // inside the same tx. Doing this before the roomMember cleanup below
+      // keeps the owner's own membership-row deletion idempotent.
+      if (ownedRooms.length > 0) {
+        await tx
+          .delete(room)
+          .where(
+            inArray(
+              room.id,
+              ownedRooms.map((r) => r.id),
+            ),
+          );
+      }
       await tx
         .delete(friendship)
         .where(or(eq(friendship.userAId, userId), eq(friendship.userBId, userId)));
