@@ -32,9 +32,19 @@ Rationale: heavy smoke checks (docker compose --build, full browser flow) stall 
 - **CSRF double-submit token (REQ-146).** S3 layer — better-auth's same-site cookie + origin-check suffices for S1/S2. `docs/specs/s1-auth.md` §7.
 - ~~**Password change UI + "revoke all other sessions on password change".**~~ Shipped 2026-04-19 on `feat/s1-residual` as REQ-016: `/settings/password` page with current/new/confirm-new + "Sign out other sessions" checkbox (default on); posts to `/api/auth/change-password`; linked from Header. Covered by `apps/backend/tests/password-change.test.ts`.
 
+## S2 → S3 (account deletion + GDPR export)
+
+- **Re-register with same email after account delete.** Account delete sets `user.deletedAt` and revokes sessions, but the `user.email` UNIQUE constraint is case-sensitive and better-auth's sign-up validation uses a direct `WHERE email = ?` lookup that does not ignore soft-deleted rows. Net effect: `user@example.com` can delete their account, but the same email cannot be re-used by a new sign-up — it collides on email even though the account is gone. Acceptable for a 24h event; users reach a "sign-up conflict" state, not a corruption state.
+  - **Fix shape**: either (a) hard-overwrite `email`/`username` to a tombstone (e.g. `deleted-<uuid>@tombstone.invalid`) on soft-delete so the original strings become free (preferred — messages still render correctly because `message.authorUsername` is a send-time snapshot), or (b) add a partial UNIQUE(email) WHERE deletedAt IS NULL index and teach better-auth's sign-up path to ignore deleted rows.
+  - **Location**: `apps/backend/src/routes/account.ts`, `packages/shared/src/schema.ts` user table.
+  - **Raised**: 2026-04-19 during S2 implementation.
+
+- **Attachment cleanup on account delete.** When a user deletes their account we soft-delete `user`, hard-cascade `friendship`/`friend_request`/`user_block`/`room_member`, and leave `message` rows intact (REQ-018 — messages keep rendering with "[deleted user]"). Attachments referenced by those messages keep their bytes on disk + their DB rows. Over a multi-month horizon this is storage debt; over 24h it's invisible. The S3 GC job already queued under "S2 → S3 attachment orphan GC" can be extended to scan `message.authorId IN (SELECT id FROM user WHERE deletedAt IS NOT NULL)` with a retention window (e.g. 30 days post-delete) if the product later requires true erasure of attachment bytes.
+  - **Location**: `apps/backend/src/routes/account.ts`, `packages/shared/src/schema.ts` attachment table.
+  - **Raised**: 2026-04-19 during S2 implementation.
+
 ## Out of hackathon scope (referenced so reviewers don't flag as missing)
 
-- **Account deletion / soft-delete cascade** — `user.deletedAt` exists in schema but no deletion flow is wired. v3.docx §2.1 defers it.
 - **Username change (REQ-127)** — explicitly deferred in `docs/BRIEF.md`.
 - **Email verification at signup** — `requireEmailVerification: false`; `user.emailVerified` column stays for better-auth compatibility but is always `false`. `docs/specs/s1-auth.md` §5.
 - **Admin "force logout all users" tooling** — not in the REQ range.
