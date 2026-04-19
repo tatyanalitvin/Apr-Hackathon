@@ -33,6 +33,19 @@ export interface MyRoomSummary {
   visibility: "public" | "private";
   lastReadSeq: string;
   roomHeadSeq: string;
+  ownerId?: string;
+}
+
+// Mirrors POST /api/v1/rooms → 201 (REQ-023/REQ-015) and PATCH /api/v1/rooms/:id
+// → 200 (REQ-087). `visibility` is always "public" for the create endpoint;
+// kept non-nullable so callers don't have to null-check in template strings.
+export interface RoomMutationResult {
+  id: string;
+  name: string;
+  description: string | null;
+  visibility: "public";
+  ownerId: string;
+  createdAt: string;
 }
 
 // Mirrors backend GET /api/v1/rooms public-group catalog payload.
@@ -49,6 +62,30 @@ export interface JoinRoomResult {
   joined: boolean;
 }
 
+export interface CreateRoomInput {
+  name: string;
+  description?: string;
+}
+
+export interface UpdateRoomInput {
+  name?: string;
+}
+
+export type RoomMutationError =
+  | { code: "validation"; message: string }
+  | { code: "name_taken" }
+  | { code: "rate_limited"; retryAfterSec?: number }
+  | { code: "not_room_owner" }
+  | { code: "room_not_found" }
+  | { code: "forbidden"; message: string }
+  | { code: "unauthorized" }
+  | { code: "network"; message: string }
+  | { code: "unknown"; message: string };
+
+export type RoomMutationResponse<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: RoomMutationError };
+
 export interface ChatAPI {
   sendMessage(roomId: string, input: SendMessageInput): Promise<MessagePayload>;
   fetchHistory(roomId: string, input: FetchHistoryInput): Promise<HistorySliceResponse>;
@@ -56,6 +93,10 @@ export interface ChatAPI {
   listMyRooms(): Promise<MyRoomSummary[]>;
   listRoomCatalog(): Promise<RoomCatalogEntry[]>;
   joinRoom(roomId: string): Promise<JoinRoomResult>;
+  createRoom(input: CreateRoomInput): Promise<RoomMutationResponse<RoomMutationResult>>;
+  updateRoom(roomId: string, input: UpdateRoomInput): Promise<RoomMutationResponse<RoomMutationResult>>;
+  deleteRoom(roomId: string): Promise<RoomMutationResponse<null>>;
+  leaveRoom(roomId: string): Promise<RoomMutationResponse<null>>;
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -117,4 +158,118 @@ export class RealChatAPI implements ChatAPI {
       { method: "POST" },
     );
   }
+
+  async createRoom(
+    input: CreateRoomInput,
+  ): Promise<RoomMutationResponse<RoomMutationResult>> {
+    return roomMutation<RoomMutationResult>(
+      `${BACKEND_URL}/api/v1/rooms`,
+      "POST",
+      input,
+    );
+  }
+
+  async updateRoom(
+    roomId: string,
+    input: UpdateRoomInput,
+  ): Promise<RoomMutationResponse<RoomMutationResult>> {
+    return roomMutation<RoomMutationResult>(
+      `${BACKEND_URL}/api/v1/rooms/${encodeURIComponent(roomId)}`,
+      "PATCH",
+      input,
+    );
+  }
+
+  async deleteRoom(roomId: string): Promise<RoomMutationResponse<null>> {
+    return roomMutation<null>(
+      `${BACKEND_URL}/api/v1/rooms/${encodeURIComponent(roomId)}`,
+      "DELETE",
+    );
+  }
+
+  async leaveRoom(roomId: string): Promise<RoomMutationResponse<null>> {
+    return roomMutation<null>(
+      `${BACKEND_URL}/api/v1/rooms/${encodeURIComponent(roomId)}/members/me`,
+      "DELETE",
+    );
+  }
+}
+
+// Shared adapter for POST/PATCH/DELETE /rooms routes. Normalises backend
+// `{ error, ... }` shapes into the RoomMutationError union so UI code can
+// switch on code without re-parsing HTTP semantics at every call site.
+// `null` is returned for 204 (DELETE) so the caller can ignore data.
+async function roomMutation<T>(
+  url: string,
+  method: "POST" | "PATCH" | "DELETE",
+  body?: unknown,
+): Promise<RoomMutationResponse<T>> {
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method,
+      credentials: "include",
+      headers: body !== undefined ? { "content-type": "application/json" } : undefined,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      error: {
+        code: "network",
+        message: err instanceof Error ? err.message : "network error",
+      },
+    };
+  }
+
+  if (res.status === 204) return { ok: true, data: null as T };
+  if (res.status === 201 || res.status === 200) {
+    const data = (await res.json().catch(() => null)) as T | null;
+    if (data === null) {
+      return { ok: false, error: { code: "unknown", message: "empty body" } };
+    }
+    return { ok: true, data };
+  }
+
+  const payload = (await res.json().catch(() => ({}))) as {
+    error?: string;
+    details?: unknown;
+    retryAfterSec?: number;
+  };
+
+  if (res.status === 401) return { ok: false, error: { code: "unauthorized" } };
+  if (res.status === 400)
+    return {
+      ok: false,
+      error: {
+        code: "validation",
+        message: typeof payload.error === "string" ? payload.error : "invalid request",
+      },
+    };
+  if (res.status === 409 && payload.error === "name_taken")
+    return { ok: false, error: { code: "name_taken" } };
+  if (res.status === 429)
+    return {
+      ok: false,
+      error: { code: "rate_limited", retryAfterSec: payload.retryAfterSec },
+    };
+  if (res.status === 404 && payload.error === "room_not_found")
+    return { ok: false, error: { code: "room_not_found" } };
+  if (res.status === 403 && payload.error === "not_room_owner")
+    return { ok: false, error: { code: "not_room_owner" } };
+  if (res.status === 403)
+    return {
+      ok: false,
+      error: {
+        code: "forbidden",
+        message: typeof payload.error === "string" ? payload.error : "forbidden",
+      },
+    };
+  return {
+    ok: false,
+    error: {
+      code: "unknown",
+      message: `HTTP ${res.status}${payload.error ? `: ${payload.error}` : ""}`,
+    },
+  };
 }

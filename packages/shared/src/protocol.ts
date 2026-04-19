@@ -116,6 +116,22 @@ export interface RoomMemberJoinedEvent {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
+// room lifecycle (REQ-089) — emitted when a room owner deletes the room.
+// Fanout target: `server.to(roomId).emit(...)` before the DB row is deleted,
+// so existing subscribers all receive the kick-out signal. Clients navigate
+// away from the deleted room and refresh their sidebar membership list.
+// At-most-once best-effort: no watermark, no replay; the reconcile path is
+// the next GET /rooms/me, which won't include the deleted room.
+// ──────────────────────────────────────────────────────────────────────────
+
+export interface RoomDeletedEvent {
+  type: "room.deleted";
+  roomId: string;
+  deletedAt: string;      // ISO timestamp
+  deletedBy: string;      // userId of the owner who issued the delete
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // Socket.IO event maps — feed to `new Server<ClientToServerEvents, ServerToClientEvents>`
 // ──────────────────────────────────────────────────────────────────────────
 
@@ -127,6 +143,7 @@ export interface ServerToClientEvents {
   "typing": (evt: TypingEvent) => void;
   "friend.request.accepted": (evt: FriendRequestAcceptedEvent) => void;
   "room.member.joined": (evt: RoomMemberJoinedEvent) => void;
+  "room.deleted": (evt: RoomDeletedEvent) => void;
 }
 
 export interface ClientToServerEvents {

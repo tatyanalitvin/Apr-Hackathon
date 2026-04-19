@@ -1,21 +1,26 @@
 // REQ-045: Room view — 3-column layout (rooms · messages+composer · members).
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import type {
   MessagePayload,
   MessageNewEvent,
+  RoomDeletedEvent,
   RoomMemberJoinedEvent,
 } from "@ai-herders/shared/protocol";
 import { RequireSession } from "@/components/chat/RequireSession";
 import { Header } from "@/components/chat/Header";
 import { RoomList, type RoomListItem } from "@/components/chat/RoomList";
+import { RoomSettingsModal } from "@/components/chat/RoomSettingsModal";
 import { MemberList } from "@/components/chat/MemberList";
 import { MessageList } from "@/components/chat/MessageList";
 import { MessageComposer } from "@/components/chat/MessageComposer";
 import { useSession } from "@/lib/auth-client";
 import { createChatSocket, createChatApi, type ChatSocket } from "@/lib/socket";
 import { createWatermark } from "@/lib/watermark";
+import { toast } from "sonner";
+import type { MyRoomSummary } from "@/lib/chat-api";
 
 const INITIAL_FIRST_INDEX = 1_000_000;
 const HISTORY_PAGE_SIZE = 50;
@@ -35,11 +40,12 @@ const SEEDED_MEMBERS = [
 function RoomContent({ roomId }: { roomId: string }) {
   const { data } = useSession();
   const userId = data?.user?.id ?? "anon";
+  const router = useRouter();
 
   const [messages, setMessages] = useState<MessagePayload[]>([]);
   const [firstItemIndex, setFirstItemIndex] = useState(INITIAL_FIRST_INDEX);
   const [hasMoreOlder, setHasMoreOlder] = useState(true);
-  const [sidebarRooms, setSidebarRooms] = useState<RoomListItem[] | null>(null);
+  const [myRooms, setMyRooms] = useState<MyRoomSummary[] | null>(null);
 
   const apiRef = useRef(createChatApi());
   const socketRef = useRef<ChatSocket | null>(null);
@@ -50,7 +56,7 @@ function RoomContent({ roomId }: { roomId: string }) {
   const refreshMyRooms = useCallback(async () => {
     try {
       const rooms = await apiRef.current.listMyRooms();
-      setSidebarRooms(rooms.map((r) => ({ id: r.id, name: r.name })));
+      setMyRooms(rooms);
     } catch {
       // Non-fatal — fallback keeps the current room visible.
     }
@@ -98,6 +104,17 @@ function RoomContent({ roomId }: { roomId: string }) {
     };
     socket.on("room.member.joined", onMemberJoined);
 
+    // REQ-089 — owner deletion kicks every subscriber out. The server emits
+    // BEFORE the DB row vanishes so we still receive it while subscribed.
+    // Show a toast so users understand why they were moved and navigate to
+    // /rooms (the index page handles "which room to show next").
+    const onRoomDeleted = (evt: RoomDeletedEvent) => {
+      if (evt.roomId !== roomId) return;
+      toast.info("This room was deleted by its owner.");
+      router.replace("/rooms");
+    };
+    socket.on("room.deleted", onRoomDeleted);
+
     let cancelled = false;
     void (async () => {
       await new Promise<void>((resolve) => {
@@ -122,11 +139,12 @@ function RoomContent({ roomId }: { roomId: string }) {
       cancelled = true;
       socket.off("message.new", onMessageNew);
       socket.off("room.member.joined", onMemberJoined);
+      socket.off("room.deleted", onRoomDeleted);
       socket.emit("room.unsubscribe", roomId);
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [roomId, refreshMyRooms]);
+  }, [roomId, refreshMyRooms, router]);
 
   const loadOlder = useCallback(async () => {
     const oldest = messages[0];
@@ -168,21 +186,43 @@ function RoomContent({ roomId }: { roomId: string }) {
 
   // Make sure the current room always appears even if /rooms/me hasn't yet
   // resolved (or transiently lacks membership while reconciling).
-  const displayedRooms: RoomListItem[] = (() => {
-    const base = sidebarRooms ?? FALLBACK_ROOMS;
+  const displayedRooms: RoomListItem[] = useMemo(() => {
+    const base: RoomListItem[] = myRooms
+      ? myRooms.map((r) => ({ id: r.id, name: r.name }))
+      : FALLBACK_ROOMS;
     return base.some((r) => r.id === roomId)
       ? base
       : [...base, { id: roomId, name: roomId }];
+  }, [myRooms, roomId]);
+
+  // REQ-087/089 — surface the settings modal only when we have a membership
+  // row for this room and it's a group room (DMs mutate via their own flow).
+  const currentRoom = myRooms?.find((r) => r.id === roomId) ?? null;
+  const settingsRole: "owner" | "member" | null = (() => {
+    if (!currentRoom || currentRoom.kind !== "group") return null;
+    if (data?.user?.id && currentRoom.ownerId === data.user.id) return "owner";
+    return "member";
   })();
 
   return (
     <div className="h-dvh grid grid-cols-1 grid-rows-[auto_1fr_auto] lg:grid-cols-[16rem_1fr_18rem] lg:grid-rows-[auto_1fr]">
       <Header className="lg:col-span-3" />
       <nav className="hidden lg:block border-r min-h-0">
-        <RoomList rooms={displayedRooms} currentRoomId={roomId} />
+        <RoomList rooms={displayedRooms} currentRoomId={roomId} onRoomCreated={refreshMyRooms} />
       </nav>
       <main className="flex flex-col min-h-0 overflow-hidden">
-        <div className="border-b px-4 py-2 text-sm font-semibold">#{roomId}</div>
+        <div className="flex items-center justify-between border-b px-4 py-2 text-sm font-semibold">
+          <span>#{currentRoom?.name ?? roomId}</span>
+          {settingsRole !== null ? (
+            <RoomSettingsModal
+              roomId={roomId}
+              roomName={currentRoom?.name ?? roomId}
+              role={settingsRole}
+              onRenamed={refreshMyRooms}
+              onLeftOrDeleted={refreshMyRooms}
+            />
+          ) : null}
+        </div>
         <MessageList
           messages={messages}
           hasMoreOlder={hasMoreOlder}
@@ -198,7 +238,7 @@ function RoomContent({ roomId }: { roomId: string }) {
       <div className="lg:hidden contents">
         <details className="border-t">
           <summary className="px-4 py-2 text-sm font-medium cursor-pointer">Rooms</summary>
-          <RoomList rooms={displayedRooms} currentRoomId={roomId} />
+          <RoomList rooms={displayedRooms} currentRoomId={roomId} onRoomCreated={refreshMyRooms} />
         </details>
         <details className="border-t">
           <summary className="px-4 py-2 text-sm font-medium cursor-pointer">Members ({SEEDED_MEMBERS.length})</summary>
