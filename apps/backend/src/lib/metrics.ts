@@ -99,7 +99,7 @@ export function createErrorWindow({
     },
     count(now) {
       const cutoff = now - windowMs;
-      while (events.length > 0 && events[0] < cutoff) events.shift();
+      while (events[0] !== undefined && events[0] < cutoff) events.shift();
       return events.length;
     },
     reset() {
