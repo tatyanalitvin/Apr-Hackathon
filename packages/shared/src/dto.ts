@@ -162,6 +162,16 @@ export const roomCreateResponseSchema = z.object({
 });
 export type RoomCreateResponse = z.infer<typeof roomCreateResponseSchema>;
 
+// §2.4.3 — optional `q` query param on GET /api/v1/rooms for the public-room
+// catalog "simple search". Max 64 chars at the DTO boundary; empty /
+// whitespace-only degrades to the unfiltered path inside the handler.
+// Case-folding happens in SQL (ILIKE), not here, so unicode-heavy names round-
+// trip untouched.
+export const roomCatalogQuerySchema = z.object({
+  q: z.string().max(64).optional(),
+});
+export type RoomCatalogQuery = z.infer<typeof roomCatalogQuerySchema>;
+
 // REQ-089 — invitation request DTOs (docs/specs/s2-invitations.md §5).
 export const createInvitationSchema = z.object({
   inviteeUsername: z.string().trim().min(1).max(64),
