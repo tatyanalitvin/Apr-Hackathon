@@ -8,14 +8,33 @@
 // change to the substitution logic would permanently lose the original
 // author identity.
 
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import request from "supertest";
 import type { FastifyInstance } from "fastify";
 import { eq } from "drizzle-orm";
-import { message, user } from "@ai-herders/shared/schema";
+import {
+  message,
+  messageSeq,
+  room,
+  user,
+} from "@ai-herders/shared/schema";
 
 import { buildApp } from "../src/app";
 import { getTestDb } from "./db-helpers";
+
+const GENERAL = "general";
+
+async function seedGeneralRoom(): Promise<void> {
+  const db = getTestDb();
+  await db.insert(room).values({
+    id: GENERAL,
+    name: GENERAL,
+    kind: "group",
+    visibility: "public",
+    ownerId: null,
+  });
+  await db.insert(messageSeq).values({ roomId: GENERAL, seq: 0n });
+}
 
 async function signUp(
   app: FastifyInstance,
@@ -46,6 +65,13 @@ describe("REQ-018 account delete preserves message.authorUsername snapshot", () 
 
   afterAll(async () => {
     await app.close();
+  });
+
+  beforeEach(async () => {
+    // Truncation in tests/setup.ts wipes rooms too; reseed #general so
+    // auto-enroll on sign-up has a target and the subsequent message post
+    // isn't 403-blocked by the message-auth membership gate.
+    await seedGeneralRoom();
   });
 
   test("REQ-018 authored messages keep the pre-delete username in the DB", async () => {
