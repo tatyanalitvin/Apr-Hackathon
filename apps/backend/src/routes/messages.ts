@@ -18,10 +18,16 @@ import type {
 } from "fastify";
 import { randomUUID } from "node:crypto";
 import type { ZodType } from "zod";
-import { and, asc, eq, gte, isNull, lte } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, lte } from "drizzle-orm";
 import { historyQuerySchema, sendMessageSchema } from "@ai-herders/shared/dto";
-import { message, messageSeq, type Message } from "@ai-herders/shared/schema";
+import {
+  attachment,
+  message,
+  messageSeq,
+  type Message,
+} from "@ai-herders/shared/schema";
 import type {
+  AttachmentPayload,
   HistorySliceResponse,
   MessageNewEvent,
   MessagePayload,
@@ -30,7 +36,10 @@ import type {
 import { db } from "../db";
 import { requireRoomMember } from "../lib/message-auth";
 import { normalizeBody } from "../lib/message-text";
-import { allocateAndInsertMessage } from "../lib/seq-allocator";
+import {
+  allocateAndInsertMessage,
+  AttachmentLinkError,
+} from "../lib/seq-allocator";
 
 function zodBodyGuard<T>(schema: ZodType<T>): preHandlerHookHandler {
   return async (request: FastifyRequest, reply: FastifyReply) => {
@@ -63,6 +72,66 @@ export function toMessagePayload(row: Message): MessagePayload {
     editedAt: row.editedAt ? row.editedAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
   };
+}
+
+// R17 — AttachmentPayload for wire broadcast. `downloadUrl` is relative so
+// the web client prefixes with NEXT_PUBLIC_BACKEND_URL (see protocol.ts).
+// Order is ASC on attachment.id to match the upload order (uuids are random,
+// so order-by-id is effectively arbitrary but stable — same for the
+// message.new broadcast and the history slice).
+async function loadAttachmentPayloads(
+  messageId: string,
+): Promise<AttachmentPayload[]> {
+  const rows = await db
+    .select({
+      id: attachment.id,
+      originalName: attachment.originalName,
+      mimeType: attachment.mimeType,
+      sizeBytes: attachment.sizeBytes,
+      comment: attachment.comment,
+    })
+    .from(attachment)
+    .where(eq(attachment.messageId, messageId));
+  return rows.map((row) => ({
+    id: row.id,
+    originalName: row.originalName,
+    mimeType: row.mimeType,
+    sizeBytes: row.sizeBytes,
+    comment: row.comment,
+    downloadUrl: `/api/v1/attachments/${row.id}`,
+  }));
+}
+
+async function loadAttachmentPayloadsForMessages(
+  messageIds: string[],
+): Promise<Map<string, AttachmentPayload[]>> {
+  const out = new Map<string, AttachmentPayload[]>();
+  if (messageIds.length === 0) return out;
+  const rows = await db
+    .select({
+      id: attachment.id,
+      messageId: attachment.messageId,
+      originalName: attachment.originalName,
+      mimeType: attachment.mimeType,
+      sizeBytes: attachment.sizeBytes,
+      comment: attachment.comment,
+    })
+    .from(attachment)
+    .where(inArray(attachment.messageId, messageIds));
+  for (const row of rows) {
+    if (!row.messageId) continue;
+    const list = out.get(row.messageId) ?? [];
+    list.push({
+      id: row.id,
+      originalName: row.originalName,
+      mimeType: row.mimeType,
+      sizeBytes: row.sizeBytes,
+      comment: row.comment,
+      downloadUrl: `/api/v1/attachments/${row.id}`,
+    });
+    out.set(row.messageId, list);
+  }
+  return out;
 }
 
 type SendBody = {
@@ -101,8 +170,12 @@ export async function messagesRoutes(app: FastifyInstance): Promise<void> {
         });
       }
 
-      const { message: inserted, roomHeadSeq, deduped } =
-        await allocateAndInsertMessage({
+      const attachmentIds = request.body.attachmentIds ?? [];
+      let inserted: Message;
+      let roomHeadSeq: bigint;
+      let deduped: boolean;
+      try {
+        const res = await allocateAndInsertMessage({
           messageId: randomUUID(),
           roomId,
           authorId: ctx.userId,
@@ -111,9 +184,24 @@ export async function messagesRoutes(app: FastifyInstance): Promise<void> {
           body: normalized,
           replyToId: request.body.replyToId ?? null,
           clientMessageId: request.body.clientMessageId ?? null,
+          attachmentIds,
         });
+        inserted = res.message;
+        roomHeadSeq = res.roomHeadSeq;
+        deduped = res.deduped;
+      } catch (err) {
+        if (err instanceof AttachmentLinkError) {
+          // R12 — tx rolled back, no seq consumed, no message row; attachment
+          // rows retain messageId=NULL (orphan, S3 GC sweeps).
+          return reply.status(400).send({ error: "attachment_invalid" });
+        }
+        throw err;
+      }
 
       const payload = toMessagePayload(inserted);
+      if (attachmentIds.length > 0 && !deduped) {
+        payload.attachments = await loadAttachmentPayloads(inserted.id);
+      }
       if (!deduped) {
         // REQ-034 watermark broadcast. For a fresh send, seq === roomHeadSeq.
         // On dedup we intentionally skip the emit — subscribers already saw
@@ -204,12 +292,23 @@ export async function messagesRoutes(app: FastifyInstance): Promise<void> {
               .orderBy(asc(message.seq))
               .limit(parsed.data.limit);
 
+      const payloads = rows.map(toMessagePayload);
+      if (payloads.length > 0) {
+        const byMessageId = await loadAttachmentPayloadsForMessages(
+          payloads.map((p) => p.id),
+        );
+        for (const p of payloads) {
+          const atts = byMessageId.get(p.id);
+          if (atts && atts.length > 0) p.attachments = atts;
+        }
+      }
+
       const response: HistorySliceResponse = {
         roomId,
         fromSeq: fromSeq.toString(),
         toSeq: toSeq.toString(),
         roomHeadSeq: roomHeadSeq.toString(),
-        messages: rows.map(toMessagePayload),
+        messages: payloads,
       };
       return reply.status(200).send(response);
     },
