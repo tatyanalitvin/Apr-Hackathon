@@ -409,6 +409,11 @@ export async function dmsRoutes(app: FastifyInstance): Promise<void> {
       const latest = latestByRoom.get(roomId) ?? null;
       const authorDeleted =
         latest != null && peerById.get(latest.authorId)?.deleted === true;
+      // TODO(hackathon): REQ-110 — DM lastMessage.replyTo is hydrated in
+      // s2-replies task 8 via a batched parent-row fetch. Until then the
+      // preview is `null` even when `latest.replyToId` is set; the DM
+      // listing will under-render a quoted block for one message per DM.
+      // Gate test in task 7 asserts the populated case once task 8 lands.
       const lastMessage = latest ? toMessagePayload(latest, authorDeleted) : null;
 
       return {

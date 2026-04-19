@@ -47,6 +47,7 @@ import { env } from "../env";
 import { isDmFrozen } from "../lib/dm-freeze";
 import { requireRoomMember } from "../lib/message-auth";
 import { normalizeBody } from "../lib/message-text";
+import { previewFromParent, type ParentRow } from "../lib/reply-preview";
 import { recordMessageSent } from "../lib/metrics";
 import {
   allocateAndInsertMessage,
@@ -119,9 +120,15 @@ function zodBodyGuard<T>(schema: ZodType<T>): preHandlerHookHandler {
 // serialization swaps the denormalised username/name for "[deleted user]".
 // Callers that know the author is alive (send handler, live broadcasts) may
 // omit the flag; history/DM-list paths JOIN user.deletedAt and pass it.
+// REQ-110 (s2-replies R5) — optional `parent` arg hydrates the reply preview.
+// `undefined` (caller doesn't hydrate) and `null` (caller knows there's none)
+// both produce `replyTo: null`. The preview shape (truncation + ISO + deleted
+// substitution) is delegated to `previewFromParent` — one helper, three
+// callers: send handler (R5), history LEFT-JOIN (R6), DM listing (R8).
 export function toMessagePayload(
   row: Message,
   authorDeleted = false,
+  parent?: ParentRow | null,
 ): MessagePayload {
   const authorUsername = authorDeleted ? DELETED_USER_DISPLAY : row.authorUsername;
   const authorName = authorDeleted ? DELETED_USER_DISPLAY : row.authorName;
@@ -134,11 +141,7 @@ export function toMessagePayload(
     body: row.body,
     seq: row.seq.toString(),
     replyToId: row.replyToId ?? null,
-    // REQ-110 (s2-replies R5) — back-compat default. Task 2 extends this
-    // serializer to accept an optional `parent` row and produce the hydrated
-    // ReplyToPreview; callers that don't hydrate still emit `null` so the
-    // wire shape is consistent (field always present).
-    replyTo: null,
+    replyTo: previewFromParent(parent),
     editedAt: row.editedAt ? row.editedAt.toISOString() : null,
     deletedAt: row.deletedAt ? row.deletedAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
