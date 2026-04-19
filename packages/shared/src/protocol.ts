@@ -199,3 +199,64 @@ export interface AdminMetricsSnapshot {
   errorCount5min: number;               // Fastify 5xx responses in last 5m
   recentSecurityEvents: AdminSecurityEvent[];
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// GDPR export (REQ-126 / REQ-127 — v3.docx §2.2). Returned by
+// `POST /api/v1/users/me/export` as a JSON attachment. Shape captures every
+// piece of content authored by or tied to the user: profile, rooms joined,
+// messages sent (both group rooms and DMs), friendships, and active sessions.
+// Attachments are referenced by id + originalName but NOT inlined — the bytes
+// stay on disk; the export is a manifest, not an archive, because REQ-126 is
+// "user's content" in the portability sense.
+// ──────────────────────────────────────────────────────────────────────────
+
+export interface UserDataExportAttachment {
+  id: string;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+}
+
+export interface UserDataExportMessage {
+  id: string;
+  roomId: string;
+  roomName: string;
+  seq: string;                          // bigint as string
+  body: string;
+  createdAt: string;                    // ISO timestamp
+  attachments: UserDataExportAttachment[];
+}
+
+export interface UserDataExportDm {
+  dmId: string;
+  peerUsername: string;                 // "[deleted user]" if peer soft-deleted
+  messages: UserDataExportMessage[];
+}
+
+export interface UserDataExport {
+  exportedAt: string;                   // ISO timestamp
+  user: {
+    id: string;
+    email: string;
+    username: string;
+    createdAt: string;
+  };
+  rooms: Array<{
+    id: string;
+    name: string;
+    kind: string;                       // 'group' | 'dm' (mirrors room.kind)
+    joinedAt: string;                   // room_member.joinedAt ISO
+  }>;
+  messages: UserDataExportMessage[];    // group-room messages by this user
+  directMessages: UserDataExportDm[];   // DM threads, grouped by counterparty
+  friendships: Array<{
+    friendUsername: string;             // "[deleted user]" if counterparty soft-deleted
+    since: string;                      // friendship.createdAt ISO
+  }>;
+  sessions: Array<{
+    id: string;
+    createdAt: string;
+    lastActiveAt: string;
+    userAgent?: string;
+  }>;
+}

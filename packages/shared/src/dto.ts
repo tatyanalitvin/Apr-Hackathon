@@ -151,3 +151,15 @@ export const roomCreateResponseSchema = z.object({
   createdAt: z.string().datetime(),
 });
 export type RoomCreateResponse = z.infer<typeof roomCreateResponseSchema>;
+
+// ──────────────────────────────────────────────────────────────────────────
+// Account (§2.2 REQ-018 soft-delete). `DELETE /api/v1/users/me` requires
+// password re-auth as a deliberate mistake-guard — the destructive cascade
+// (sessions revoked, friendships/blocks/room memberships dropped) is
+// irreversible, so cookie-auth alone is not enough.
+// ──────────────────────────────────────────────────────────────────────────
+
+export const deleteAccountSchema = z.object({
+  password: z.string().min(1),
+});
+export type DeleteAccountInput = z.infer<typeof deleteAccountSchema>;
