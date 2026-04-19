@@ -110,7 +110,21 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
         .delete(userBlock)
         .where(or(eq(userBlock.byId, userId), eq(userBlock.targetId, userId)));
       await tx.delete(roomMember).where(eq(roomMember.userId, userId));
-      await tx.update(user).set({ deletedAt: new Date() }).where(eq(user.id, userId));
+      // REQ-018 — tombstone rename. The LOWER(email)/LOWER(username) unique
+      // indexes (migration 0010) keep holding the original strings in the
+      // soft-deleted row, which would collide with a fresh sign-up using
+      // the same credentials. Rewriting both fields to a guaranteed-unique
+      // tombstone (keyed on the user id) frees the originals for reuse.
+      // Safe because message.authorUsername is a send-time snapshot
+      // (schema.ts:256) — history keeps rendering the real author.
+      await tx
+        .update(user)
+        .set({
+          deletedAt: new Date(),
+          email: `deleted-${userId}@tombstone.invalid`,
+          username: `deleted-${userId.slice(0, 8)}`,
+        })
+        .where(eq(user.id, userId));
     });
 
     // Session revocation runs OUTSIDE the tx on purpose: better-auth caches

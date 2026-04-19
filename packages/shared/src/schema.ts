@@ -43,21 +43,34 @@ export const roomInviteStatus = pgEnum("room_invite_status", [
 // Names/columns follow better-auth defaults so the drizzleAdapter maps 1:1.
 // ──────────────────────────────────────────────────────────────────────────
 
-export const user = pgTable("user", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  email: text("email").notNull().unique(),
-  emailVerified: boolean("email_verified").notNull().default(false),
-  image: text("image"),
-  // §2.1.2 unique, NOT NULL, immutable after creation.
-  // NOT NULL is enforced atomically with the user-row insert via
-  // better-auth's `user.additionalFields.username` (see apps/backend/src/auth.ts
-  // and docs/specs/s1-auth.md §5 + §10 decision log).
-  username: text("username").notNull().unique(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  deletedAt: timestamp("deleted_at", { withTimezone: true }),
-});
+export const user = pgTable(
+  "user",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    // REQ-003 — uniqueness is enforced by `user_email_ci_uq` (LOWER(email))
+    // below. better-auth already lowercases at sign-up/sign-in; the expression
+    // index is defense-in-depth against a rogue direct INSERT.
+    email: text("email").notNull(),
+    emailVerified: boolean("email_verified").notNull().default(false),
+    image: text("image"),
+    // §2.1.2 NOT NULL, immutable after creation.
+    // NOT NULL is enforced atomically with the user-row insert via
+    // better-auth's `user.additionalFields.username` (see apps/backend/src/auth.ts
+    // and docs/specs/s1-auth.md §5 + §10 decision log).
+    // REQ-005 — uniqueness is enforced by `user_username_ci_uq` (LOWER(username))
+    // below. The sign-up `databaseHooks.user.create.before` normalizes to
+    // lowercase at write time (additionalFields aren't lowercased by better-auth).
+    username: text("username").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => ({
+    emailCiUq: uniqueIndex("user_email_ci_uq").on(sql`lower(${t.email})`),
+    usernameCiUq: uniqueIndex("user_username_ci_uq").on(sql`lower(${t.username})`),
+  }),
+);
 
 export const session = pgTable("session", {
   id: text("id").primaryKey(),

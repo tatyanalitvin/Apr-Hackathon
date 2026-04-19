@@ -64,6 +64,20 @@
       "when": 1777000000000,
       "tag": "0008_invitations",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1777200000000,
+      "tag": "0009_attachment_comment",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1777300000000,
+      "tag": "0010_user_email_username_ci_uq",
+      "breakpoints": true
     }
   ]
 }

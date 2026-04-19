@@ -64,6 +64,11 @@ export async function buildApp(
   await app.register(cors, {
     origin: env.WEB_ORIGIN,
     credentials: true,
+    // REQ-126/127 — expose Content-Disposition to the fetch-based download
+    // helper in apps/web/src/lib/account-api.ts so the client can read the
+    // server-proposed `user-data-export-<username>-<ts>.json` filename
+    // instead of falling back to a shorter client-generated one.
+    exposedHeaders: ["content-disposition"],
   });
 
   // S2 attachments. Outer fileSize = 20 MB hard cap (REQ-077 file ceiling); the
