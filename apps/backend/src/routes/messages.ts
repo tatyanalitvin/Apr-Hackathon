@@ -589,7 +589,25 @@ export async function messagesRoutes(app: FastifyInstance): Promise<void> {
         throw new Error(`PATCH message returned no row (id=${messageId})`);
       }
 
-      const payload = toMessagePayload(updated);
+      // REQ-110 R9 — pass through replyTo on the edit response when the
+      // edited message is itself a reply. One extra SELECT per edit of a
+      // reply; non-replies skip the fetch. `message.edited` socket event
+      // intentionally does NOT carry replyTo (protocol unchanged).
+      let parentRow: ParentRow | null = null;
+      if (updated.replyToId) {
+        const [p] = await db
+          .select({
+            id: message.id,
+            body: message.body,
+            authorUsername: message.authorUsername,
+            deletedAt: message.deletedAt,
+          })
+          .from(message)
+          .where(eq(message.id, updated.replyToId))
+          .limit(1);
+        parentRow = p ?? null;
+      }
+      const payload = toMessagePayload(updated, false, parentRow);
       const atts = await loadAttachmentPayloads(messageId);
       if (atts.length > 0) payload.attachments = atts;
 

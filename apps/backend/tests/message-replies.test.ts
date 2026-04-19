@@ -752,6 +752,84 @@ describe("REQ-110 R5 message.new event carries replyTo", () => {
   });
 });
 
+// ─── REQ-110 R9 — Edit pass-through ─────────────────────────────────────────
+//
+// PATCH /api/v1/rooms/:id/messages/:messageId must carry replyTo in its
+// response body when the edited message is itself a reply. No change to
+// edit semantics; no `replyTo` on the `message.edited` socket event
+// (protocol stays {messageId, body, editedAt}).
+
+describe("REQ-110 R9 edit pass-through for replies", () => {
+  let app: FastifyInstance;
+
+  beforeAll(async () => {
+    app = await buildApp();
+    await app.ready();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  test("REQ-110 R9 PATCH of a reply → response has replyTo populated (same parent)", async () => {
+    const { agent, userId } = await registerAgent(
+      app,
+      "r9-edit@example.com",
+      "r9_edit",
+    );
+    await createRoom("r-r9-edit");
+    await addMember("r-r9-edit", userId);
+
+    const parentRes = await agent
+      .post("/api/v1/rooms/r-r9-edit/messages")
+      .send({ body: "original parent" });
+    const parentId: string = parentRes.body.id;
+
+    const replyRes = await agent
+      .post("/api/v1/rooms/r-r9-edit/messages")
+      .send({ body: "oops typo", replyToId: parentId });
+    expect(replyRes.status).toBe(201);
+    const replyMessageId: string = replyRes.body.id;
+
+    const editRes = await agent
+      .patch(`/api/v1/rooms/r-r9-edit/messages/${replyMessageId}`)
+      .send({ body: "fixed it" });
+    expect(editRes.status).toBe(200);
+    expect(editRes.body.body).toBe("fixed it");
+    expect(editRes.body.editedAt).not.toBeNull();
+    expect(editRes.body.replyToId).toBe(parentId);
+    expect(editRes.body.replyTo).toEqual({
+      id: parentId,
+      text: "original parent",
+      authorUsername: "r9_edit",
+      deletedAt: null,
+    });
+  });
+
+  test("REQ-110 R9 PATCH of a non-reply → response has replyTo: null (serializer emits explicitly)", async () => {
+    const { agent, userId } = await registerAgent(
+      app,
+      "r9-plain@example.com",
+      "r9_plain",
+    );
+    await createRoom("r-r9-plain");
+    await addMember("r-r9-plain", userId);
+
+    const sendRes = await agent
+      .post("/api/v1/rooms/r-r9-plain/messages")
+      .send({ body: "first draft" });
+    const messageId: string = sendRes.body.id;
+
+    const editRes = await agent
+      .patch(`/api/v1/rooms/r-r9-plain/messages/${messageId}`)
+      .send({ body: "second draft" });
+    expect(editRes.status).toBe(200);
+    expect(Object.prototype.hasOwnProperty.call(editRes.body, "replyTo")).toBe(true);
+    expect(editRes.body.replyTo).toBeNull();
+    expect(editRes.body.replyToId).toBeNull();
+  });
+});
+
 // ─── REQ-110 R8 — DM parity ─────────────────────────────────────────────────
 //
 // Replies behave identically in DMs because DMs are group rooms with
