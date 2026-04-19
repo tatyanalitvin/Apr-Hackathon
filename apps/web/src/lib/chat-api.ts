@@ -117,6 +117,15 @@ export type MessageMutationResponse<T> =
   | { ok: true; data: T }
   | { ok: false; error: MessageMutationError };
 
+// Mirrors backend GET /api/v1/rooms/:id/members — real user ids so
+// PresencePill can subscribe to the correct per-user presence slot.
+export interface RoomMemberEntry {
+  id: string;
+  username: string;
+  displayName: string;
+}
+
+
 export interface ChatAPI {
   sendMessage(roomId: string, input: SendMessageInput): Promise<MessagePayload>;
   fetchHistory(roomId: string, input: FetchHistoryInput): Promise<HistorySliceResponse>;
@@ -132,6 +141,7 @@ export interface ChatAPI {
   setRoomMute(roomId: string, mutedUntil: string | null): Promise<SetRoomMuteResult>;
   editMessage(roomId: string, messageId: string, body: string): Promise<MessageMutationResponse<MessagePayload>>;
   deleteMessage(roomId: string, messageId: string): Promise<MessageMutationResponse<null>>;
+  listRoomMembers(roomId: string): Promise<RoomMemberEntry[]>;
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -274,6 +284,13 @@ export class RealChatAPI implements ChatAPI {
       `${BACKEND_URL}/api/v1/rooms/${encodeURIComponent(roomId)}/messages/${encodeURIComponent(messageId)}`,
       "DELETE",
     );
+  }
+
+  async listRoomMembers(roomId: string): Promise<RoomMemberEntry[]> {
+    const { members } = await fetchJson<{ members: RoomMemberEntry[] }>(
+      `${BACKEND_URL}/api/v1/rooms/${encodeURIComponent(roomId)}/members`,
+    );
+    return members;
   }
 }
 
