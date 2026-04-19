@@ -14,7 +14,12 @@ export function AttachmentImage({ attachment }: { attachment: AttachmentPayload 
         className="max-w-sm max-h-80 rounded border object-contain bg-muted"
       />
       {attachment.comment ? (
-        <div className="mt-1 text-xs text-muted-foreground break-words max-w-sm">{attachment.comment}</div>
+        <div
+          className="mt-1 italic text-xs text-muted-foreground truncate max-w-[18rem]"
+          title={attachment.comment}
+        >
+          {attachment.comment}
+        </div>
       ) : null}
     </a>
   );

@@ -22,7 +22,12 @@ export function AttachmentChip({ attachment }: { attachment: AttachmentPayload }
         <span className="block truncate font-medium">{attachment.originalName}</span>
         <span className="block text-xs text-muted-foreground">{humanSize(attachment.sizeBytes)}</span>
         {attachment.comment ? (
-          <span className="block text-xs text-muted-foreground truncate">{attachment.comment}</span>
+          <span
+            className="block italic text-xs text-muted-foreground truncate max-w-[18rem]"
+            title={attachment.comment}
+          >
+            {attachment.comment}
+          </span>
         ) : null}
       </span>
     </a>
