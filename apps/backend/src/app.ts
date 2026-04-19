@@ -5,6 +5,8 @@ import Fastify, {
 } from "fastify";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
+import fastifyRateLimit from "@fastify/rate-limit";
+import Redis from "ioredis";
 import type { ZodType } from "zod";
 import { eq } from "drizzle-orm";
 import { user } from "@ai-herders/shared/schema";
@@ -25,6 +27,11 @@ import { accountRoutes } from "./routes/account";
 import { readReceiptsRoutes } from "./routes/read-receipts";
 import { mutesRoutes } from "./routes/mutes";
 import { recordHttpError, shouldCountHttpError } from "./lib/metrics";
+import {
+  csrfPreHandler,
+  generateCsrfToken,
+  issueCsrfCookie,
+} from "./lib/csrf";
 import { createSocketIO, type ChatIOServer } from "./socket";
 import { installSocketAuth } from "./socket-auth";
 import { registerSocketHandlers } from "./socket-handlers";
@@ -36,7 +43,19 @@ declare module "fastify" {
   }
 }
 
-export async function buildApp(): Promise<FastifyInstance> {
+export interface BuildAppOptions {
+  // REQ-147 — per-build override for the global @fastify/rate-limit cap.
+  // Tests need to pin a deterministic, low cap WITHOUT racing the env.ts
+  // module-load that happens when the first import of src/env runs (vitest
+  // singleFork caches modules across test files — whichever test file
+  // imported src/app first pins env.APP_RATE_LIMIT_GLOBAL_MAX for the
+  // whole fork). Passing it via options side-steps that.
+  rateLimitGlobalMax?: number;
+}
+
+export async function buildApp(
+  options: BuildAppOptions = {},
+): Promise<FastifyInstance> {
   const app = Fastify({
     logger: { level: env.LOG_LEVEL },
     trustProxy: true,
@@ -61,6 +80,101 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
     throwFileSizeLimit: false,
   });
+
+  // REQ-147 — @fastify/rate-limit with Redis store (ioredis, separate
+  // connection from better-auth's node-redis secondary-storage — the two
+  // clients can't share because the plugin uses `defineCommand` for a Lua
+  // script not present in node-redis). Global per-IP ceiling applied to
+  // every route; per-route overrides land via `config.rateLimit` in the
+  // route files (see routes/messages.ts, rooms.ts, etc.).
+  //
+  // - `skipOnError: true` means a Redis outage does NOT fail every request;
+  //   the limiter silently passes through. Avoids cascading a Redis
+  //   degradation into a site-wide 503. The counter coverage gap is
+  //   noisy (log line per request) but non-fatal.
+  // - `errorResponseBuilder` overrides the plugin's default
+  //   `{statusCode,error,message}` shape with `{error:"rate_limited",
+  //   retryAfter}` — chat-api.ts roomMutation's 429 branch already reads
+  //   this shape.
+  // - `/health` is in `allowList` so docker probes don't consume the
+  //   bucket. `/socket.io/*` is skipped via `skipOnRoute` because Engine
+  //   .IO sends a ping every ~25s per client, which would fill the per-IP
+  //   bucket fast in a 300-user load test.
+  const rateLimitRedis = new Redis(env.REDIS_URL);
+  rateLimitRedis.on("error", (err) => {
+    app.log.warn({ err }, "rate-limit redis error");
+  });
+  app.addHook("onClose", async () => {
+    await rateLimitRedis.quit().catch(() => undefined);
+  });
+  await app.register(fastifyRateLimit, {
+    global: true,
+    max: options.rateLimitGlobalMax ?? env.APP_RATE_LIMIT_GLOBAL_MAX,
+    timeWindow: "1 minute",
+    redis: rateLimitRedis,
+    nameSpace: "rl:global:",
+    skipOnError: true,
+    allowList: (req) => {
+      // /health → docker/compose probe; /socket.io/* → Engine.IO transport
+      // noise, authenticated separately. Everything else falls under the cap.
+      return (
+        req.url === "/health" ||
+        req.url.startsWith("/socket.io/") ||
+        req.url === "/metrics"
+      );
+    },
+    errorResponseBuilder: (_req, context) => {
+      // The plugin `throws` whatever we return. Fastify's default error
+      // handler then serializes an Error as `{statusCode, error, code,
+      // message}` where `error` is the HTTP reason phrase ("Too Many
+      // Requests") — our own `error: "rate_limited"` property gets
+      // clobbered. So we construct an Error for correct status-code
+      // propagation, tag it with a sentinel `code` ("RATE_LIMITED"), and
+      // let the app-level setErrorHandler (below) rewrite the payload
+      // into the `{error:"rate_limited", retryAfter}` shape chat-api.ts
+      // already decodes.
+      const err = new Error("rate_limited") as Error & {
+        statusCode: number;
+        code: string;
+        retryAfter: number;
+      };
+      err.statusCode = context.statusCode;
+      err.code = "RATE_LIMITED";
+      err.retryAfter = Math.ceil(context.ttl / 1000);
+      return err;
+    },
+  });
+
+  // See errorResponseBuilder above — rewrite rate-limit errors into the
+  // `{error:"rate_limited", retryAfter}` shape before Fastify's default
+  // handler collapses them to `{error:"Too Many Requests", ...}`.
+  app.setErrorHandler((err, _request, reply) => {
+    const tagged = err as {
+      code?: unknown;
+      retryAfter?: unknown;
+      statusCode?: unknown;
+    };
+    if (
+      tagged.code === "RATE_LIMITED" &&
+      typeof tagged.retryAfter === "number"
+    ) {
+      const status =
+        typeof tagged.statusCode === "number" ? tagged.statusCode : 429;
+      return reply.status(status).send({
+        error: "rate_limited",
+        retryAfter: tagged.retryAfter,
+      });
+    }
+    // Fallback: preserve Fastify's default error serialization.
+    throw err;
+  });
+
+  // REQ-146 — CSRF double-submit on every mutating /api/v1/* request.
+  // Registered as `onRequest` so it fires BEFORE body parsing — a missing or
+  // mismatched header short-circuits before we drain a potentially 20 MB
+  // multipart upload. Exemptions (GET/HEAD/OPTIONS, /api/auth/*, /health,
+  // /socket.io/*) live inside csrfPreHandler itself; see lib/csrf.ts.
+  app.addHook("onRequest", csrfPreHandler);
 
   app.get("/health", async () => ({
     status: "ok",
@@ -206,6 +320,28 @@ async function proxyToBetterAuth(request: FastifyRequest, reply: FastifyReply) {
 
   reply.status(response.status);
   response.headers.forEach((v, k) => reply.header(k, v));
+
+  // REQ-146 — stamp the companion csrf_token cookie whenever better-auth
+  // issued a fresh session cookie. The actual cookie name is
+  // `better-auth.session_token=` (better-auth namespaces its cookies with
+  // the library prefix; confirmed via live-run debug). It only writes this
+  // cookie on successful sign-up, sign-in, and token-refresh paths — failed
+  // logins and validation errors leave the existing csrf cookie untouched.
+  // Hook runs AFTER the response headers have been copied so we don't
+  // accidentally drop a better-auth Set-Cookie.
+  const outgoingCookies = reply.getHeader("set-cookie");
+  const cookieList = Array.isArray(outgoingCookies)
+    ? outgoingCookies.map(String)
+    : outgoingCookies
+      ? [String(outgoingCookies)]
+      : [];
+  const establishedSession = cookieList.some((c) =>
+    /^better-auth\.session_token=/.test(c),
+  );
+  if (establishedSession) {
+    issueCsrfCookie(reply, generateCsrfToken());
+  }
+
   const text = await response.text();
   return reply.send(text.length === 0 ? null : text);
 }

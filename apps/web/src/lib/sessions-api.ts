@@ -3,7 +3,7 @@
 // caller with `current: true`, and returns 403 for both "not yours" and
 // "doesn't exist" so session-id existence isn't a probe oracle.
 // See apps/backend/src/routes/sessions.ts and docs/specs/s2-sessions-ui.md.
-import { BACKEND_URL } from "./backend";
+import { BACKEND_URL, csrfHeaders } from "./backend";
 
 export type SessionRow = {
   id: string;
@@ -29,7 +29,7 @@ export async function listSessions(): Promise<SessionRow[]> {
 export async function revokeSession(id: string): Promise<void> {
   const res = await fetch(
     `${BACKEND_URL}/api/v1/sessions/${encodeURIComponent(id)}`,
-    { method: "DELETE", credentials: "include" },
+    { method: "DELETE", credentials: "include", headers: csrfHeaders() },
   );
   if (!res.ok) {
     const text = await res.text().catch(() => "");

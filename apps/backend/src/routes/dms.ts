@@ -115,9 +115,21 @@ async function isDmAllowed(callerId: string, targetId: string): Promise<boolean>
 
 export async function dmsRoutes(app: FastifyInstance): Promise<void> {
   // R1 + R4 — POST /api/v1/dms (find-or-create)
+  // REQ-147 — 30/min/IP. DM creation is idempotent (find-or-create) but we
+  // still clamp the rate at which a caller can spin up new DM threads to
+  // prevent thread-enumeration / spam-fanout. Higher than the account tight
+  // caps because friendly UIs do legitimate batch work on DM list loads.
   app.post(
     "/",
-    { preHandler: zodBodyGuard(createDmSchema) },
+    {
+      preHandler: zodBodyGuard(createDmSchema),
+      config: {
+        rateLimit: {
+          max: 30,
+          timeWindow: "1 minute",
+        },
+      },
+    },
     async (request, reply) => {
       const ctx = await requireDmAuth(request, reply);
       if (!ctx) return;

@@ -28,6 +28,11 @@ const schema = z.object({
     .enum(["true", "false"])
     .default("true")
     .transform((v) => v === "true"),
+  // REQ-147 — global per-IP ceiling applied to every /api/v1/* request by
+  // the @fastify/rate-limit plugin (see src/app.ts). Permissive by default
+  // so well-behaved clients never trip it; lower this in tests to prove
+  // the 429 path without mashing 1000 requests per test.
+  APP_RATE_LIMIT_GLOBAL_MAX: z.coerce.number().int().positive().default(1000),
 });
 
 const parsed = schema.safeParse(process.env);
