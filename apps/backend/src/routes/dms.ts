@@ -174,7 +174,10 @@ export async function dmsRoutes(app: FastifyInstance): Promise<void> {
             ownerId: null,
             dmPairKey: pairKey,
           })
-          .onConflictDoNothing({ target: [room.dmPairKey] })
+          .onConflictDoNothing({
+            target: room.dmPairKey,
+            where: sql`${room.kind} = 'dm'`,
+          })
           .returning({ id: room.id });
 
         const firstInsert = inserted[0];
