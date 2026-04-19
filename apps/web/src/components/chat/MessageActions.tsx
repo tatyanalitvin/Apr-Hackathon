@@ -1,25 +1,20 @@
 // REQ-110/112/114 — per-message Edit / Delete affordance for the author of
-// the row. Renders a compact "⋯" button that reveals two actions. Parent
-// (MessageList) decides visibility: only mounted when
-//   message.authorId === currentUserId && !message.deletedAt
-// so this component itself doesn't have to reason about authorship.
+// the row. Renders a compact "⋯" button that reveals the actions. Parent
+// (MessageList) decides which subset to mount: Edit/Delete are gated by
+// authorship, Reply is author-agnostic per REQ-133 R13. Omitting a
+// handler drops its button cleanly — this component does not reason
+// about authorship itself.
 //
 // Delete uses a two-step inline confirm (click "Delete" → click "Confirm")
 // rather than a full modal — matches the brief's "small inline confirm,
 // not a full modal" guidance (§1d).
-//
-// REQ-133 R13 — Reply button. Visible on every message (regardless of
-// authorship) as long as `onReply` is supplied and the message is not
-// soft-deleted (parent MessageList enforces the deleted gate). Order in
-// the reveal strip: Reply, Edit, Delete. `onReply` is optional so legacy
-// call-sites that don't pass it drop the button cleanly.
 "use client";
 
 import { useState } from "react";
 
 export interface MessageActionsProps {
-  onEdit: () => void;
-  onDelete: () => void;
+  onEdit?: () => void;
+  onDelete?: () => void;
   onReply?: () => void;
 }
 
@@ -57,41 +52,45 @@ export function MessageActions({ onEdit, onDelete, onReply }: MessageActionsProp
           Reply
         </button>
       ) : null}
-      <button
-        type="button"
-        data-testid="message-edit"
-        onClick={() => {
-          setOpen(false);
-          setConfirmingDelete(false);
-          onEdit();
-        }}
-        className="rounded bg-muted px-2 py-0.5 hover:bg-muted-foreground/20"
-      >
-        Edit
-      </button>
-      {confirmingDelete ? (
+      {onEdit ? (
         <button
           type="button"
-          data-testid="message-delete-confirm"
+          data-testid="message-edit"
           onClick={() => {
             setOpen(false);
             setConfirmingDelete(false);
-            onDelete();
+            onEdit();
           }}
-          className="rounded bg-destructive px-2 py-0.5 text-destructive-foreground hover:bg-destructive/90"
-        >
-          Confirm
-        </button>
-      ) : (
-        <button
-          type="button"
-          data-testid="message-delete"
-          onClick={() => setConfirmingDelete(true)}
           className="rounded bg-muted px-2 py-0.5 hover:bg-muted-foreground/20"
         >
-          Delete
+          Edit
         </button>
-      )}
+      ) : null}
+      {onDelete ? (
+        confirmingDelete ? (
+          <button
+            type="button"
+            data-testid="message-delete-confirm"
+            onClick={() => {
+              setOpen(false);
+              setConfirmingDelete(false);
+              onDelete();
+            }}
+            className="rounded bg-destructive px-2 py-0.5 text-destructive-foreground hover:bg-destructive/90"
+          >
+            Confirm
+          </button>
+        ) : (
+          <button
+            type="button"
+            data-testid="message-delete"
+            onClick={() => setConfirmingDelete(true)}
+            className="rounded bg-muted px-2 py-0.5 hover:bg-muted-foreground/20"
+          >
+            Delete
+          </button>
+        )
+      ) : null}
       <button
         type="button"
         aria-label="Cancel"
