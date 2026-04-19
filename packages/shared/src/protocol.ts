@@ -173,14 +173,30 @@ export interface RoomMemberKickedEvent {
   kickedAt: string;          // ISO timestamp
 }
 
-// TODO(agent-A): fill payload — REQ-??? (member banned from room).
+// REQ-204 / REQ-207 — pre-emptive ban path ONLY (target was NOT a current
+// room_member). If the ban handler also kicks an existing member, the
+// handler emits `room.member.kicked` instead — the stronger "leave now"
+// signal. Fanout: `server.to(roomId).emit(...)`. Reason is user-supplied
+// text ≤ 500 chars or null. At-most-once best-effort.
 export interface RoomMemberBannedEvent {
   type: "room.member.banned";
+  roomId: string;
+  userId: string;
+  bannedBy: string;          // userId of the owner/admin issuing the ban
+  reason: string | null;
+  bannedAt: string;          // ISO timestamp
 }
 
-// TODO(agent-A): fill payload — REQ-??? (member unbanned from room).
+// REQ-205 / REQ-207 — owner/admin removes a user's active ban. Fanout:
+// `server.to(roomId).emit(...)`. Does NOT re-add the user as a member;
+// they must hit `/rooms/:id/join` again to rejoin (existing S2 flow).
+// At-most-once best-effort.
 export interface RoomMemberUnbannedEvent {
   type: "room.member.unbanned";
+  roomId: string;
+  userId: string;
+  unbannedBy: string;        // userId of the owner/admin issuing the unban
+  unbannedAt: string;        // ISO timestamp
 }
 
 // TODO(agent-B): fill payload — REQ-??? (invitation sent to user).

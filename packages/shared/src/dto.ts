@@ -198,3 +198,31 @@ export const muteRoomSchema = z.object({
   mutedUntil: z.string().datetime().nullable(),
 });
 export type MuteRoomInput = z.infer<typeof muteRoomSchema>;
+
+// ──────────────────────────────────────────────────────────────────────────
+// room moderation — REQ-204/205/206 (see docs/specs/s2-moderation.md §5).
+// REQ-204: explicit pre-emptive ban. `reason` is ≤500 bytes or omitted.
+// REQ-206: ban list rows expose `bannedAt` on the wire; DB column remains
+// `room_ban.created_at` (spec-level rename only).
+// ──────────────────────────────────────────────────────────────────────────
+
+export const createBanSchema = z.object({
+  userId: z.string().min(1),
+  reason: z.string().max(500).optional(),
+});
+export type CreateBanInput = z.infer<typeof createBanSchema>;
+
+export const banListItemSchema = z.object({
+  userId: z.string(),
+  username: z.string(),
+  bannedById: z.string(),
+  bannedByUsername: z.string(),
+  reason: z.string().nullable(),
+  bannedAt: z.string().datetime(),
+});
+export type BanListItem = z.infer<typeof banListItemSchema>;
+
+export const banListResponseSchema = z.object({
+  bans: z.array(banListItemSchema),
+});
+export type BanListResponse = z.infer<typeof banListResponseSchema>;
