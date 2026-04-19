@@ -27,15 +27,17 @@ import {
 describe("REQ-158 metrics · messages-per-minute window", () => {
   it("buckets records into 5-second slots, oldest first", () => {
     const win = createMessageWindow({ bucketMs: 5_000, bucketCount: 12 });
-    // Fix a reference 'now' so bucket boundaries are deterministic.
-    const now = 1_000_000_000_000;
+    // Fix `now` at the END of a bucket so the "newest bucket" covers
+    // (now - 5s, now]. 1e12 + 4999 = exactly the last ms before a bucket
+    // boundary when bucketMs=5000.
+    const now = 1_000_000_000_000 + 4_999;
 
-    // Put 3 records in the current bucket ([now-5s, now]).
+    // 3 records inside the newest bucket: now itself, 1s ago, 4.999s ago.
+    win.record(now);
     win.record(now - 1_000);
-    win.record(now - 2_000);
     win.record(now - 4_999);
 
-    // Put 1 record in the bucket 25-30s ago.
+    // 1 record in the bucket 25-30s ago (5 buckets back from newest).
     win.record(now - 27_000);
 
     // Put 2 records outside the window (> 60s ago) — must be ignored.
