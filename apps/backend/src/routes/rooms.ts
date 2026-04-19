@@ -226,6 +226,7 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
         visibility: room.visibility,
         ownerId: room.ownerId,
         lastReadSeq: roomMember.lastReadSeq,
+        mutedUntil: roomMember.mutedUntil,
         headSeq: messageSeq.seq,
         lastActivityAt: sql<Date | null>`MAX(${message.createdAt})`,
       })
@@ -234,7 +235,7 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
       .leftJoin(messageSeq, eq(messageSeq.roomId, roomMember.roomId))
       .leftJoin(message, eq(message.roomId, roomMember.roomId))
       .where(eq(roomMember.userId, ctx.userId))
-      .groupBy(room.id, roomMember.lastReadSeq, messageSeq.seq)
+      .groupBy(room.id, roomMember.lastReadSeq, roomMember.mutedUntil, messageSeq.seq)
       .orderBy(sql`MAX(${message.createdAt}) DESC NULLS LAST`, asc(room.name));
 
     // S2 room-mgmt — expose ownerId so the web can gate the Rename/Delete
@@ -250,6 +251,7 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
       ownerId: r.ownerId,
       lastReadSeq: r.lastReadSeq.toString(),
       roomHeadSeq: (r.headSeq ?? 0n).toString(),
+      mutedUntil: r.mutedUntil ? r.mutedUntil.toISOString() : null,
     }));
 
     return reply.status(200).send({ rooms: payload });
