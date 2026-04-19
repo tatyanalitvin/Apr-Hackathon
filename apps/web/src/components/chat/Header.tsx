@@ -85,6 +85,9 @@ export function Header({ className }: { className?: string }) {
           <Button asChild size="sm" variant="ghost">
             <Link href="/settings/password">Password</Link>
           </Button>
+          <Button asChild size="sm" variant="ghost">
+            <Link href="/settings/account">Account</Link>
+          </Button>
           <Button size="sm" variant="outline" onClick={handleSignOut}>
             Sign out
           </Button>
