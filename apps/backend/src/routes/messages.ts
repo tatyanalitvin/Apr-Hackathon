@@ -38,6 +38,7 @@ import { db } from "../db";
 import { isDmFrozen } from "../lib/dm-freeze";
 import { requireRoomMember } from "../lib/message-auth";
 import { normalizeBody } from "../lib/message-text";
+import { recordMessageSent } from "../lib/metrics";
 import {
   allocateAndInsertMessage,
   AttachmentLinkError,
@@ -224,6 +225,9 @@ export async function messagesRoutes(app: FastifyInstance): Promise<void> {
         payload.attachments = await loadAttachmentPayloads(inserted.id);
       }
       if (!deduped) {
+        // REQ-158 admin metric: count fresh sends only. Dedup-on-retry must
+        // not double-count — same rationale as the broadcast skip below.
+        recordMessageSent();
         // REQ-034 watermark broadcast. For a fresh send, seq === roomHeadSeq.
         // On dedup we intentionally skip the emit — subscribers already saw
         // this message on its first commit.
