@@ -18,7 +18,7 @@ import type {
 } from "fastify";
 import { randomUUID } from "node:crypto";
 import type { ZodType } from "zod";
-import { and, asc, eq, gte, inArray, isNull, lte } from "drizzle-orm";
+import { aliasedTable, and, asc, eq, gte, inArray, isNull, lte } from "drizzle-orm";
 import { createClient, type RedisClientType } from "redis";
 import {
   editMessageSchema,
@@ -47,6 +47,7 @@ import { env } from "../env";
 import { isDmFrozen } from "../lib/dm-freeze";
 import { requireRoomMember } from "../lib/message-auth";
 import { normalizeBody } from "../lib/message-text";
+import { previewFromParent, type ParentRow } from "../lib/reply-preview";
 import { recordMessageSent } from "../lib/metrics";
 import {
   allocateAndInsertMessage,
@@ -119,9 +120,15 @@ function zodBodyGuard<T>(schema: ZodType<T>): preHandlerHookHandler {
 // serialization swaps the denormalised username/name for "[deleted user]".
 // Callers that know the author is alive (send handler, live broadcasts) may
 // omit the flag; history/DM-list paths JOIN user.deletedAt and pass it.
+// REQ-110 (s2-replies R5) — optional `parent` arg hydrates the reply preview.
+// `undefined` (caller doesn't hydrate) and `null` (caller knows there's none)
+// both produce `replyTo: null`. The preview shape (truncation + ISO + deleted
+// substitution) is delegated to `previewFromParent` — one helper, three
+// callers: send handler (R5), history LEFT-JOIN (R6), DM listing (R8).
 export function toMessagePayload(
   row: Message,
   authorDeleted = false,
+  parent?: ParentRow | null,
 ): MessagePayload {
   const authorUsername = authorDeleted ? DELETED_USER_DISPLAY : row.authorUsername;
   const authorName = authorDeleted ? DELETED_USER_DISPLAY : row.authorName;
@@ -134,6 +141,7 @@ export function toMessagePayload(
     body: row.body,
     seq: row.seq.toString(),
     replyToId: row.replyToId ?? null,
+    replyTo: previewFromParent(parent),
     editedAt: row.editedAt ? row.editedAt.toISOString() : null,
     deletedAt: row.deletedAt ? row.deletedAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
@@ -238,6 +246,38 @@ export async function messagesRoutes(app: FastifyInstance): Promise<void> {
         }
       }
 
+      // REQ-110 (s2-replies R2, R3) — parent validation + cross-room block.
+      // Collapsed error code `reply_parent_invalid` covers BOTH "no such id"
+      // and "parent belongs to a different room" (Q2); a distinct code would
+      // leak an existence oracle. Fetched BEFORE seq allocation so a bad id
+      // never consumes a seq. One SELECT — indexed on PK; O(1) per send.
+      let parentRow:
+        | {
+            id: string;
+            roomId: string;
+            authorUsername: string;
+            body: string;
+            deletedAt: Date | null;
+          }
+        | null = null;
+      if (request.body.replyToId) {
+        const [p] = await db
+          .select({
+            id: message.id,
+            roomId: message.roomId,
+            authorUsername: message.authorUsername,
+            body: message.body,
+            deletedAt: message.deletedAt,
+          })
+          .from(message)
+          .where(eq(message.id, request.body.replyToId))
+          .limit(1);
+        if (!p || p.roomId !== roomId) {
+          return reply.status(400).send({ error: "reply_parent_invalid" });
+        }
+        parentRow = p;
+      }
+
       const normalized = normalizeBody(request.body.body);
       if (normalized.length === 0) {
         // Post-normalization the body could be entirely stripped (pure control
@@ -283,7 +323,7 @@ export async function messagesRoutes(app: FastifyInstance): Promise<void> {
         throw err;
       }
 
-      const payload = toMessagePayload(inserted);
+      const payload = toMessagePayload(inserted, false, parentRow);
       if (attachmentIds.length > 0 && !deduped) {
         payload.attachments = await loadAttachmentPayloads(inserted.id);
       }
@@ -370,12 +410,33 @@ export async function messagesRoutes(app: FastifyInstance): Promise<void> {
       // the serializer swaps in "[deleted user]". A separate SELECT (vs a
       // JOIN in the main query) keeps the message path's plan stable and
       // doesn't risk changing row multiplicity.
-      const rows =
+      // REQ-110 (s2-replies R6) — LEFT JOIN message ONTO itself on
+      // reply_to_id so a single round trip carries the quoted-parent preview
+      // for every reply in the slice. Plan-stability note: alias keeps the
+      // join explicit; cross-room replies were rejected at send time (R3), so
+      // we can blindly select the parent row without a room-id filter on the
+      // alias.
+      const parent = aliasedTable(message, "parent");
+      type HistoryRow = {
+        message: Message;
+        parentId: string | null;
+        parentBody: string | null;
+        parentAuthorUsername: string | null;
+        parentDeletedAt: Date | null;
+      };
+      const typedRows: HistoryRow[] =
         roomHeadSeq === 0n
           ? []
           : await db
-              .select()
+              .select({
+                message: message,
+                parentId: parent.id,
+                parentBody: parent.body,
+                parentAuthorUsername: parent.authorUsername,
+                parentDeletedAt: parent.deletedAt,
+              })
               .from(message)
+              .leftJoin(parent, eq(parent.id, message.replyToId))
               .where(
                 and(
                   eq(message.roomId, roomId),
@@ -388,8 +449,8 @@ export async function messagesRoutes(app: FastifyInstance): Promise<void> {
               .limit(parsed.data.limit);
 
       const deletedAuthorIds = new Set<string>();
-      if (rows.length > 0) {
-        const authorIds = [...new Set(rows.map((r) => r.authorId))];
+      if (typedRows.length > 0) {
+        const authorIds = [...new Set(typedRows.map((r) => r.message.authorId))];
         const authorRows = await db
           .select({ id: user.id, deletedAt: user.deletedAt })
           .from(user)
@@ -399,9 +460,22 @@ export async function messagesRoutes(app: FastifyInstance): Promise<void> {
         }
       }
 
-      const payloads = rows.map((r) =>
-        toMessagePayload(r, deletedAuthorIds.has(r.authorId)),
-      );
+      const payloads = typedRows.map((r) => {
+        const parentRow =
+          r.parentId != null
+            ? {
+                id: r.parentId,
+                body: r.parentBody ?? "",
+                authorUsername: r.parentAuthorUsername ?? "",
+                deletedAt: r.parentDeletedAt ?? null,
+              }
+            : null;
+        return toMessagePayload(
+          r.message,
+          deletedAuthorIds.has(r.message.authorId),
+          parentRow,
+        );
+      });
       if (payloads.length > 0) {
         const byMessageId = await loadAttachmentPayloadsForMessages(
           payloads.map((p) => p.id),
@@ -515,7 +589,25 @@ export async function messagesRoutes(app: FastifyInstance): Promise<void> {
         throw new Error(`PATCH message returned no row (id=${messageId})`);
       }
 
-      const payload = toMessagePayload(updated);
+      // REQ-110 R9 — pass through replyTo on the edit response when the
+      // edited message is itself a reply. One extra SELECT per edit of a
+      // reply; non-replies skip the fetch. `message.edited` socket event
+      // intentionally does NOT carry replyTo (protocol unchanged).
+      let parentRow: ParentRow | null = null;
+      if (updated.replyToId) {
+        const [p] = await db
+          .select({
+            id: message.id,
+            body: message.body,
+            authorUsername: message.authorUsername,
+            deletedAt: message.deletedAt,
+          })
+          .from(message)
+          .where(eq(message.id, updated.replyToId))
+          .limit(1);
+        parentRow = p ?? null;
+      }
+      const payload = toMessagePayload(updated, false, parentRow);
       const atts = await loadAttachmentPayloads(messageId);
       if (atts.length > 0) payload.attachments = atts;
 

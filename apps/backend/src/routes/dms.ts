@@ -34,6 +34,7 @@ import type { DmFrozenReason, DmListItem } from "@ai-herders/shared/protocol";
 import { auth } from "../auth";
 import { db } from "../db";
 import { toFetchHeaders } from "../lib/fetch-headers";
+import type { ParentRow } from "../lib/reply-preview";
 import { DELETED_USER_DISPLAY } from "../lib/users";
 import { toMessagePayload } from "./messages";
 
@@ -320,6 +321,28 @@ export async function dmsRoutes(app: FastifyInstance): Promise<void> {
       latestByRoom.set(rid, row ?? null);
     }
 
+    // REQ-110 R8 — parent-row preview for last-messages that are replies.
+    // One batched SELECT (not N+1): collect every non-null replyToId across
+    // the latest-per-room set and fetch those rows in a single `inArray`
+    // query. `previewFromParent` consumes the map entry in the mapper below.
+    const parentRowById = new Map<string, ParentRow>();
+    const parentIdsToFetch = new Set<string>();
+    for (const latest of latestByRoom.values()) {
+      if (latest?.replyToId) parentIdsToFetch.add(latest.replyToId);
+    }
+    if (parentIdsToFetch.size > 0) {
+      const parents = await db
+        .select({
+          id: message.id,
+          body: message.body,
+          authorUsername: message.authorUsername,
+          deletedAt: message.deletedAt,
+        })
+        .from(message)
+        .where(inArray(message.id, [...parentIdsToFetch]));
+      for (const p of parents) parentRowById.set(p.id, p);
+    }
+
     // Friendship + block snapshots for freeze evaluation. Pair keys allow
     // O(1) lookups per DM.
     const pairFriendships = new Set<string>();
@@ -409,7 +432,18 @@ export async function dmsRoutes(app: FastifyInstance): Promise<void> {
       const latest = latestByRoom.get(roomId) ?? null;
       const authorDeleted =
         latest != null && peerById.get(latest.authorId)?.deleted === true;
-      const lastMessage = latest ? toMessagePayload(latest, authorDeleted) : null;
+      // REQ-110 R8 — hydrate replyTo preview when the last message is a
+      // reply. Parents for every reply-last-message were batch-fetched above
+      // into parentRowById. Passing `null` (not `undefined`) when the row
+      // has no replyToId keeps the serializer's contract — known-no-parent
+      // maps to replyTo: null explicitly.
+      const parent: ParentRow | null =
+        latest?.replyToId != null
+          ? (parentRowById.get(latest.replyToId) ?? null)
+          : null;
+      const lastMessage = latest
+        ? toMessagePayload(latest, authorDeleted, parent)
+        : null;
 
       return {
         roomId,

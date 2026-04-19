@@ -7,6 +7,12 @@
 // Delete uses a two-step inline confirm (click "Delete" → click "Confirm")
 // rather than a full modal — matches the brief's "small inline confirm,
 // not a full modal" guidance (§1d).
+//
+// REQ-133 R13 — Reply button. Visible on every message (regardless of
+// authorship) as long as `onReply` is supplied and the message is not
+// soft-deleted (parent MessageList enforces the deleted gate). Order in
+// the reveal strip: Reply, Edit, Delete. `onReply` is optional so legacy
+// call-sites that don't pass it drop the button cleanly.
 "use client";
 
 import { useState } from "react";
@@ -14,9 +20,10 @@ import { useState } from "react";
 export interface MessageActionsProps {
   onEdit: () => void;
   onDelete: () => void;
+  onReply?: () => void;
 }
 
-export function MessageActions({ onEdit, onDelete }: MessageActionsProps) {
+export function MessageActions({ onEdit, onDelete, onReply }: MessageActionsProps) {
   const [open, setOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
@@ -36,6 +43,20 @@ export function MessageActions({ onEdit, onDelete }: MessageActionsProps) {
 
   return (
     <div className="flex items-center gap-1 text-xs">
+      {onReply ? (
+        <button
+          type="button"
+          data-testid="message-reply"
+          onClick={() => {
+            setOpen(false);
+            setConfirmingDelete(false);
+            onReply();
+          }}
+          className="rounded bg-muted px-2 py-0.5 hover:bg-muted-foreground/20"
+        >
+          Reply
+        </button>
+      ) : null}
       <button
         type="button"
         data-testid="message-edit"

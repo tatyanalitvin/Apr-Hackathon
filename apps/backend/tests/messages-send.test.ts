@@ -212,18 +212,10 @@ describe("REQ-029 POST /api/v1/rooms/:id/messages send message", () => {
     expect(row.body).toBe("caf\u00e9 yo");
   });
 
-  test("REQ-029 replyToId passthrough (not validated against FK in S1)", async () => {
-    const { agent, userId } = await registerAgent(app, "req029-reply@example.com", "req029_reply");
-    await createRoom("r-req029-reply");
-    await addMember("r-req029-reply", userId);
-
-    const res = await agent
-      .post("/api/v1/rooms/r-req029-reply/messages")
-      .send({ body: "re: nothing", replyToId: "not-yet-validated" });
-
-    expect(res.status).toBe(201);
-    expect(res.body.replyToId).toBe("not-yet-validated");
-  });
+  // REQ-029 → superseded by s2-replies REQ-110 R1/R2/R3 (tests/message-replies.test.ts):
+  // non-UUID `replyToId` is rejected by the zod guard; UUID ids that don't
+  // reference a same-room parent return 400 `reply_parent_invalid`. The old
+  // S1 "passthrough" behavior is gone by design.
 
   test("REQ-029 empty attachmentIds → send succeeds, no attachments key", async () => {
     // S2 wires the R12 link step (see docs/specs/s2-attachments.md §4 R12 +

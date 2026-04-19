@@ -45,12 +45,29 @@ interface PendingAttachment {
 export interface MessageComposerProps {
   userId: string;
   roomId: string;
-  onSend: (body: string, attachmentIds?: string[]) => Promise<void> | void;
+  onSend: (
+    body: string,
+    attachmentIds?: string[],
+    replyToId?: string,
+  ) => Promise<void> | void;
   onUpload?: (file: File) => Promise<{ attachmentId: string }>;
   disabled?: boolean;
+  // REQ-133 R12 — reply chip. When the parent (RoomClient) records an active
+  // reply target, pass it here to render the chip above the textarea and
+  // carry `replyToId` into the next `onSend` call.
+  replyTo?: { messageId: string; authorUsername: string } | null;
+  onClearReply?: () => void;
 }
 
-export function MessageComposer({ userId, roomId, onSend, onUpload, disabled }: MessageComposerProps) {
+export function MessageComposer({
+  userId,
+  roomId,
+  onSend,
+  onUpload,
+  disabled,
+  replyTo,
+  onClearReply,
+}: MessageComposerProps) {
   const [value, setValue] = useState("");
   const [sending, setSending] = useState(false);
   const [pending, setPending] = useState<PendingAttachment[]>([]);
@@ -152,10 +169,14 @@ export function MessageComposer({ userId, roomId, onSend, onUpload, disabled }: 
         : trimmed
       ).normalize("NFC");
       try {
+        // REQ-133 R12 — replyToId flows through as the 3rd positional arg.
+        // Non-reply sends pass `undefined`, preserving the S1 2-arg signature
+        // at the network layer (no `reply_to_id` key emitted server-side).
+        const replyToId = replyTo?.messageId;
         if (attachmentIds.length > 0) {
-          await onSend(body, attachmentIds);
+          await onSend(body, attachmentIds, replyToId);
         } else {
-          await onSend(body);
+          await onSend(body, undefined, replyToId);
         }
       } catch {
         // Parent owns error surfacing; keep draft intact so user can retry.
@@ -165,11 +186,24 @@ export function MessageComposer({ userId, roomId, onSend, onUpload, disabled }: 
       setPending([]);
       setUploadError(null);
       clearDraft(userId, roomId);
+      // Clear the reply target after a successful send. Parent owns state,
+      // so ask it to drop the chip — `onClearReply` is optional because
+      // legacy composer callers don't supply reply props at all.
+      if (replyTo && onClearReply) onClearReply();
     } finally {
       sendingRef.current = false;
       setSending(false);
     }
-  }, [canSend, trimmed, readyAttachmentIds, onSend, userId, roomId]);
+  }, [
+    canSend,
+    trimmed,
+    readyAttachmentIds,
+    onSend,
+    userId,
+    roomId,
+    replyTo,
+    onClearReply,
+  ]);
 
   const removePending = useCallback((localId: string) => {
     setPending((prev) => prev.filter((p) => p.localId !== localId));
@@ -259,6 +293,31 @@ export function MessageComposer({ userId, roomId, onSend, onUpload, disabled }: 
       {uploadError ? (
         <div role="alert" className="text-xs text-destructive pb-1">
           {uploadError}
+        </div>
+      ) : null}
+
+      {replyTo ? (
+        <div
+          data-testid="reply-chip"
+          className="flex items-center gap-2 rounded bg-muted/40 px-2 py-1 text-xs"
+        >
+          <span className="text-muted-foreground">
+            Replying to{" "}
+            <span className="font-medium text-foreground">
+              {replyTo.authorUsername}
+            </span>
+          </span>
+          {onClearReply ? (
+            <button
+              type="button"
+              aria-label="Cancel reply"
+              data-testid="reply-chip-clear"
+              className="ml-auto rounded px-1 text-muted-foreground hover:bg-muted-foreground/20 hover:text-foreground"
+              onClick={onClearReply}
+            >
+              ×
+            </button>
+          ) : null}
         </div>
       ) : null}
 

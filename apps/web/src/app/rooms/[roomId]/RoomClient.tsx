@@ -26,6 +26,10 @@ import {
   type ChatSocket,
 } from "@/lib/socket";
 import { createWatermark } from "@/lib/watermark";
+import {
+  applyMessageEditedReducer,
+  applyMessageDeletedReducer,
+} from "@/lib/reply-reducers";
 import { toast } from "sonner";
 import type { MyRoomSummary } from "@/lib/chat-api";
 import { useIdleDetector, type IdleState } from "@/lib/use-idle-detector";
@@ -55,6 +59,13 @@ function RoomContent({ roomId }: { roomId: string }) {
   const [messages, setMessages] = useState<MessagePayload[]>([]);
   const [firstItemIndex, setFirstItemIndex] = useState(INITIAL_FIRST_INDEX);
   const [hasMoreOlder, setHasMoreOlder] = useState(true);
+  // REQ-110 R12/R13 — active reply target. MessageActions.Reply sets it from
+  // a hovered row; MessageComposer renders the chip and carries replyToId
+  // through on the next send. Room-scoped: resets whenever roomId changes.
+  const [replyTo, setReplyTo] = useState<{
+    messageId: string;
+    authorUsername: string;
+  } | null>(null);
   const [myRooms, setMyRooms] = useState<MyRoomSummary[] | null>(null);
   // Gate-3 patch — real roster keyed by user.id so PresencePill subscribes
   // to the correct presence slot. null until the fetch resolves; on failure
@@ -137,6 +148,12 @@ function RoomContent({ roomId }: { roomId: string }) {
     void refreshRoomMembers();
   }, [refreshRoomMembers]);
 
+  // REQ-110 R12 — reply target is room-scoped: swap rooms, drop the chip so
+  // the user doesn't accidentally post an ack into a different channel.
+  useEffect(() => {
+    setReplyTo(null);
+  }, [roomId]);
+
   const emit = useCallback((m: MessagePayload) => {
     setMessages((prev) => {
       if (prev.some((x) => x.id === m.id)) return prev;
@@ -178,28 +195,18 @@ function RoomContent({ roomId }: { roomId: string }) {
     // no-op here (brief §1e "skip silently").
     const onMessageEdited = (evt: MessageEditedEvent) => {
       if (evt.roomId !== roomId) return;
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === evt.messageId
-            ? { ...m, body: evt.body, editedAt: evt.editedAt }
-            : m,
-        ),
-      );
+      setMessages((prev) => applyMessageEditedReducer(prev, evt));
     };
     socket.on("message.edited", onMessageEdited);
 
     // REQ-112/113 — soft-delete arrival. Flip the row to tombstone mode by
     // setting deletedAt + clearing body/attachments. Row stays in the list so
     // seq continuity holds and the scroll position doesn't jump.
+    // REQ-110 R11 — same reducer also flips replyTo on every reply whose
+    // parent is this messageId, so quoted-blocks switch to `[deleted]` live.
     const onMessageDeleted = (evt: MessageDeletedEvent) => {
       if (evt.roomId !== roomId) return;
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === evt.messageId
-            ? { ...m, body: "", attachments: [], deletedAt: evt.deletedAt }
-            : m,
-        ),
-      );
+      setMessages((prev) => applyMessageDeletedReducer(prev, evt));
     };
     socket.on("message.deleted", onMessageDeleted);
 
@@ -292,11 +299,30 @@ function RoomContent({ roomId }: { roomId: string }) {
   }, [messages, roomId]);
 
   const handleSend = useCallback(
-    async (body: string, attachmentIds?: string[]) => {
-      await apiRef.current.sendMessage(roomId, { body, attachmentIds });
+    async (body: string, attachmentIds?: string[], replyToId?: string) => {
+      // REQ-110 R12 — `replyToId` is the 3rd positional arg from
+      // MessageComposer. Omitted entirely on non-reply sends so the POST
+      // body doesn't emit a `replyToId` key server-side, keeping the wire
+      // compatible with S1 callers that preceded this task.
+      await apiRef.current.sendMessage(roomId, {
+        body,
+        attachmentIds,
+        ...(replyToId ? { replyToId } : {}),
+      });
     },
     [roomId],
   );
+
+  const handleReply = useCallback(
+    (messageId: string, authorUsername: string) => {
+      setReplyTo({ messageId, authorUsername });
+    },
+    [],
+  );
+
+  const handleClearReply = useCallback(() => {
+    setReplyTo(null);
+  }, []);
 
   const handleUpload = useCallback(
     async (file: File) => {
@@ -509,8 +535,16 @@ function RoomContent({ roomId }: { roomId: string }) {
           currentUserId={data?.user?.id}
           onEditMessage={handleEditMessage}
           onDeleteMessage={handleDeleteMessage}
+          onReply={handleReply}
         />
-        <MessageComposer userId={userId} roomId={roomId} onSend={handleSend} onUpload={handleUpload} />
+        <MessageComposer
+          userId={userId}
+          roomId={roomId}
+          onSend={handleSend}
+          onUpload={handleUpload}
+          replyTo={replyTo}
+          onClearReply={handleClearReply}
+        />
       </main>
       <aside className="hidden lg:block border-l min-h-0">
         <MemberList members={displayedMembers} />

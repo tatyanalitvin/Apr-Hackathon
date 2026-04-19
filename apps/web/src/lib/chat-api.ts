@@ -5,6 +5,11 @@ export interface SendMessageInput {
   body: string;
   clientMessageId?: string;
   attachmentIds?: string[];
+  // REQ-110 R2 — parent message id when this send is a reply. Backend
+  // validates same-room + not-deleted and returns `reply_parent_invalid`
+  // on a miss. Omitted on plain sends so the wire stays byte-for-byte
+  // compatible with S1 callers.
+  replyToId?: string;
 }
 
 export interface FetchHistoryInput {
