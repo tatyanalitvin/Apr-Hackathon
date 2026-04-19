@@ -2,6 +2,9 @@
 // Injects container URLs from globalSetup BEFORE src/env.ts is imported by any
 // test module; primes remaining env; registers isolation hooks.
 
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { beforeEach, inject } from "vitest";
 import { flushRedis, getTestPool, truncateAll } from "./db-helpers";
 
@@ -16,7 +19,13 @@ process.env.LOG_LEVEL ??= "warn";
 process.env.PORT ??= "4001";
 process.env.WEB_ORIGIN ??= "http://localhost:3000";
 process.env.SESSION_SECRET ??= "test-session-secret-32-chars-min!!";
-process.env.UPLOAD_DIR ??= "./infra/uploads";
+// Per-process UPLOAD_DIR under the OS tmpdir so attachment uploads can't
+// pollute the working tree (the dev default ./infra/uploads is a real path
+// inside the repo and would show up in `git status` after a test run).
+// Always overwrite — tests should never share UPLOAD_DIR with the dev server.
+process.env.UPLOAD_DIR = fs.mkdtempSync(
+  path.join(os.tmpdir(), "ai-herders-uploads-"),
+);
 
 // `pg_advisory_unlock_all()` before TRUNCATE: insurance against a session-scoped
 // advisory lock leaking from a previous test (docs/adr/0005-test-db-harness.md
