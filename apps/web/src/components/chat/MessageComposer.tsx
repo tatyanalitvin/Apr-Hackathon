@@ -88,6 +88,11 @@ export function MessageComposer({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sendingRef = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // REQ-213 — v3 §2.6.2 explicit attach affordance. Hidden native input is
+  // trampolined by the visible Paperclip button; selected files route through
+  // the existing uploadFiles() path (same as drop / paste) so no new upload
+  // state machine is needed.
+  const attachInputRef = useRef<HTMLInputElement>(null);
 
   // Hydrate draft on mount / when userId or roomId changes.
   useEffect(() => {
@@ -412,6 +417,33 @@ export function MessageComposer({
           >
             {bytes} / {MAX_BYTES}
           </span>
+          {onUpload ? (
+            <>
+              <input
+                ref={attachInputRef}
+                type="file"
+                multiple
+                data-testid="attach-file-input"
+                className="hidden"
+                onChange={(e) => {
+                  const files = Array.from(e.target.files ?? []);
+                  if (files.length > 0) void uploadFiles(files);
+                  // Reset so picking the same file twice still fires `change`.
+                  e.target.value = "";
+                }}
+              />
+              <button
+                type="button"
+                aria-label="Attach files"
+                data-testid="attach-button"
+                disabled={disabled || sending}
+                onClick={() => attachInputRef.current?.click()}
+                className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+              >
+                📎
+              </button>
+            </>
+          ) : null}
           <EmojiPickerButton
             onPick={insertAtCaret}
             disabled={disabled || sending}

@@ -408,3 +408,58 @@ describe("MessageComposer emoji picker (§2.5.2)", () => {
     expect(ta).toHaveValue("draft");
   });
 });
+
+// REQ-213 — v3 §2.6.2 explicit paperclip attach button. Drag-drop/paste
+// already works; the brief calls out a visible "attach files" affordance
+// next to the composer input. Button click opens a hidden file input and
+// routes selected files through the same uploadFiles path used by drop.
+describe("MessageComposer attach button (REQ-213 — v3 §2.6.2)", () => {
+  it("renders a Paperclip attach button when onUpload is provided", () => {
+    render(
+      <MessageComposer
+        userId="u1"
+        roomId="general"
+        onSend={vi.fn()}
+        onUpload={vi.fn().mockResolvedValue({ attachmentId: "a1" })}
+      />,
+    );
+    expect(screen.getByTestId("attach-button")).toBeInTheDocument();
+  });
+
+  it("omits the Paperclip button when onUpload is undefined", () => {
+    render(<MessageComposer userId="u1" roomId="general" onSend={vi.fn()} />);
+    expect(screen.queryByTestId("attach-button")).toBeNull();
+  });
+
+  it("clicking the Paperclip forwards files through onUpload", async () => {
+    const onUpload = vi.fn().mockResolvedValue({ attachmentId: "a-xyz" });
+    render(
+      <MessageComposer
+        userId="u1"
+        roomId="general"
+        onSend={vi.fn()}
+        onUpload={onUpload}
+      />,
+    );
+    const file = new File(["hi"], "note.txt", { type: "text/plain" });
+    const input = screen.getByTestId("attach-file-input") as HTMLInputElement;
+    // Simulate the user picking a file via the native file dialog.
+    fireEvent.change(input, { target: { files: [file] } });
+    await waitFor(() => expect(onUpload).toHaveBeenCalledTimes(1));
+    expect(onUpload.mock.calls[0][0]).toBe(file);
+  });
+
+  it("disables the Paperclip when composer is disabled", () => {
+    render(
+      <MessageComposer
+        userId="u1"
+        roomId="general"
+        onSend={vi.fn()}
+        onUpload={vi.fn().mockResolvedValue({ attachmentId: "a1" })}
+        disabled
+      />,
+    );
+    const btn = screen.getByTestId("attach-button");
+    expect(btn).toBeDisabled();
+  });
+});
