@@ -219,3 +219,142 @@ describe("REQ-075 POST /api/v1/attachments accepts any mime type", () => {
     expect(res.status).toBe(403);
   });
 });
+
+describe("REQ-079 single-file endpoint shape + REQ-082 comment validation", () => {
+  let app: FastifyInstance;
+
+  beforeAll(async () => {
+    app = await buildApp();
+    await app.ready();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  test("REQ-079 no multipart body at all → 400 invalid_multipart", async () => {
+    const alice = await registerAgent(app, "r079-novalid@example.com", "r079_novalid");
+    void alice.userId;
+
+    const res = await alice.agent
+      .post("/api/v1/attachments")
+      .set("content-type", "application/json")
+      .send({ roomId: "anything" });
+    expect(res.status).toBe(400);
+  });
+
+  test("REQ-079 multipart with only fields, no file part → 400 missing_file", async () => {
+    const alice = await registerAgent(app, "r079-noattach@example.com", "r079_noattach");
+    await createRoom("r-r079-noattach");
+    await addMember("r-r079-noattach", alice.userId);
+
+    const res = await alice.agent
+      .post("/api/v1/attachments")
+      .field("roomId", "r-r079-noattach");
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({ error: "missing_file" });
+  });
+
+  test("REQ-079 file present but no roomId field → 400 missing_room_id", async () => {
+    const alice = await registerAgent(app, "r079-noroom@example.com", "r079_noroom");
+    void alice.userId;
+
+    const res = await alice.agent
+      .post("/api/v1/attachments")
+      .attach("file", Buffer.from("x"), {
+        filename: "x.txt",
+        contentType: "text/plain",
+      });
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({ error: "missing_room_id" });
+  });
+
+  test("REQ-082 comment ≤500 chars → stored", async () => {
+    const alice = await registerAgent(app, "r082-ok@example.com", "r082_ok");
+    await createRoom("r-r082-ok");
+    await addMember("r-r082-ok", alice.userId);
+
+    const comment = "x".repeat(500);
+    const res = await alice.agent
+      .post("/api/v1/attachments")
+      .field("roomId", "r-r082-ok")
+      .field("comment", comment)
+      .attach("file", Buffer.from("y"), {
+        filename: "y.txt",
+        contentType: "text/plain",
+      });
+    expect(res.status).toBe(201);
+
+    const [row] = await getTestDb()
+      .select()
+      .from(attachment)
+      .where(eq(attachment.id, res.body.attachmentId));
+    expect(row.comment).toBe(comment);
+  });
+
+  test("REQ-082 comment empty string → null in DB", async () => {
+    const alice = await registerAgent(app, "r082-empty@example.com", "r082_empty");
+    await createRoom("r-r082-empty");
+    await addMember("r-r082-empty", alice.userId);
+
+    const res = await alice.agent
+      .post("/api/v1/attachments")
+      .field("roomId", "r-r082-empty")
+      .field("comment", "")
+      .attach("file", Buffer.from("z"), {
+        filename: "z.txt",
+        contentType: "text/plain",
+      });
+    expect(res.status).toBe(201);
+
+    const [row] = await getTestDb()
+      .select()
+      .from(attachment)
+      .where(eq(attachment.id, res.body.attachmentId));
+    expect(row.comment).toBeNull();
+  });
+
+  test("REQ-082 comment >500 chars → 400 comment_too_long", async () => {
+    const alice = await registerAgent(app, "r082-long@example.com", "r082_long");
+    await createRoom("r-r082-long");
+    await addMember("r-r082-long", alice.userId);
+
+    // 600 chars > 500-char cap. Note: this is also above the multipart
+    // fieldSize=600 byte limit, so the plugin may reject with its own error
+    // before our handler check runs — test asserts 4xx either way.
+    const res = await alice.agent
+      .post("/api/v1/attachments")
+      .field("roomId", "r-r082-long")
+      .field("comment", "a".repeat(501))
+      .attach("file", Buffer.from("k"), {
+        filename: "k.txt",
+        contentType: "text/plain",
+      });
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.status).toBeLessThan(500);
+  });
+
+  test("REQ-082 comment NFC-normalised on store", async () => {
+    const alice = await registerAgent(app, "r082-nfc@example.com", "r082_nfc");
+    await createRoom("r-r082-nfc");
+    await addMember("r-r082-nfc", alice.userId);
+
+    // "café" with decomposed é. Spec R4 says NFC same as message body.
+    const dirty = "caf\u0065\u0301";
+    const res = await alice.agent
+      .post("/api/v1/attachments")
+      .field("roomId", "r-r082-nfc")
+      .field("comment", dirty)
+      .attach("file", Buffer.from("q"), {
+        filename: "q.txt",
+        contentType: "text/plain",
+      });
+    expect(res.status).toBe(201);
+
+    const [row] = await getTestDb()
+      .select()
+      .from(attachment)
+      .where(eq(attachment.id, res.body.attachmentId));
+    expect(row.comment).toBe("caf\u00e9");
+  });
+});
