@@ -22,7 +22,7 @@ Convention: when you land the fix, delete the bullet here AND the matching `TODO
 - **SMTP for password-reset email (REQ-019 completion).** Today the reset token is logged (redacted in prod per task #7); no mail is sent. Wire nodemailer/SES. `docs/specs/s1-auth.md` §7 tracks it.
 - **Distributed rate-limit storage.** Move better-auth's `rateLimit` from in-memory to Redis so it survives backend restarts and scales across replicas. `docs/specs/s1-auth.md` §7.
 - **CSRF double-submit token (REQ-146).** S3 layer — better-auth's same-site cookie + origin-check suffices for S1/S2. `docs/specs/s1-auth.md` §7.
-- **Password change UI + "revoke all other sessions on password change".** Endpoint exists in better-auth (`auth.api.changePassword`); S1 doesn't surface it. `docs/specs/s1-auth.md` §7.
+- ~~**Password change UI + "revoke all other sessions on password change".**~~ Shipped 2026-04-19 on `feat/s1-residual` as REQ-016: `/settings/password` page with current/new/confirm-new + "Sign out other sessions" checkbox (default on); posts to `/api/auth/change-password`; linked from Header. Covered by `apps/backend/tests/password-change.test.ts`.
 
 ## Out of hackathon scope (referenced so reviewers don't flag as missing)
 
@@ -38,10 +38,11 @@ Tracked deferrals from the v4 REQ-catalog retrofit. Each item has a pointer to w
 1. **REQ-003 — case-insensitive email uniqueness.** Current test `register.test.ts` exercises case-sensitive path. Add a case-variation test when better-auth 1.6.5+ lowercasing is wired.
 2. **REQ-005 — case-insensitive username uniqueness.** Same pattern as #1.
 3. **REQ-006 — password policy (12-char + top-10k blocklist).** Note: all test fixtures + seed use `"password1234"` which is on the blocklist; any implementation MUST rewrite fixtures in lockstep.
-4. **REQ-007 — passwordConfirm field.** Schema change in `packages/shared/src/dto.ts`; UI change in register form.
-5. **REQ-008 — argon2id.** ADR-0001 says not happening without unwinding better-auth adoption.
+4. ~~**REQ-007 — passwordConfirm field.**~~ Shipped 2026-04-19 on `feat/s1-residual`: optional `passwordConfirm` + `.superRefine` in `packages/shared/src/dto.ts`; second password input on `apps/web/src/app/register/page.tsx`. Optional (not required) so the ~88 existing backend-test sign-up call sites keep working without a mechanical sweep; mismatch rejection is the contractual behaviour and is covered by `apps/backend/tests/register-validation.test.ts` REQ-007 describe block.
+5. **REQ-008 — argon2id.** Written justification lives in [docs/adr/0009-no-argon2id.md](adr/0009-no-argon2id.md): better-auth 1.6.x hashes with scrypt via a non-pluggable `node:crypto` path; swapping to argon2id means unwinding ADR-0001 (stack pivot). Accepted deviation at the v3.docx §8 threat-model level. No test covers REQ-008; the ADR IS the artifact.
 6. **REQ-009 — /24 subnet rate limit.** Custom keyGenerator in `@fastify/rate-limit`; CIDR math; deferred (per-IP rule IS implemented, see `auth.ts` customRules).
 7. **REQ-012 — per-email lockout.** Current `rate-limit.test.ts` exercises IP-scoped 429 only; per-email counter + `auth_locked` error code are S3 work (see ADR-0006 row).
 8. **Auto-enroll is permanent, not a hotfix.** `auth.ts:117-143` + `register-auto-enroll.test.ts` stay indefinitely per s2-rooms.md R1 `[x]` (commit `ee0b136`). No deletion when S2 rooms (v4 REQ-025/REQ-026) land.
 9. **s1-chat REQ-049 seed.** Seed script is demo infra, not a v4 REQ. Trace doesn't need to claim it.
 10. **v4 REQ-022 "Room description".** Not implemented. `room.description` column exists in `packages/shared/src/schema.ts`, but there is no UI or API enforcement of description format/length/visibility. Deferred until a future spec claims it in §4.
+11. ~~**REQ-037 — offline-to-online message backfill.**~~ Closed 2026-04-19 on `feat/s1-residual` by the integration test `apps/backend/tests/req-037-backfill.test.ts`. The existing watermark protocol (ADR-0003) + history API satisfy the REQ without new production code: on reconnect a client compares `subscribe.ack.roomHeadSeq` against its last-seen seq and backfills via `GET /api/v1/rooms/:id/messages?fromSeq=<lastSeen+1>&toSeq=<head>`.
