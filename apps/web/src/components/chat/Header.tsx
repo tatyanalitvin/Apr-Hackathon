@@ -104,6 +104,9 @@ export function Header({
             <Link href="/settings/password">Password</Link>
           </Button>
           <Button asChild size="sm" variant="ghost">
+            <Link href="/settings/sessions">Sessions</Link>
+          </Button>
+          <Button asChild size="sm" variant="ghost">
             <Link href="/settings/account">Account</Link>
           </Button>
           <Button size="sm" variant="outline" onClick={handleSignOut}>
