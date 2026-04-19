@@ -35,6 +35,9 @@ export interface MessageListProps {
   currentUserId?: string;
   onEditMessage?: (messageId: string, body: string) => Promise<void>;
   onDeleteMessage?: (messageId: string) => Promise<void>;
+  // REQ-133 R13 — opens a reply target on the parent (RoomClient). When
+  // undefined, MessageRow drops the Reply button (legacy callers).
+  onReply?: (messageId: string, authorUsername: string) => void;
 }
 
 export function MessageList({
@@ -46,6 +49,7 @@ export function MessageList({
   currentUserId,
   onEditMessage,
   onDeleteMessage,
+  onReply,
 }: MessageListProps) {
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -112,6 +116,11 @@ export function MessageList({
             onCancelEdit={() => setEditingId(null)}
             onSaveEdit={(body) => handleEditSave(message.id, body)}
             onDelete={onDeleteMessage ? () => onDeleteMessage(message.id) : undefined}
+            onReply={
+              onReply
+                ? () => onReply(message.id, message.authorUsername)
+                : undefined
+            }
           />
         )}
         components={{
@@ -137,6 +146,7 @@ interface MessageRowProps {
   onCancelEdit: () => void;
   onSaveEdit: (body: string) => Promise<void> | void;
   onDelete?: () => Promise<void> | void;
+  onReply?: () => void;
 }
 
 function MessageRow({
@@ -147,12 +157,18 @@ function MessageRow({
   onCancelEdit,
   onSaveEdit,
   onDelete,
+  onReply,
 }: MessageRowProps) {
   const ts = new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const attachments = message.attachments ?? [];
   const isDeleted = Boolean(message.deletedAt);
   const isOwn = Boolean(currentUserId && message.authorId === currentUserId);
   const showActions = isOwn && !isDeleted && !isEditing && Boolean(onDelete);
+  // REQ-110 R14 — quoted-block above body when this message is a reply.
+  // Parent soft-delete flips `replyTo.deletedAt` (R11 reducer) to swap the
+  // text for `[deleted]` without mutating any other row's body.
+  const reply = message.replyTo;
+  const parentDeleted = Boolean(reply?.deletedAt);
 
   // REQ-113 tombstone — deleted messages render a greyed-out "[message deleted]"
   // placeholder with the author's name intact. No attachments, no actions.
@@ -189,10 +205,29 @@ function MessageRow({
         ) : null}
         {showActions ? (
           <div className="ml-auto">
-            <MessageActions onEdit={onStartEdit} onDelete={() => void onDelete?.()} />
+            <MessageActions
+              onEdit={onStartEdit}
+              onDelete={() => void onDelete?.()}
+              onReply={onReply}
+            />
           </div>
         ) : null}
       </div>
+      {reply ? (
+        <div
+          data-testid="reply-quoted-block"
+          className="mt-0.5 border-l-2 border-muted-foreground/30 pl-2 text-xs italic opacity-80"
+        >
+          {parentDeleted ? (
+            <span className="text-muted-foreground">[deleted]</span>
+          ) : (
+            <span className="line-clamp-1">
+              <span className="font-medium">{reply.authorUsername}</span>:{" "}
+              {reply.text}
+            </span>
+          )}
+        </div>
+      ) : null}
       {isEditing ? (
         <EditMessageForm
           initialBody={message.body}
