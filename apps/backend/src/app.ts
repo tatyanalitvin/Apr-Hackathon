@@ -16,6 +16,8 @@ import { friendshipRoutes } from "./routes/friendship";
 import { roomsRoutes } from "./routes/rooms";
 import { attachmentsRoutes } from "./routes/attachments";
 import { dmsRoutes } from "./routes/dms";
+import { adminRoutes } from "./routes/admin";
+import { recordHttpError } from "./lib/metrics";
 import { createSocketIO, type ChatIOServer } from "./socket";
 import { installSocketAuth } from "./socket-auth";
 import { registerSocketHandlers } from "./socket-handlers";
@@ -80,6 +82,15 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(roomsRoutes, { prefix: "/api/v1" });
   await app.register(attachmentsRoutes, { prefix: "/api/v1/attachments" });
   await app.register(dmsRoutes, { prefix: "/api/v1/dms" });
+  await app.register(adminRoutes, { prefix: "/api/v1/admin" });
+
+  // REQ-158 — feed the /admin dashboard's errorCount5min widget. onResponse
+  // fires for every handled request (including 401/403/404), so we filter
+  // to 5xx only. The counter is in-memory (see metrics.ts); this hook is
+  // the whole instrumentation — individual routes don't know about it.
+  app.addHook("onResponse", async (_request, reply) => {
+    if (reply.statusCode >= 500) recordHttpError(reply.statusCode);
+  });
 
   // Bridge better-auth's fetch-style handler into Fastify. See ADR-0004.
   // Owns every /api/auth/* path not already declared above.
