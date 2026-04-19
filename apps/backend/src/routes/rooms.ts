@@ -11,7 +11,7 @@ import type { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { createClient, type RedisClientType } from "redis";
-import { message, messageSeq, room, roomMember, user } from "@ai-herders/shared/schema";
+import { message, messageSeq, room, roomBan, roomMember, user } from "@ai-herders/shared/schema";
 import {
   createRoomSchema,
   roomCreateResponseSchema,
@@ -723,6 +723,114 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
       });
 
       return reply.status(200).send({ demoted: true, role: "member" });
+    },
+  );
+
+  // REQ-203 — DELETE /api/v1/rooms/:id/members/:userId. Kick-as-ban per
+  // v3.docx §2.4.8 ("removal is treated as a ban"). Transaction: INSERT
+  // room_ban (ON CONFLICT DO NOTHING) → DELETE room_member → emit
+  // `room.member.kicked` → force every one of the target user's sockets out
+  // of the room channel (REQ-208). `user:${userId}` is auto-joined in
+  // socket-auth.ts:44. We use `.local.socketsLeave()`: the Redis adapter's
+  // non-local path is fire-and-forget pub/sub (see redis-adapter delSockets
+  // at index.js:599) so `await` doesn't actually wait; `.local` falls
+  // through to the in-memory adapter's synchronous `socket.leave()` loop.
+  // Correct for our single-backend deployment (and any sticky-session
+  // cluster, since a user's sockets land on one server). Re-subscription by
+  // those sockets is blocked by the membership gate at
+  // socket-handlers.ts:101-110 (no room_member row → ack({ok:false})).
+  app.delete<{ Params: { id: string; userId: string } }>(
+    "/rooms/:id/members/:userId",
+    async (request, reply) => {
+      const ctx = await requireFriendshipAuth(request, reply);
+      if (!ctx) return;
+
+      const { id: roomId, userId: targetUserId } = request.params;
+
+      const [target] = await db
+        .select({ id: room.id, ownerId: room.ownerId })
+        .from(room)
+        .where(eq(room.id, roomId))
+        .limit(1);
+      if (!target) {
+        return reply.status(404).send({ error: "room_not_found" });
+      }
+
+      const [callerMembership] = await db
+        .select({ role: roomMember.role })
+        .from(roomMember)
+        .where(
+          and(eq(roomMember.roomId, roomId), eq(roomMember.userId, ctx.userId)),
+        )
+        .limit(1);
+      if (
+        !callerMembership ||
+        (callerMembership.role !== "owner" && callerMembership.role !== "admin")
+      ) {
+        return reply.status(403).send({ error: "not_admin" });
+      }
+
+      const [targetMembership] = await db
+        .select({ role: roomMember.role })
+        .from(roomMember)
+        .where(
+          and(eq(roomMember.roomId, roomId), eq(roomMember.userId, targetUserId)),
+        )
+        .limit(1);
+      if (!targetMembership) {
+        return reply.status(404).send({ error: "user_not_member" });
+      }
+      if (targetMembership.role === "owner") {
+        return reply.status(409).send({ error: "cannot_kick_owner" });
+      }
+      if (
+        targetMembership.role === "admin" &&
+        callerMembership.role !== "owner"
+      ) {
+        // Admins can't kick other admins — prevents admin-vs-admin wars.
+        return reply.status(403).send({ error: "admin_cannot_kick_admin" });
+      }
+
+      await db.transaction(async (tx) => {
+        await tx
+          .insert(roomBan)
+          .values({
+            id: randomUUID(),
+            roomId,
+            userId: targetUserId,
+            bannedById: ctx.userId,
+            reason: null,
+          })
+          .onConflictDoNothing({
+            target: [roomBan.roomId, roomBan.userId],
+          });
+        await tx
+          .delete(roomMember)
+          .where(
+            and(
+              eq(roomMember.roomId, roomId),
+              eq(roomMember.userId, targetUserId),
+            ),
+          );
+      });
+
+      const kickedAt = new Date().toISOString();
+      request.server.io.to(roomId).emit("room.member.kicked", {
+        type: "room.member.kicked",
+        roomId,
+        userId: targetUserId,
+        kickedBy: ctx.userId,
+        kickedAt,
+      });
+
+      // REQ-208 — force every one of the target user's sockets to leave the
+      // room channel. `.local` routes through the in-memory adapter, whose
+      // `delSockets` is synchronous (calls `socket.leave(room)` in a loop)
+      // — so after this line returns, no subsequent fanout to `roomId` can
+      // reach the kicked user. Matters for the 500-ms dual-socket invariant.
+      request.server.io.in(`user:${targetUserId}`).local.socketsLeave(roomId);
+
+      return reply.status(200).send({ kicked: true, banned: true });
     },
   );
 }

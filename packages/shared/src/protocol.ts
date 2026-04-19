@@ -159,9 +159,18 @@ export interface RoomRoleChangedEvent {
   changedAt: string;       // ISO timestamp
 }
 
-// TODO(agent-A): fill payload — REQ-??? (member kicked from room).
+// REQ-203 / REQ-207 — emitted when an admin or owner kicks a member. Kick
+// is also a ban per v3.docx §2.4.8, so handlers emit `room.member.kicked`
+// (stronger "you must leave" signal) and NOT a parallel `room.member.banned`.
+// Fanout: `server.to(roomId).emit(...)`. The target's sockets are force-left
+// from the room channel in the same handler (REQ-208) so this event is the
+// final broadcast they see with `roomId` context.
 export interface RoomMemberKickedEvent {
   type: "room.member.kicked";
+  roomId: string;
+  userId: string;
+  kickedBy: string;          // userId of the owner/admin issuing the kick
+  kickedAt: string;          // ISO timestamp
 }
 
 // TODO(agent-A): fill payload — REQ-??? (member banned from room).
