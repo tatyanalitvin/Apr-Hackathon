@@ -83,6 +83,23 @@ export interface FriendRequestAcceptedEvent {
   acceptedAt: string;     // ISO timestamp
 }
 
+// S2 rooms Q1 — emitted after a successful self-join (REQ-026) so existing
+// subscribers of a public group room see the new member arrive in real time.
+// Fanout target: `server.to(roomId).emit(...)`, so only sockets already
+// subscribed to that room receive it. Emitted ONLY on a new-membership insert;
+// the idempotent-repeat path (already a member) is silent, otherwise re-join
+// clicks would cause ghost-join toasts. At-most-once best-effort — no
+// watermark, no replay; missed emits reconcile on the next `/rooms/me` fetch.
+// ADR-0003's ordering contract is scoped to room MESSAGE events, not
+// membership, so `seq`/`roomHeadSeq` deliberately don't appear here.
+export interface RoomMemberJoinedEvent {
+  type: "room.member.joined";
+  roomId: string;
+  userId: string;
+  username: string;
+  joinedAt: string;       // ISO timestamp
+}
+
 // ──────────────────────────────────────────────────────────────────────────
 // Socket.IO event maps — feed to `new Server<ClientToServerEvents, ServerToClientEvents>`
 // ──────────────────────────────────────────────────────────────────────────
@@ -94,6 +111,7 @@ export interface ServerToClientEvents {
   "presence.state": (evt: PresenceStateEvent) => void;
   "typing": (evt: TypingEvent) => void;
   "friend.request.accepted": (evt: FriendRequestAcceptedEvent) => void;
+  "room.member.joined": (evt: RoomMemberJoinedEvent) => void;
 }
 
 export interface ClientToServerEvents {
