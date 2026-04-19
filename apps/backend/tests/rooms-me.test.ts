@@ -1,9 +1,9 @@
 // R4 — GET /api/v1/rooms/me.
 // Non-v4 per ADR-0006 (see docs/specs/s2-rooms.md §7): no v4 REQ covers a
-// "rooms-I-belong-to" endpoint; closest is REQ-020 (room data model). This
-// exists because RoomList.tsx needs a per-user rooms list (DMs + group rooms
-// incl. general) and filtering a catalog by membership client-side doesn't
-// scale.
+// "rooms-I-belong-to" endpoint; closest is the v4 room data-model REQ (see
+// ADR-0006 §7 deviations). This exists because RoomList.tsx needs a per-user
+// rooms list (DMs + group rooms incl. general) and filtering a catalog by
+// membership client-side doesn't scale.
 //
 // Returns { rooms: [{ id, name, kind, visibility, lastReadSeq, roomHeadSeq }] }
 // for every room where the caller has a room_member row. Includes DMs AND
