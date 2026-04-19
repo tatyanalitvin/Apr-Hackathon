@@ -1,112 +1,232 @@
-// Task #11 (v3.docx §2.1.5) — POST /api/auth/delete-user.
+// S2 account-deletion + GDPR. Binding brief:
+// `.human/S2_ACCOUNT_GDPR_AGENT_BRIEF.md` + v3.docx §2.2 "Account Removal".
 //
-// (Commit 38679e1 title says "task #7" — that landed before the numbering
-// collision was resolved. Current §6 + §10 + code comments treat account
-// deletion as task #11 throughout.)
+// Supersedes the S1 task #11 hard-delete path (`POST /api/auth/delete-user`).
+// Soft-delete rationale (v3 §2.2): "messages remain visible after account
+// removal; username is replaced with a placeholder" — that's incompatible with
+// a row-level purge (message.authorId FK would break). New contract:
+//   - `DELETE /api/v1/users/me` with `{ password }` body.
+//   - user row kept; `deletedAt` stamped.
+//   - sessions revoked; friendship / friend_request / user_block / room_member
+//     rows hard-deleted (relationship-layer cascade — Q6a in s2-dms.md).
+//   - messages preserved with authorId intact; serialization swaps the username
+//     for "[deleted user]" via `lib/users.ts#formatUserDisplay` (REQ-018).
+//   - a later login attempt with the same credentials fails (REQ-019).
 //
-// Method is POST, not DELETE. Verified by source-read of
-// node_modules/better-auth/dist/api/routes/update-user.mjs:215
-// (`createAuthEndpoint("/delete-user", { method: "POST", ... })`). Context7
-// docs show DELETE; they are wrong for 1.6.5. See §10 "task #11 — method"
-// entry for why this wasn't just "trust the docs".
-//
-// better-auth 1.6.5 ships a native delete-user endpoint; we only flip
-// `user.deleteUser.enabled = true` in auth.ts. The endpoint is reached
-// through our existing /api/auth/* catch-all proxy (ADR-0004), so there is
-// no app-owned route for this feature — but the behavioural contract is
-// ours to own via tests.
-//
-// Coverage (matches R18 in docs/specs/s1-auth.md):
-//   - unauthenticated → 401 (or similar 4xx; the proxy rejects missing creds)
-//   - wrong password → 4xx (better-auth's password-reconfirm guard fires)
-//   - happy path → 200; cookie no longer auths against /api/v1/sessions;
-//     DB `user` row is gone, `session` rows FK-cascade away.
-//
-// Why password reconfirm: irreversible op, standard practice, not forbidden
-// by v3.docx. better-auth supports `{ password }` in the delete body (see
-// §10 "before task #11" entry for why we chose this over a token-verify
-// flow).
-//
-// Explicitly deferred to S2 (TODO(S2-rooms)): the v3 §2.1.5 room-level
-// cascade ("owner's rooms + messages + files deleted"). Rooms don't exist
-// in S1, so there is nothing to assert beyond the auth-surface cascade.
+// REQ-125 still claimed in s1-auth.md §4 R18; this file covers it via the
+// soft-delete contract (the REQ's behavioural intent — "cookie stops auth'ing,
+// auth-surface rows gone" — is preserved). We DO NOT call the old
+// `/api/auth/delete-user` endpoint: `deleteUser.enabled` flips to false in
+// auth.ts as part of this S2 work so there's only one deletion path.
 
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import request from "supertest";
+import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
-import { eq } from "drizzle-orm";
-import { session, user } from "@ai-herders/shared/schema";
+import { eq, or } from "drizzle-orm";
+import {
+  friendRequest,
+  friendship,
+  room,
+  roomMember,
+  session,
+  user,
+  userBlock,
+} from "@ai-herders/shared/schema";
 
 import { buildApp } from "../src/app";
 import { getTestDb } from "./db-helpers";
 
-const seed = {
-  email: "delete-anna@example.com",
-  username: "delete_anna",
-  password: "password1234",
-  name: "Delete Anna",
-};
+interface SignedUpAgent {
+  agent: request.Agent;
+  userId: string;
+}
 
-describe("REQ-125 POST /api/auth/delete-user (task #11)", () => {
+async function userIdByEmail(email: string): Promise<string> {
+  const [row] = await getTestDb()
+    .select({ id: user.id })
+    .from(user)
+    .where(eq(user.email, email))
+    .limit(1);
+  if (!row) throw new Error(`user not found: ${email}`);
+  return row.id;
+}
+
+async function registerAgent(
+  app: FastifyInstance,
+  email: string,
+  username: string,
+  password = "password1234",
+): Promise<SignedUpAgent> {
+  const agent = request.agent(app.server);
+  await agent
+    .post("/api/auth/sign-up/email")
+    .send({ email, username, password, name: username })
+    .expect(200);
+  return { agent, userId: await userIdByEmail(email) };
+}
+
+async function insertFriendship(a: string, b: string): Promise<string> {
+  const [userAId, userBId] = a < b ? [a, b] : [b, a];
+  const id = randomUUID();
+  await getTestDb().insert(friendship).values({ id, userAId, userBId });
+  return id;
+}
+
+async function insertRoom(): Promise<string> {
+  const id = randomUUID();
+  await getTestDb().insert(room).values({
+    id,
+    name: `cascade-${id.slice(0, 8)}`,
+    kind: "group",
+    visibility: "public",
+  });
+  return id;
+}
+
+async function insertRoomMember(userId: string, roomId: string): Promise<void> {
+  await getTestDb()
+    .insert(roomMember)
+    .values({ id: randomUUID(), userId, roomId })
+    .onConflictDoNothing({ target: [roomMember.userId, roomMember.roomId] });
+}
+
+describe("REQ-018 DELETE /api/v1/users/me cascade (task S2-account)", () => {
   let app: FastifyInstance;
+
   beforeAll(async () => {
     app = await buildApp();
     await app.ready();
   });
+
   afterAll(async () => {
     await app.close();
   });
 
-  test("REQ-125 unauthenticated delete → 4xx, no rows touched", async () => {
+  test("REQ-018 unauthenticated → 401, no rows touched", async () => {
     const res = await request(app.server)
-      .post("/api/auth/delete-user")
-      .send({ password: seed.password });
-    expect(res.status).toBeGreaterThanOrEqual(400);
-    expect(res.status).toBeLessThan(500);
+      .delete("/api/v1/users/me")
+      .send({ password: "anything" });
+    expect(res.status).toBe(401);
   });
 
-  test("REQ-125 wrong password → 4xx, user row still present", async () => {
-    const agent = request.agent(app.server);
-    await agent.post("/api/auth/sign-up/email").send(seed).expect(200);
+  test("REQ-018 wrong password → 401, user row unchanged", async () => {
+    const anna = await registerAgent(app, "s2del-wrong@example.com", "s2del_wrong");
 
-    const res = await agent
-      .post("/api/auth/delete-user")
-      .send({ password: "not-the-password" });
-    expect(res.status).toBeGreaterThanOrEqual(400);
-    expect(res.status).toBeLessThan(500);
+    const res = await anna.agent
+      .delete("/api/v1/users/me")
+      .send({ password: "not-my-password" });
+    expect(res.status).toBe(401);
+
+    const [row] = await getTestDb()
+      .select({ id: user.id, deletedAt: user.deletedAt })
+      .from(user)
+      .where(eq(user.id, anna.userId));
+    expect(row.deletedAt).toBeNull();
+  });
+
+  test("REQ-018 happy path — user soft-deleted, relationship rows cascade, messages preserved, sessions gone (REQ-125)", async () => {
+    const anna = await registerAgent(app, "s2del-anna@example.com", "s2del_anna");
+    const bob = await registerAgent(app, "s2del-bob@example.com", "s2del_bob");
+    const carol = await registerAgent(app, "s2del-carol@example.com", "s2del_carol");
+
+    // Relationship fixtures: friendship with bob, blocked carol, a pending
+    // outgoing friend_request to carol, and membership in an extra group room.
+    await insertFriendship(anna.userId, bob.userId);
 
     const db = getTestDb();
-    const rows = await db.select().from(user).where(eq(user.email, seed.email));
-    expect(rows).toHaveLength(1);
-  });
+    await db.insert(friendRequest).values({
+      id: randomUUID(),
+      fromId: anna.userId,
+      toId: carol.userId,
+      status: "pending",
+    });
+    await db.insert(userBlock).values({
+      id: randomUUID(),
+      byId: anna.userId,
+      targetId: carol.userId,
+    });
 
-  test("REQ-125 happy path → user + session rows gone, cookie stops auth'ing", async () => {
-    const agent = request.agent(app.server);
-    await agent.post("/api/auth/sign-up/email").send(seed).expect(200);
+    const roomId = await insertRoom();
+    await insertRoomMember(anna.userId, roomId);
 
-    // Sanity: logged in, session exists.
-    const pre = await agent.get("/api/v1/sessions").expect(200);
-    expect(pre.body).toHaveLength(1);
-    const userId = (
-      await getTestDb().select().from(user).where(eq(user.email, seed.email))
-    )[0].id;
+    // Sanity-check the cookie still auths before deletion.
+    const pre = await anna.agent.get("/api/v1/sessions").expect(200);
+    expect(pre.body.length).toBeGreaterThanOrEqual(1);
 
-    const del = await agent
-      .post("/api/auth/delete-user")
-      .send({ password: seed.password });
-    expect(del.status).toBe(200);
+    // Fire the delete.
+    const del = await anna.agent
+      .delete("/api/v1/users/me")
+      .send({ password: "password1234" });
+    expect(del.status).toBe(204);
 
-    // Cookie is now stale — DB cascade removed the session row.
-    const after = await agent.get("/api/v1/sessions");
+    // Cookie no longer auths — session row FK-cascaded away.
+    const after = await anna.agent.get("/api/v1/sessions");
     expect(after.status).toBe(401);
 
-    const db = getTestDb();
-    const userRows = await db.select().from(user).where(eq(user.id, userId));
-    expect(userRows).toHaveLength(0);
+    // User row kept (messages FK remains intact) but soft-deleted.
+    const [userRow] = await db
+      .select({ id: user.id, deletedAt: user.deletedAt })
+      .from(user)
+      .where(eq(user.id, anna.userId));
+    expect(userRow).toBeDefined();
+    expect(userRow.deletedAt).not.toBeNull();
+
     const sessionRows = await db
-      .select()
+      .select({ id: session.id })
       .from(session)
-      .where(eq(session.userId, userId));
+      .where(eq(session.userId, anna.userId));
     expect(sessionRows).toHaveLength(0);
+
+    const friendshipRows = await db
+      .select({ id: friendship.id })
+      .from(friendship)
+      .where(
+        or(
+          eq(friendship.userAId, anna.userId),
+          eq(friendship.userBId, anna.userId),
+        ),
+      );
+    expect(friendshipRows).toHaveLength(0);
+
+    const frRows = await db
+      .select({ id: friendRequest.id })
+      .from(friendRequest)
+      .where(
+        or(
+          eq(friendRequest.fromId, anna.userId),
+          eq(friendRequest.toId, anna.userId),
+        ),
+      );
+    expect(frRows).toHaveLength(0);
+
+    const blockRows = await db
+      .select({ id: userBlock.id })
+      .from(userBlock)
+      .where(
+        or(
+          eq(userBlock.byId, anna.userId),
+          eq(userBlock.targetId, anna.userId),
+        ),
+      );
+    expect(blockRows).toHaveLength(0);
+
+    const memberRows = await db
+      .select({ id: roomMember.id })
+      .from(roomMember)
+      .where(eq(roomMember.userId, anna.userId));
+    expect(memberRows).toHaveLength(0);
+
+    // Counterparties' own user rows are untouched beyond the torn edges.
+    const [bobRow] = await db
+      .select({ id: user.id, deletedAt: user.deletedAt })
+      .from(user)
+      .where(eq(user.id, bob.userId));
+    expect(bobRow.deletedAt).toBeNull();
+    const [carolRow] = await db
+      .select({ id: user.id, deletedAt: user.deletedAt })
+      .from(user)
+      .where(eq(user.id, carol.userId));
+    expect(carolRow.deletedAt).toBeNull();
   });
 });
