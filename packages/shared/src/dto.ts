@@ -119,6 +119,8 @@ export type CreateDmInput = z.infer<typeof createDmSchema>;
 
 // REQ-021: 3–64 chars, alphanumerics + space/underscore/hyphen, trimmed, NFC.
 // REQ-022: description optional, <=500 chars, NFC, control-characters stripped.
+// REQ-088: visibility defaults to 'public'; 'private' excludes the room from
+// the public catalog (see docs/specs/s2-invitations.md R2).
 export const createRoomSchema = z.object({
   name: z
     .string()
@@ -136,21 +138,46 @@ export const createRoomSchema = z.object({
         ?.normalize("NFC")
         .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, ""),
     ),
+  visibility: z.enum(["public", "private"]).default("public"),
 });
 export type CreateRoomInput = z.infer<typeof createRoomSchema>;
 
 // REQ-015 — enumerated response keys. `kind` intentionally omitted (this
 // endpoint only creates kind='group'; future DM/private endpoints have their
 // own response schemas). See docs/specs/s1-rooms.md §4 R15 rationale.
+// REQ-088 — visibility widened to the enum to reflect post-spec-approval
+// private-room support (docs/specs/s2-invitations.md R2).
 export const roomCreateResponseSchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string().nullable(),
-  visibility: z.literal("public"),
+  visibility: z.enum(["public", "private"]),
   ownerId: z.string(),
   createdAt: z.string().datetime(),
 });
 export type RoomCreateResponse = z.infer<typeof roomCreateResponseSchema>;
+
+// REQ-089 — invitation request DTOs (docs/specs/s2-invitations.md §5).
+export const createInvitationSchema = z.object({
+  inviteeUsername: z.string().trim().min(1).max(64),
+});
+export type CreateInvitationInput = z.infer<typeof createInvitationSchema>;
+
+// REQ-089 — inbox item shape for GET /api/v1/invitations.
+export const invitationInboxItemSchema = z.object({
+  id: z.string(),
+  roomId: z.string(),
+  roomName: z.string(),
+  inviterUsername: z.string(),
+  createdAt: z.string().datetime(),
+  expiresAt: z.string().datetime(),
+});
+export type InvitationInboxItem = z.infer<typeof invitationInboxItemSchema>;
+
+export const invitationInboxResponseSchema = z.object({
+  invitations: z.array(invitationInboxItemSchema),
+});
+export type InvitationInboxResponse = z.infer<typeof invitationInboxResponseSchema>;
 
 // ──────────────────────────────────────────────────────────────────────────
 // room-mgmt (S2) — REQ-087 rename, REQ-089 delete.

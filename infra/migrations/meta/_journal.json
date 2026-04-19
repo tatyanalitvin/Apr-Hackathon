@@ -50,6 +50,13 @@
       "when": 1776614468291,
       "tag": "0006_s2_unread_muted_until",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1777000000000,
+      "tag": "0008_invitations",
+      "breakpoints": true
     }
   ]
 }

@@ -34,7 +34,8 @@ export const friendRequestStatus = pgEnum("friend_request_status", [
 export const roomInviteStatus = pgEnum("room_invite_status", [
   "pending",
   "accepted",
-  "rejected",
+  "declined",
+  "expired",
 ]);
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -203,7 +204,10 @@ export const roomBan = pgTable(
   }),
 );
 
-// §2.4.9 invites to private rooms
+// §2.4.9 invites to private rooms — REQ-089 / REQ-089a.
+// Partial UNIQUE on status='pending' means (roomId,inviteeId) can host
+// multiple historical rows (declined, accepted, expired) but at most one
+// live pending invite. expires_at defaults to now()+14d per REQ-089a.
 export const roomInvite = pgTable(
   "room_invite",
   {
@@ -219,9 +223,16 @@ export const roomInvite = pgTable(
       .references(() => user.id, { onDelete: "cascade" }),
     status: roomInviteStatus("status").notNull().default("pending"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    respondedAt: timestamp("responded_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true })
+      .notNull()
+      .default(sql`(now() + interval '14 days')`),
   },
   (t) => ({
-    roomInviteeUq: uniqueIndex("room_invite_room_invitee_uq").on(t.roomId, t.inviteeId),
+    roomInviteePendingUq: uniqueIndex("room_invite_room_invitee_pending_uq")
+      .on(t.roomId, t.inviteeId)
+      .where(sql`${t.status} = 'pending'`),
+    inviteeStatusIdx: index("room_invite_invitee_status_idx").on(t.inviteeId, t.status),
   }),
 );
 
