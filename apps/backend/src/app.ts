@@ -12,6 +12,7 @@ import { toFetchHeaders } from "./lib/fetch-headers";
 import { sessionsRoutes } from "./routes/sessions";
 import { messagesRoutes } from "./routes/messages";
 import { friendshipRoutes } from "./routes/friendship";
+import { roomsRoutes } from "./routes/rooms";
 import { createSocketIO, type ChatIOServer } from "./socket";
 import { installSocketAuth } from "./socket-auth";
 import { registerSocketHandlers } from "./socket-handlers";
@@ -58,6 +59,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(sessionsRoutes, { prefix: "/api/v1/sessions" });
   await app.register(messagesRoutes, { prefix: "/api/v1/rooms" });
   await app.register(friendshipRoutes, { prefix: "/api/v1" });
+  await app.register(roomsRoutes, { prefix: "/api/v1" });
 
   // Bridge better-auth's fetch-style handler into Fastify. See ADR-0004.
   // Owns every /api/auth/* path not already declared above.
