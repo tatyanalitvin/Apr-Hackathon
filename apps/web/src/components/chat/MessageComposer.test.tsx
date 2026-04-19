@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, act } from "@testing-library/react";
+import { fireEvent, render, screen, act, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MessageComposer } from "./MessageComposer";
 
@@ -108,5 +108,78 @@ describe("MessageComposer (REQ-046, R5)", () => {
     await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
     expect(onSend).toHaveBeenCalledTimes(2);
     expect(ta).toHaveValue("");
+  });
+});
+
+describe("MessageComposer attachments (S2)", () => {
+  it("uploads a dropped image then sends it as attachmentIds", async () => {
+    const onUpload = vi.fn(async () => ({ attachmentId: "att-1" }));
+    const onSend = vi.fn().mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    const { container } = render(
+      <MessageComposer userId="u1" roomId="general" onSend={onSend} onUpload={onUpload} />,
+    );
+
+    const file = new File([new Uint8Array([1, 2, 3])], "pic.png", { type: "image/png" });
+    const dropZone = container.querySelector(".border-t") as HTMLElement;
+    await act(async () => {
+      fireEvent.drop(dropZone, { dataTransfer: { files: [file], types: ["Files"] } });
+    });
+    await waitFor(() => expect(onUpload).toHaveBeenCalledWith(file));
+
+    await user.type(screen.getByLabelText("Message"), "look!");
+    const send = screen.getByRole("button", { name: /send/i });
+    await waitFor(() => expect(send).not.toBeDisabled());
+    await user.click(send);
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith("look!", ["att-1"]));
+  });
+
+  it("rejects a >20MB file before upload", async () => {
+    const onUpload = vi.fn();
+    const onSend = vi.fn();
+    const { container } = render(
+      <MessageComposer userId="u1" roomId="general" onSend={onSend} onUpload={onUpload} />,
+    );
+    const huge = new File([new Uint8Array(1)], "big.bin", { type: "application/octet-stream" });
+    Object.defineProperty(huge, "size", { value: 25 * 1024 * 1024 });
+
+    const dropZone = container.querySelector(".border-t") as HTMLElement;
+    await act(async () => {
+      fireEvent.drop(dropZone, { dataTransfer: { files: [huge], types: ["Files"] } });
+    });
+
+    expect(onUpload).not.toHaveBeenCalled();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/too large/i);
+  });
+
+  it("rejects a >3MB image before upload", async () => {
+    const onUpload = vi.fn();
+    const onSend = vi.fn();
+    const { container } = render(
+      <MessageComposer userId="u1" roomId="general" onSend={onSend} onUpload={onUpload} />,
+    );
+    const bigImage = new File([new Uint8Array(1)], "big.png", { type: "image/png" });
+    Object.defineProperty(bigImage, "size", { value: 4 * 1024 * 1024 });
+
+    const dropZone = container.querySelector(".border-t") as HTMLElement;
+    await act(async () => {
+      fireEvent.drop(dropZone, { dataTransfer: { files: [bigImage], types: ["Files"] } });
+    });
+
+    expect(onUpload).not.toHaveBeenCalled();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/too large/i);
+  });
+
+  it("uploads a pasted file", async () => {
+    const onUpload = vi.fn(async () => ({ attachmentId: "att-paste" }));
+    const onSend = vi.fn().mockResolvedValue(undefined);
+    render(<MessageComposer userId="u1" roomId="general" onSend={onSend} onUpload={onUpload} />);
+
+    const file = new File([new Uint8Array([1])], "clip.png", { type: "image/png" });
+    const ta = screen.getByLabelText("Message");
+    await act(async () => {
+      fireEvent.paste(ta, { clipboardData: { files: [file], types: ["Files"] } });
+    });
+    await waitFor(() => expect(onUpload).toHaveBeenCalledWith(file));
   });
 });

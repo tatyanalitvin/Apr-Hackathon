@@ -120,8 +120,15 @@ function RoomContent({ roomId }: { roomId: string }) {
   }, [messages, roomId]);
 
   const handleSend = useCallback(
-    async (body: string) => {
-      await apiRef.current.sendMessage(roomId, { body });
+    async (body: string, attachmentIds?: string[]) => {
+      await apiRef.current.sendMessage(roomId, { body, attachmentIds });
+    },
+    [roomId],
+  );
+
+  const handleUpload = useCallback(
+    async (file: File) => {
+      return apiRef.current.uploadAttachment({ roomId, file });
     },
     [roomId],
   );
@@ -140,7 +147,7 @@ function RoomContent({ roomId }: { roomId: string }) {
           onLoadOlder={loadOlder}
           firstItemIndex={firstItemIndex}
         />
-        <MessageComposer userId={userId} roomId={roomId} onSend={handleSend} />
+        <MessageComposer userId={userId} roomId={roomId} onSend={handleSend} onUpload={handleUpload} />
       </main>
       <aside className="hidden lg:block border-l min-h-0">
         <MemberList members={SEEDED_MEMBERS} />
