@@ -50,7 +50,15 @@ export interface MessageComposerProps {
     attachmentIds?: string[],
     replyToId?: string,
   ) => Promise<void> | void;
-  onUpload?: (file: File) => Promise<{ attachmentId: string }>;
+  // REQ-E-UI-COMPOSER-COMMENT — `options.comment` carries the batch-scoped
+  // caption to the backend multipart field. Result keeps its S1 shape
+  // (`attachmentId` only) so existing mocks stay compatible; the post-NFC
+  // echo (REQ-E-UPLOAD-RESP) is observed by RoomClient on the wider
+  // `UploadAttachmentResult` it forwards from chat-api.
+  onUpload?: (
+    file: File,
+    options?: { comment?: string },
+  ) => Promise<{ attachmentId: string }>;
   disabled?: boolean;
   // REQ-133 R12 — reply chip. When the parent (RoomClient) records an active
   // reply target, pass it here to render the chip above the textarea and
@@ -71,6 +79,9 @@ export function MessageComposer({
   const [value, setValue] = useState("");
   const [sending, setSending] = useState(false);
   const [pending, setPending] = useState<PendingAttachment[]>([]);
+  // REQ-E-UI-COMPOSER-COMMENT — one caption per upload batch (matches
+  // §2.6.3 phrasing and the composer's pending.map layout).
+  const [comment, setComment] = useState("");
   const [dragging, setDragging] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -85,6 +96,7 @@ export function MessageComposer({
   useEffect(() => {
     setPending([]);
     setUploadError(null);
+    setComment("");
   }, [roomId]);
 
   // Debounced draft persistence.
@@ -129,10 +141,17 @@ export function MessageComposer({
       }
       if (newPending.length === 0) return;
       setPending((prev) => [...prev, ...newPending]);
+      // Snapshot the caption at dispatch time so a mid-flight edit doesn't
+      // desync what the user saw vs. what the server stored. Omitted entirely
+      // when empty — keeps the single-arg call the legacy mock tests assert on.
+      // The backend treats "no comment" and empty-string as NULL (REQ-082).
+      const captionAtDispatch = comment.length > 0 ? comment : undefined;
       await Promise.all(
         newPending.map(async (p) => {
           try {
-            const { attachmentId } = await onUpload(p.file);
+            const { attachmentId } = captionAtDispatch === undefined
+              ? await onUpload(p.file)
+              : await onUpload(p.file, { comment: captionAtDispatch });
             setPending((prev) =>
               prev.map((x) =>
                 x.localId === p.localId
@@ -152,7 +171,7 @@ export function MessageComposer({
         }),
       );
     },
-    [onUpload],
+    [onUpload, comment],
   );
 
   const send = useCallback(async () => {
@@ -184,6 +203,7 @@ export function MessageComposer({
       }
       setValue("");
       setPending([]);
+      setComment("");
       setUploadError(null);
       clearDraft(userId, roomId);
       // Clear the reply target after a successful send. Parent owns state,
@@ -289,6 +309,23 @@ export function MessageComposer({
             </div>
           ))}
         </div>
+      ) : null}
+
+      {/* REQ-E-UI-COMPOSER-COMMENT — batch-scoped caption input.
+          maxLength mirrors backend REQ-082 (500). Only rendered while at least
+          one attachment is pending so it never clutters a text-only compose. */}
+      {pending.length > 0 ? (
+        <input
+          type="text"
+          aria-label="Attachment comment"
+          data-testid="attachment-comment-input"
+          placeholder="Add a comment (optional)"
+          value={comment}
+          maxLength={500}
+          disabled={disabled || sending}
+          onChange={(e) => setComment(e.target.value)}
+          className="w-full rounded-md border bg-background px-3 py-1.5 text-xs outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring"
+        />
       ) : null}
 
       {uploadError ? (
