@@ -18,6 +18,7 @@
 // two sockets) is a known S1 limitation — tests must use distinct users.
 
 import type { Socket } from "socket.io";
+import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import { messageSeq, roomMember } from "@ai-herders/shared/schema";
 import type {
@@ -28,7 +29,18 @@ import type {
 
 import { db } from "./db";
 import { recordUserConnect, recordUserDisconnect } from "./lib/metrics";
+import {
+  onSocketConnect as presenceOnSocketConnect,
+  onSocketDisconnect as presenceOnSocketDisconnect,
+  setUserState as presenceSetUserState,
+} from "./lib/presence";
 import type { ChatIOServer } from "./socket";
+
+// Validates the `presence.setState` inbound payload. Brief §1a: clients may
+// only assert online/away — offline is derived strictly from socket refcount.
+const presenceSetStateSchema = z.object({
+  state: z.enum(["online", "away"]),
+});
 
 type ChatSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 
@@ -51,9 +63,30 @@ export function registerSocketHandlers(io: ChatIOServer, socket: ChatSocket): vo
     // presence fanout and admin-count semantics stays readable.
     recordUserConnect(userId);
     io.emit("presence.state", presenceEvent(userId, "online"));
+    // ─── presence (S2-presence REQ-099..105) ─────────────────────────
+    // Parallel to the S1 global `presence.state` emit above. The tracker
+    // fans out room-scoped `presence.changed` with the richer away-aware
+    // model; the S1 event remains for backwards-compat consumers until
+    // it's retired.
+    presenceOnSocketConnect(userId);
+    // ────────────────────────────────────────────────────────────────
     socket.on("disconnect", () => {
       recordUserDisconnect(userId);
       io.emit("presence.state", presenceEvent(userId, "offline"));
+      // ─── presence (S2-presence REQ-099..105) ───────────────────────
+      presenceOnSocketDisconnect(userId);
+      // ──────────────────────────────────────────────────────────────
+    });
+
+    socket.on("presence.setState", (payload) => {
+      // Validate against the zod shape, then route through the tracker.
+      // Malformed payloads are silently ignored — Socket.IO doesn't carry
+      // an ack channel for this event (see protocol.ts), so there's no
+      // place to surface an error. Misbehaving clients log a soft warning
+      // via the existing pino logger (added in S3 hardening path).
+      const parsed = presenceSetStateSchema.safeParse(payload);
+      if (!parsed.success) return;
+      presenceSetUserState(userId, parsed.data.state);
     });
   }
 

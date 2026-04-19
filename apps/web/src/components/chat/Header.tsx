@@ -7,11 +7,22 @@ import { Users } from "lucide-react";
 import { signOut, useSession } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
 import { PendingBadge } from "@/components/contacts/PendingBadge";
+import { PresencePill } from "@/components/chat/PresencePill";
+import type { UserPresenceState } from "@ai-herders/shared/protocol";
 import { listIncomingRequests } from "@/lib/friendship-api";
 
 const INCOMING_POLL_MS = 30_000;
 
-export function Header({ className }: { className?: string }) {
+export function Header({
+  className,
+  selfPresence,
+}: {
+  className?: string;
+  // REQ-105 — optional override for the self-pill so the room view can drive
+  // it from the local idle detector (instant feedback) rather than waiting
+  // for the server round-trip of `presence.changed`.
+  selfPresence?: UserPresenceState;
+}) {
   const { data } = useSession();
   const router = useRouter();
   const pathname = usePathname();
@@ -77,6 +88,13 @@ export function Header({ className }: { className?: string }) {
             className="flex items-baseline gap-1.5 leading-tight"
             title={username ? `@${username}` : undefined}
           >
+            {data.user?.id ? (
+              <PresencePill
+                userId={data.user.id}
+                state={selfPresence}
+                className="self-center"
+              />
+            ) : null}
             {displayName && <span className="font-medium">{displayName}</span>}
             {username && (
               <span className="text-xs text-muted-foreground">@{username}</span>

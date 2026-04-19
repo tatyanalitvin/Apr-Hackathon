@@ -2,13 +2,13 @@
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { AddFriendButton } from "@/components/contacts/AddFriendButton";
+import { PresencePill } from "@/components/chat/PresencePill";
 import { useSession } from "@/lib/auth-client";
 
 export interface MemberListItem {
   id: string;
   username: string;
   displayName: string;
-  online?: boolean;
 }
 
 export function MemberList({ members }: { members: MemberListItem[] }) {
@@ -34,10 +34,7 @@ export function MemberList({ members }: { members: MemberListItem[] }) {
               key={m.id}
               className="flex items-center gap-2 rounded px-2 py-1 hover:bg-accent/40"
             >
-              <span
-                className={`inline-block h-2 w-2 rounded-full ${m.online ? "bg-green-500" : "bg-muted-foreground/40"}`}
-                aria-label={m.online ? "online" : "offline"}
-              />
+              <PresencePill userId={m.id} />
               <Avatar className="h-6 w-6">
                 <AvatarFallback>{m.displayName.slice(0, 1).toUpperCase()}</AvatarFallback>
               </Avatar>

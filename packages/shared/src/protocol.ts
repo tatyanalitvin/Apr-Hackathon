@@ -140,6 +140,7 @@ export interface ServerToClientEvents {
   "message.edited": (evt: MessageEditedEvent) => void;
   "message.deleted": (evt: MessageDeletedEvent) => void;
   "presence.state": (evt: PresenceStateEvent) => void;
+  "presence.changed": (evt: PresenceChangedEvent) => void;
   "typing": (evt: TypingEvent) => void;
   "friend.request.accepted": (evt: FriendRequestAcceptedEvent) => void;
   "room.member.joined": (evt: RoomMemberJoinedEvent) => void;
@@ -150,6 +151,7 @@ export interface ClientToServerEvents {
   "room.subscribe": (roomId: string, ack: (res: { ok: boolean; roomHeadSeq: string }) => void) => void;
   "room.unsubscribe": (roomId: string) => void;
   "presence.set": (state: Exclude<PresenceState, "offline">) => void;
+  "presence.setState": (payload: PresenceSetStatePayload) => void;
   "typing.start": (roomId: string) => void;
   "typing.stop": (roomId: string) => void;
 }
@@ -215,4 +217,32 @@ export interface AdminMetricsSnapshot {
   messagesPerMinuteSeries: number[];    // 12 buckets × 5s, oldest first
   errorCount5min: number;               // Fastify 5xx responses in last 5m
   recentSecurityEvents: AdminSecurityEvent[];
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// presence (S2 REQ-099..105) — room-scoped AFK-aware presence model.
+//
+// Parallel to the pre-existing S1 `presence.state` event (global fanout,
+// online/afk/offline). This new model fans out per-room, uses "away" as the
+// idle label (matching v3.docx §2.2.3 wording), and derives offline strictly
+// from socket refcount — see apps/backend/src/lib/presence.ts.
+//
+// Kept as a separate event name (`presence.changed`, not `presence.state`) so
+// S1 consumers do not silently shift schemas. Both events can coexist until
+// the old one is retired. Name `UserPresenceState` avoids a collision with
+// the existing `PresenceState` alias above.
+// ──────────────────────────────────────────────────────────────────────────
+
+export type UserPresenceState = "online" | "away" | "offline";
+
+export interface PresenceChangedEvent {
+  type: "presence.changed";
+  userId: string;
+  state: UserPresenceState;
+  updatedAt: string;                    // ISO timestamp
+}
+
+// Clients may only assert online/away; offline derives from connectedSockets === 0.
+export interface PresenceSetStatePayload {
+  state: Exclude<UserPresenceState, "offline">;
 }
