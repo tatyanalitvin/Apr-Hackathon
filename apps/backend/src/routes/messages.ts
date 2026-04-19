@@ -24,6 +24,7 @@ import {
   attachment,
   message,
   messageSeq,
+  room,
   type Message,
 } from "@ai-herders/shared/schema";
 import type {
@@ -34,6 +35,7 @@ import type {
 } from "@ai-herders/shared/protocol";
 
 import { db } from "../db";
+import { isDmFrozen } from "../lib/dm-freeze";
 import { requireRoomMember } from "../lib/message-auth";
 import { normalizeBody } from "../lib/message-text";
 import {
@@ -152,6 +154,25 @@ export async function messagesRoutes(app: FastifyInstance): Promise<void> {
       const roomId = request.params.id;
       const ctx = await requireRoomMember(request, reply, roomId);
       if (!ctx) return;
+
+      // R5 (REQ-066) — freeze check on DM rooms only. Group rooms skip.
+      // The predicate reads friendship + user_block at read time; no
+      // stored frozen_at (ADR-0007). 409 returns BEFORE seq allocation
+      // so no side effects leak on a frozen send.
+      const [roomRow] = await db
+        .select({ kind: room.kind })
+        .from(room)
+        .where(eq(room.id, roomId))
+        .limit(1);
+      if (roomRow?.kind === "dm") {
+        const freeze = await isDmFrozen({ roomId, callerId: ctx.userId });
+        if (freeze.frozen) {
+          return reply.status(409).send({
+            error: "dialog_frozen",
+            reason: freeze.reason,
+          });
+        }
+      }
 
       const normalized = normalizeBody(request.body.body);
       if (normalized.length === 0) {
