@@ -45,8 +45,20 @@ export async function sessionsRoutes(app: FastifyInstance): Promise<void> {
   // Task #6b — ownership guard is ours, not better-auth's. We 403 for both
   // "belongs to someone else" and "doesn't exist" so session-id existence is
   // not a probe oracle. See spec §10 (2026-04-18 before task #6) entry.
+  //
+  // REQ-147 — 20/min/IP. Low enough that a hijacked session can't mass-revoke
+  // every other device, permissive enough that a user logging out of 5 stale
+  // browsers in sequence never sees a 429.
   app.delete(
     "/:id",
+    {
+      config: {
+        rateLimit: {
+          max: 20,
+          timeWindow: "1 minute",
+        },
+      },
+    },
     async (
       request: FastifyRequest<{ Params: { id: string } }>,
       reply: FastifyReply,

@@ -45,7 +45,20 @@ import { toFetchHeaders } from "../lib/fetch-headers";
 import { formatUserDisplay } from "../lib/users";
 
 export async function accountRoutes(app: FastifyInstance): Promise<void> {
-  app.delete("/users/me", async (request: FastifyRequest, reply: FastifyReply) => {
+  // REQ-147 — tight cap on account delete + export. Both are expensive,
+  // destructive (delete) or privacy-sensitive (export), and should never
+  // fire more than a handful of times per hour per IP. Using IP as the
+  // key (plugin default) rather than user ID because a hijacked session
+  // reaching us from a single source should be clamped regardless of
+  // which account it's driving.
+  app.delete("/users/me", {
+    config: {
+      rateLimit: {
+        max: 3,
+        timeWindow: "1 hour",
+      },
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const headers = toFetchHeaders(request);
     const me = await auth.api.getSession({ headers });
     if (!me) {
@@ -123,7 +136,14 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
   // under UPLOAD_DIR. REQ-126 is portability of the user's content, and a
   // manifest is both cheaper to generate and compatible with how a future
   // UI would lazily fetch the files it actually wants to restore.
-  app.post("/users/me/export", async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post("/users/me/export", {
+    config: {
+      rateLimit: {
+        max: 5,
+        timeWindow: "1 hour",
+      },
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const headers = toFetchHeaders(request);
     const me = await auth.api.getSession({ headers });
     if (!me) {

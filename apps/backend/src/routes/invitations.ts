@@ -56,8 +56,20 @@ export async function invitationsRoutes(app: FastifyInstance): Promise<void> {
   }
 
   // ─── R3 / REQ-089 — POST /rooms/:id/invitations ─────────────────────────
+  // REQ-147 — 30/min/IP invitation-send cap. Invitations are user-visible
+  // notifications, so spam through this surface is a nuisance vector. The
+  // existing invitation-bucket (REQ-089 §5) is per-inviter+room; this is
+  // per-IP, so the two layers compose.
   app.post<{ Params: { id: string } }>(
     "/rooms/:id/invitations",
+    {
+      config: {
+        rateLimit: {
+          max: 30,
+          timeWindow: "1 minute",
+        },
+      },
+    },
     async (request, reply) => {
       const ctx = await requireFriendshipAuth(request, reply);
       if (!ctx) return;
@@ -316,8 +328,17 @@ export async function invitationsRoutes(app: FastifyInstance): Promise<void> {
   // Atomic transaction: UPDATE invite → INSERT room_member. The forced-
   // rollback test in invitations-accept.test.ts spies on roomMember.insert
   // and throws, asserting the invite row remains 'pending' (no half-state).
+  // REQ-147 — 30/min/IP accept cap.
   app.post<{ Params: { id: string } }>(
     "/invitations/:id/accept",
+    {
+      config: {
+        rateLimit: {
+          max: 30,
+          timeWindow: "1 minute",
+        },
+      },
+    },
     async (request, reply) => {
       const ctx = await requireFriendshipAuth(request, reply);
       if (!ctx) return;
@@ -391,8 +412,17 @@ export async function invitationsRoutes(app: FastifyInstance): Promise<void> {
   );
 
   // ─── R6 / REQ-089 — POST /invitations/:id/decline ──────────────────────
+  // REQ-147 — 30/min/IP decline cap.
   app.post<{ Params: { id: string } }>(
     "/invitations/:id/decline",
+    {
+      config: {
+        rateLimit: {
+          max: 30,
+          timeWindow: "1 minute",
+        },
+      },
+    },
     async (request, reply) => {
       const ctx = await requireFriendshipAuth(request, reply);
       if (!ctx) return;

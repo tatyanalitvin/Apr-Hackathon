@@ -38,8 +38,21 @@ function drain(stream: NodeJS.ReadableStream): void {
 }
 
 export async function attachmentsRoutes(app: FastifyInstance): Promise<void> {
+  // REQ-147 — 30/min/IP upload cap. Each upload can be up to 20 MB and
+  // writes to the local-FS volume; unbounded uploads are the easiest DoS
+  // vector on the attachment surface. 30/min leaves plenty of headroom
+  // for drag-drop-burst UX (dragging five pictures in quick succession)
+  // while clamping bulk-fuzzer behavior.
   app.post(
     "/",
+    {
+      config: {
+        rateLimit: {
+          max: 30,
+          timeWindow: "1 minute",
+        },
+      },
+    },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const headers = toFetchHeaders(request);
       const session = await auth.api.getSession({ headers });
