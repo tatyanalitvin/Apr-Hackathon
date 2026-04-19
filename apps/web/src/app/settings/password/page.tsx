@@ -78,7 +78,7 @@ function PasswordContent() {
         return;
       }
       toast.success("Password updated");
-      router.replace("/sessions");
+      router.replace("/rooms");
     } finally {
       setSubmitting(false);
     }
