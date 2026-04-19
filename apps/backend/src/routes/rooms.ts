@@ -12,9 +12,12 @@ import { randomUUID } from "node:crypto";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { createClient, type RedisClientType } from "redis";
 import { message, messageSeq, room, roomMember } from "@ai-herders/shared/schema";
+import { createRoomSchema, roomCreateResponseSchema } from "@ai-herders/shared/dto";
 
 import { db } from "../db";
 import { env } from "../env";
+import { isUniqueViolation } from "../lib/pg-error";
+import { checkRoomCreateRateLimit } from "../lib/room-create-rate-limit";
 import { requireFriendshipAuth } from "./friendship";
 
 // Per-user 60/hour rate limit on POST /rooms/:id/join (spec §5).
@@ -198,4 +201,122 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
 
     return reply.status(200).send({ rooms: payload });
   });
+
+  // REQ-023 — POST /api/v1/rooms. Any authenticated user creates a public
+  // group room. Enrolls the creator as role='owner' and seeds message_seq=0
+  // in the same transaction. Binding spec: docs/specs/s1-rooms.md §4 R4/R5/R15.
+  // Ordering (§5): auth → rate-limit → zod parse → transaction.
+  app.post("/rooms", async (request, reply) => {
+    const ctx = await requireFriendshipAuth(request, reply);
+    if (!ctx) return;
+
+    const rl = await checkRoomCreateRateLimit(ctx.userId);
+    if (!rl.allowed) {
+      return reply
+        .status(429)
+        .send({ error: "rate_limited", retryAfterSec: rl.retryAfterSec });
+    }
+
+    const parsed = createRoomSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply
+        .status(400)
+        .send({ error: "invalid_body", details: parsed.error.flatten() });
+    }
+    const { name, description } = parsed.data;
+    const roomId = randomUUID();
+
+    try {
+      const created = await db.transaction(async (tx) => {
+        const [row] = await tx
+          .insert(room)
+          .values({
+            id: roomId,
+            name,
+            description: description ?? null,
+            kind: "group",
+            visibility: "public",
+            ownerId: ctx.userId,
+          })
+          .returning();
+        await tx.insert(roomMember).values({
+          id: randomUUID(),
+          userId: ctx.userId,
+          roomId,
+          role: "owner",
+          joinedAt: new Date(),
+        });
+        await tx.insert(messageSeq).values({ roomId, seq: 0n });
+        return row;
+      });
+
+      const body = roomCreateResponseSchema.parse({
+        id: created!.id,
+        name: created!.name,
+        description: created!.description,
+        visibility: "public" as const,
+        ownerId: created!.ownerId!,
+        createdAt: created!.createdAt.toISOString(),
+      });
+      return reply.status(201).send(body);
+    } catch (err) {
+      if (isUniqueViolation(err, "room_name_ci_uq")) {
+        return reply.status(409).send({ error: "name_taken" });
+      }
+      throw err;
+    }
+  });
+
+  // REQ-027 — DELETE /api/v1/rooms/:id/members/me. Members leave freely;
+  // owners cannot leave (they must delete the room — deferred to S2).
+  // Binding spec: docs/specs/s1-rooms.md §4 R9/R10/R11/R12/R13.
+  //
+  // Order matters: check room existence FIRST (R12 404 is distinct from
+  // the R10 idempotent non-member 204), THEN check role (R11 403 takes
+  // precedence over R9/R10), THEN delete.
+  app.delete<{ Params: { id: string } }>(
+    "/rooms/:id/members/me",
+    async (request, reply) => {
+      const ctx = await requireFriendshipAuth(request, reply);
+      if (!ctx) return;
+
+      const roomId = request.params.id;
+
+      const [roomRow] = await db
+        .select({ id: room.id })
+        .from(room)
+        .where(eq(room.id, roomId))
+        .limit(1);
+      if (!roomRow) {
+        return reply.status(404).send({ error: "room_not_found" });
+      }
+
+      const [membership] = await db
+        .select({ role: roomMember.role })
+        .from(roomMember)
+        .where(
+          and(
+            eq(roomMember.userId, ctx.userId),
+            eq(roomMember.roomId, roomId),
+          ),
+        )
+        .limit(1);
+      if (membership?.role === "owner") {
+        return reply.status(403).send({ error: "owner_cannot_leave" });
+      }
+
+      // Delete is idempotent by design: if no row exists the DELETE is a
+      // no-op and we still return 204 (R10). No need to branch on row count.
+      await db
+        .delete(roomMember)
+        .where(
+          and(
+            eq(roomMember.userId, ctx.userId),
+            eq(roomMember.roomId, roomId),
+          ),
+        );
+
+      return reply.status(204).send();
+    },
+  );
 }

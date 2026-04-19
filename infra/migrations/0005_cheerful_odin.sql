@@ -1,0 +1,34 @@
+-- \d+ room output before migration (captured 2026-04-19):
+-- NOTE: captured state reflects migrations 0000–0002 only. At capture time
+-- migrations 0003 (friendship CHECK) and 0004 (dm_pair_key + room_dm_pair_uq)
+-- had not yet been applied to the shared dev DB, so neither dm_pair_key
+-- column nor room_dm_pair_uq partial index appears below. `pnpm db:migrate`
+-- will apply 0003 + 0004 + 0005 in sequence.
+--
+--                                                                Table "public.room"
+--    Column    |           Type           | Collation | Nullable |          Default          | Storage  | ...
+-- -------------+--------------------------+-----------+----------+---------------------------+----------+----
+--  id          | text                     |           | not null |                           | extended |
+--  name        | text                     |           |          |                           | extended |
+--  description | text                     |           |          |                           | extended |
+--  kind        | room_kind                |           | not null | 'group'::room_kind        | plain    |
+--  visibility  | room_visibility          |           | not null | 'public'::room_visibility | plain    |
+--  owner_id    | text                     |           |          |                           | extended |
+--  created_at  | timestamp with time zone |           | not null | now()                     | plain    |
+--  deleted_at  | timestamp with time zone |           |          |                           | plain    |
+-- Indexes:
+--     "room_pkey" PRIMARY KEY, btree (id)
+--     "room_kind_idx" btree (kind)
+--     "room_name_unique" UNIQUE CONSTRAINT, btree (name)       <-- this is what gets DROPped below
+--     "room_visibility_idx" btree (visibility, deleted_at)
+-- Foreign-key constraints:
+--     "room_owner_id_user_id_fk" FOREIGN KEY (owner_id) REFERENCES "user"(id) ON DELETE SET NULL
+-- Referenced by:
+--     TABLE "attachment" CONSTRAINT "attachment_room_id_room_id_fk" ...
+--     TABLE "message" CONSTRAINT "message_room_id_room_id_fk" ...
+--     TABLE "message_seq" CONSTRAINT "message_seq_room_id_room_id_fk" ...
+--     TABLE "room_ban" CONSTRAINT "room_ban_room_id_room_id_fk" ...
+--     TABLE "room_invite" CONSTRAINT "room_invite_room_id_room_id_fk" ...
+--     TABLE "room_member" CONSTRAINT "room_member_room_id_room_id_fk" ...
+ALTER TABLE "room" DROP CONSTRAINT "room_name_unique";--> statement-breakpoint
+CREATE UNIQUE INDEX "room_name_ci_uq" ON "room" USING btree (lower("name")) WHERE "room"."kind" = 'group' AND "room"."deleted_at" IS NULL;

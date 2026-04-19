@@ -1,6 +1,6 @@
 {
-  "id": "9be9a827-e835-4a7e-8dcd-1c74f0ed1530",
-  "prevId": "feb9db1d-b3f2-47f3-9064-d40ae5b97064",
+  "id": "50b7a700-2aab-46f2-a0d3-b7d3430206dd",
+  "prevId": "a1b2c3d4-0007-4dm0-8pair-dmpairkey007",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -763,6 +763,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "dm_pair_key": {
+          "name": "dm_pair_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -813,6 +819,38 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "room_dm_pair_uq": {
+          "name": "room_dm_pair_uq",
+          "columns": [
+            {
+              "expression": "dm_pair_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"room\".\"kind\" = 'dm'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "room_name_ci_uq": {
+          "name": "room_name_ci_uq",
+          "columns": [
+            {
+              "expression": "lower(\"name\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"room\".\"kind\" = 'group' AND \"room\".\"deleted_at\" IS NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -831,15 +869,7 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "room_name_unique": {
-          "name": "room_name_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "name"
-          ]
-        }
-      },
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
