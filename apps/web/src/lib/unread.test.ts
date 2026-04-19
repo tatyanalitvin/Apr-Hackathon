@@ -19,6 +19,7 @@ function room(partial: Partial<MyRoomSummary>): MyRoomSummary {
     name: "room",
     kind: "group",
     visibility: "public",
+    description: null,
     lastReadSeq: "0",
     roomHeadSeq: "0",
     mutedUntil: null,

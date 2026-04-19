@@ -60,6 +60,9 @@ export interface MyRoomSummary {
   name: string;
   kind: "group" | "dm";
   visibility: "public" | "private";
+  // REQ-022 — v3 §2.4 "rooms fully editable"; sidebars + RoomClient header
+  // need the description without a dedicated /rooms/:id fetch.
+  description: string | null;
   lastReadSeq: string;
   roomHeadSeq: string;
   ownerId?: string;
@@ -85,11 +88,14 @@ export interface RoomMutationResult {
 }
 
 // Mirrors backend GET /api/v1/rooms public-group catalog payload.
+// REQ-022 — description surfaces on catalog cards so browse/page.tsx can
+// render the one-liner without a second fetch.
 export interface RoomCatalogEntry {
   id: string;
   name: string;
   kind: "group";
   visibility: "public";
+  description: string | null;
   memberCount: number;
   isMember: boolean;
 }
@@ -106,8 +112,14 @@ export interface CreateRoomInput {
   visibility?: "public" | "private";
 }
 
+// REQ-022 / REQ-087 / REQ-088 — PATCH /api/v1/rooms/:id widened surface.
+// name preserves REQ-021 constraints; description null clears the existing
+// value (undefined = "leave it alone"); visibility flips between public and
+// private per REQ-088.
 export interface UpdateRoomInput {
   name?: string;
+  description?: string | null;
+  visibility?: "public" | "private";
 }
 
 export type RoomMutationError =
@@ -116,6 +128,8 @@ export type RoomMutationError =
   | { code: "rate_limited"; retryAfterSec?: number }
   | { code: "not_room_owner" }
   | { code: "room_not_found" }
+  // REQ-028 — 1000-member cap reached; surfaces from POST /rooms/:id/join.
+  | { code: "room_full"; cap: number }
   | { code: "forbidden"; message: string }
   | { code: "unauthorized" }
   | { code: "network"; message: string }
@@ -235,6 +249,9 @@ export type InvitationError =
   | { code: "not_invitee" }            // R5/R6
   | { code: "not_inviter" }            // R7
   | { code: "invitation_not_pending" } // R5/R6/R7 terminal/expired
+  // REQ-028 — 1000-member cap reached at accept-time. Invite row stays
+  // pending so the invitee can retry if members leave.
+  | { code: "room_full"; cap: number }
   | { code: "validation"; message?: string }
   | { code: "network"; message: string }
   | { code: "unknown"; message: string };
@@ -252,7 +269,7 @@ export interface ChatAPI {
   // '%q%' server-side). Omitted / empty / whitespace-only degrades to the
   // unfiltered path, matching the backend contract.
   listRoomCatalog(input?: { q?: string }): Promise<RoomCatalogEntry[]>;
-  joinRoom(roomId: string): Promise<JoinRoomResult>;
+  joinRoom(roomId: string): Promise<RoomMutationResponse<JoinRoomResult>>;
   createRoom(input: CreateRoomInput): Promise<RoomMutationResponse<RoomMutationResult>>;
   updateRoom(roomId: string, input: UpdateRoomInput): Promise<RoomMutationResponse<RoomMutationResult>>;
   deleteRoom(roomId: string): Promise<RoomMutationResponse<null>>;
@@ -350,10 +367,10 @@ export class RealChatAPI implements ChatAPI {
     return rooms;
   }
 
-  async joinRoom(roomId: string): Promise<JoinRoomResult> {
-    return fetchJson<JoinRoomResult>(
+  async joinRoom(roomId: string): Promise<RoomMutationResponse<JoinRoomResult>> {
+    return roomMutation<JoinRoomResult>(
       `${BACKEND_URL}/api/v1/rooms/${encodeURIComponent(roomId)}/join`,
-      { method: "POST" },
+      "POST",
     );
   }
 
@@ -599,6 +616,7 @@ async function invitationMutation<T>(
   const payload = (await res.json().catch(() => ({}))) as {
     error?: string;
     message?: string;
+    cap?: number;
   };
   if (res.status === 401) return { ok: false, error: { code: "unauthorized" } };
   if (res.status === 400) {
@@ -606,6 +624,10 @@ async function invitationMutation<T>(
       ok: false,
       error: { code: "validation", message: payload.message ?? payload.error },
     };
+  }
+  if (res.status === 409 && payload.error === "room_full") {
+    const cap = typeof payload.cap === "number" ? payload.cap : 1000;
+    return { ok: false, error: { code: "room_full", cap } };
   }
   const known = [
     "room_not_found",
@@ -696,6 +718,12 @@ async function roomMutation<T>(
     };
   if (res.status === 409 && payload.error === "name_taken")
     return { ok: false, error: { code: "name_taken" } };
+  if (res.status === 409 && payload.error === "room_full") {
+    const cap = typeof (payload as { cap?: number }).cap === "number"
+      ? (payload as { cap: number }).cap
+      : 1000;
+    return { ok: false, error: { code: "room_full", cap } };
+  }
   if (res.status === 429)
     return {
       ok: false,

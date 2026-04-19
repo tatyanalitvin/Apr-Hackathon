@@ -1,6 +1,8 @@
-// REQ-087 (rename) + REQ-089 (delete) + REQ-027 (leave) — moved verbatim from
-// the former RoomSettingsModal. Body-only; the Dialog shell lives in
-// ManageRoomModal. Owners see rename + delete; members see leave.
+// REQ-022/REQ-087/REQ-088 (owner) + REQ-089 (delete) + REQ-027 (leave).
+// Owners edit name, description, and visibility in one form; members see the
+// leave affordance. The single Save button diffs against the initial state so
+// the PATCH payload only carries changed fields — keeping the audit log
+// readable and avoiding REQ-087's rename rate-limit on no-op submissions.
 
 "use client";
 
@@ -9,13 +11,15 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { createChatApi } from "@/lib/socket";
-import type { RoomMutationError } from "@/lib/chat-api";
+import type { RoomMutationError, UpdateRoomInput } from "@/lib/chat-api";
 
 // REQ-210 widens Role to cover promoted admins; admin viewers get the leave
 // affordance (same as member) — rename/delete stays owner-only per REQ-087/089.
 type Role = "owner" | "admin" | "member";
+type Visibility = "public" | "private";
 
 interface SettingsTabProps {
   roomId: string;
@@ -38,34 +42,80 @@ export function SettingsTab({
 }: SettingsTabProps) {
   const router = useRouter();
   const [name, setName] = useState(roomName);
-  const [submitting, setSubmitting] = useState<null | "rename" | "delete" | "leave">(null);
+  const [description, setDescription] = useState("");
+  const [initialDescription, setInitialDescription] = useState<string | null>(null);
+  const [visibility, setVisibility] = useState<Visibility>("public");
+  const [initialVisibility, setInitialVisibility] = useState<Visibility>("public");
+  const [submitting, setSubmitting] = useState<null | "save" | "delete" | "leave">(null);
   const [api] = useState(() => createChatApi());
 
   useEffect(() => {
     if (open) setName(roomName);
   }, [open, roomName]);
 
-  async function handleRename(e: React.FormEvent<HTMLFormElement>) {
+  // Owners need the current description + visibility to diff against on save.
+  // /rooms/me already carries both after REQ-022 widening, so we lean on the
+  // existing endpoint instead of a new /rooms/:id fetch.
+  useEffect(() => {
+    if (!open || role !== "owner") return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const rooms = await api.listMyRooms();
+        if (cancelled) return;
+        const row = rooms.find((r) => r.id === roomId);
+        if (!row) return;
+        const desc = row.description ?? null;
+        setInitialDescription(desc);
+        setDescription(desc ?? "");
+        setInitialVisibility(row.visibility);
+        setVisibility(row.visibility);
+      } catch {
+        // Non-fatal — save still diffs against the defaults, which is a
+        // no-op unless the user types something.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [api, open, role, roomId]);
+
+  async function handleSave(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    const trimmed = name.trim();
-    if (!trimmed) {
+    const trimmedName = name.trim();
+    if (!trimmedName) {
       toast.error("Enter a room name.");
       return;
     }
-    if (trimmed === roomName) {
+
+    const payload: UpdateRoomInput = {};
+    if (trimmedName !== roomName) payload.name = trimmedName;
+
+    const trimmedDesc = description.trim();
+    const nextDescription = trimmedDesc.length > 0 ? trimmedDesc : null;
+    if (nextDescription !== initialDescription) {
+      payload.description = nextDescription;
+    }
+
+    if (visibility !== initialVisibility) payload.visibility = visibility;
+
+    if (Object.keys(payload).length === 0) {
       onClose();
       return;
     }
-    setSubmitting("rename");
-    const r = await api.updateRoom(roomId, { name: trimmed });
+
+    setSubmitting("save");
+    const r = await api.updateRoom(roomId, payload);
     setSubmitting(null);
     if (r.ok) {
-      toast.success(`Room renamed to ${r.data.name}.`);
-      onRenamed?.(r.data.name);
+      toast.success(`Saved changes to #${r.data.name}.`);
+      setInitialDescription(r.data.description);
+      setInitialVisibility(r.data.visibility);
+      if (payload.name) onRenamed?.(r.data.name);
       onClose();
       return;
     }
-    handleMutationError(r.error, "rename");
+    handleMutationError(r.error, "save");
   }
 
   async function handleDelete() {
@@ -109,7 +159,7 @@ export function SettingsTab({
   if (role === "owner") {
     return (
       <div className="space-y-6">
-        <form onSubmit={handleRename} className="space-y-3">
+        <form onSubmit={handleSave} className="space-y-3">
           <div className="space-y-1.5">
             <Label htmlFor="room-rename-name">Room name</Label>
             <Input
@@ -121,9 +171,65 @@ export function SettingsTab({
               disabled={submitting !== null}
             />
           </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="room-description">
+              Description <span className="text-muted-foreground">(optional)</span>
+            </Label>
+            <Textarea
+              id="room-description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="What's this room for?"
+              rows={3}
+              maxLength={500}
+              disabled={submitting !== null}
+            />
+          </div>
+
+          <fieldset
+            className="space-y-2"
+            aria-label="Room visibility"
+            disabled={submitting !== null}
+          >
+            <legend className="text-sm font-medium">Visibility</legend>
+            <label className="flex items-start gap-2 text-sm">
+              <input
+                type="radio"
+                name="settings-visibility"
+                value="public"
+                checked={visibility === "public"}
+                onChange={() => setVisibility("public")}
+                className="mt-1"
+              />
+              <span>
+                <span className="font-medium">Public</span>
+                <span className="block text-xs text-muted-foreground">
+                  Appears in the catalog at /rooms/browse.
+                </span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2 text-sm">
+              <input
+                type="radio"
+                name="settings-visibility"
+                value="private"
+                checked={visibility === "private"}
+                onChange={() => setVisibility("private")}
+                className="mt-1"
+              />
+              <span>
+                <span className="font-medium">Private</span>
+                <span className="block text-xs text-muted-foreground">
+                  Invite-only. Hidden from the catalog.
+                </span>
+              </span>
+            </label>
+          </fieldset>
+
           <div className="flex justify-end">
             <Button type="submit" size="sm" disabled={submitting !== null}>
-              {submitting === "rename" ? "Saving…" : "Rename"}
+              {submitting === "save" ? "Saving…" : "Save"}
             </Button>
           </div>
         </form>
@@ -166,11 +272,11 @@ export function SettingsTab({
 
 function handleMutationError(
   err: RoomMutationError,
-  verb: "rename" | "delete" | "leave",
+  verb: "save" | "delete" | "leave",
 ): void {
   switch (err.code) {
     case "validation":
-      toast.error("Name must be 3–64 chars of letters, numbers, space, _ or -.");
+      toast.error("Name must be 3–64 chars of letters, numbers, space, _ or -; description must be ≤500 chars.");
       break;
     case "name_taken":
       toast.error("That room name is taken.");
