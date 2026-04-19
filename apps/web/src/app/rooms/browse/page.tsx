@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { createChatApi } from "@/lib/socket";
+import { toast } from "sonner";
 import type { RoomCatalogEntry } from "@/lib/chat-api";
 
 // §2.4.3 — 300ms matches the composer draft-debounce cadence. Same feel as
@@ -57,14 +58,19 @@ function BrowseContent() {
     async (roomId: string) => {
       setJoining(roomId);
       setError(null);
-      try {
-        await apiRef.joinRoom(roomId);
+      const r = await apiRef.joinRoom(roomId);
+      setJoining(null);
+      if (r.ok) {
         router.push(`/rooms/${roomId}`);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Join failed");
-      } finally {
-        setJoining(null);
+        return;
       }
+      // REQ-028 — room reached its 1000-member cap. Surface via toast so the
+      // inline error area stays clean for catalog-level failures.
+      if (r.error.code === "room_full") {
+        toast.error(`This room is full (cap ${r.error.cap}). Ask the owner to make space.`);
+        return;
+      }
+      setError(r.error.code === "network" ? r.error.message : "Join failed");
     },
     [apiRef, router],
   );
@@ -110,6 +116,14 @@ function BrowseContent() {
                   <CardContent className="py-3 px-4 flex items-center justify-between gap-4">
                     <div className="min-w-0">
                       <div className="font-medium truncate">#{room.name}</div>
+                      {room.description ? (
+                        <div
+                          className="text-xs text-muted-foreground truncate"
+                          data-testid={`browse-description-${room.id}`}
+                        >
+                          {room.description}
+                        </div>
+                      ) : null}
                       <div className="text-xs text-muted-foreground">
                         {room.memberCount} member{room.memberCount === 1 ? "" : "s"}
                       </div>
