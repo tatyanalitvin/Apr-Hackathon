@@ -14,6 +14,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { DmFrozenReason, DmListItem } from "@ai-herders/shared/protocol";
 import { Badge } from "@/components/ui/badge";
+import { UnreadBadge } from "@/components/chat/UnreadBadge";
 import { createChatSocket } from "@/lib/socket";
 import { listDms } from "@/lib/dms-api";
 import { NewDmDialog } from "@/components/dm/NewDmDialog";
@@ -48,6 +49,13 @@ function DmRow({ dm, active }: { dm: DmListItem; active: boolean }) {
             {frozenLabel(dm.frozenReason)}
           </Badge>
         ) : null}
+        {/* REQ-214 — v3 §2.7.1/§4.4 unread badge. UnreadBadge itself returns
+            null when count <= 0, so rows at zero render no extra node. */}
+        <UnreadBadge
+          count={dm.unreadCount ?? 0}
+          current={active}
+          className="ml-auto"
+        />
       </div>
       {preview ? (
         <div className="truncate text-xs text-muted-foreground">{preview}</div>
