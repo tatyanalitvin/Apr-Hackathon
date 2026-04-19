@@ -9,12 +9,13 @@
 
 import type { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
-import { aliasedTable, and, asc, desc, eq, sql } from "drizzle-orm";
+import { aliasedTable, and, asc, desc, eq, ilike, sql } from "drizzle-orm";
 import { createClient, type RedisClientType } from "redis";
 import { message, messageSeq, room, roomBan, roomMember, user } from "@ai-herders/shared/schema";
 import {
   createBanSchema,
   createRoomSchema,
+  roomCatalogQuerySchema,
   roomCreateResponseSchema,
   updateRoomSchema,
 } from "@ai-herders/shared/dto";
@@ -200,11 +201,29 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
   // caller membership; private rooms the caller belongs to surface via R4.
   // isMember uses COALESCE(BOOL_OR(...), false) because LEFT JOIN yields NULL
   // rows for rooms with zero members, and BOOL_OR over NULL is NULL.
+  //
+  // §2.4.3 — optional `?q=<≤64>` name-contains filter (ILIKE '%q%'). Whitespace-
+  // only and empty values degrade to the unfiltered path so existing REQ-025
+  // callers (including the web /rooms/browse page without a search term) are
+  // byte-for-byte unchanged. Visibility filter is kept conjunctive with the
+  // ILIKE — private rooms must never leak via search, or §2.4.3 becomes a
+  // private-room enumeration oracle (spec s2-catalog-emoji-unread.md R3).
   app.get("/rooms", async (request, reply) => {
     const ctx = await requireFriendshipAuth(request, reply);
     if (!ctx) return;
 
+    const parsed = roomCatalogQuerySchema.safeParse(request.query);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "invalid_query" });
+    }
+    const q = parsed.data.q?.trim() ?? "";
     const memberCountExpr = sql<number>`COUNT(${roomMember.userId})::int`;
+    const baseWhere = and(eq(room.kind, "group"), eq(room.visibility, "public"));
+    const whereClause =
+      q.length > 0
+        ? and(baseWhere, ilike(room.name, `%${q}%`))
+        : baseWhere;
+
     const rows = await db
       .select({
         id: room.id,
@@ -216,7 +235,7 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
       })
       .from(room)
       .leftJoin(roomMember, eq(roomMember.roomId, room.id))
-      .where(and(eq(room.kind, "group"), eq(room.visibility, "public")))
+      .where(whereClause)
       .groupBy(room.id)
       .orderBy(sql`${memberCountExpr} DESC`, asc(room.name));
 
