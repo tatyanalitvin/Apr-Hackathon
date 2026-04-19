@@ -109,7 +109,7 @@ function isExemptPath(url: string): boolean {
   // Strip querystring before prefix matching — a crafted `?_=/api/v1/...`
   // suffix can't sneak past (URL-parse via URL is overkill; path is always
   // the first `?`-terminated prefix).
-  const path = url.split("?", 1)[0];
+  const path = url.split("?", 1)[0] ?? url;
   // better-auth bridge runs its own CSRF protection + origin check on the
   // auth flow. Layering double-submit on top would block sign-in before the
   // csrf_token cookie has been issued. Also exempt socket.io handshake +

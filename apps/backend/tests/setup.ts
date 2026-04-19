@@ -19,6 +19,12 @@ process.env.LOG_LEVEL ??= "warn";
 process.env.PORT ??= "4001";
 process.env.WEB_ORIGIN ??= "http://localhost:3000";
 process.env.SESSION_SECRET ??= "test-session-secret-32-chars-min!!";
+// REQ-147 — keep the global @fastify/rate-limit cap generous for the main
+// test suite (many tests fire 100+ requests through a single
+// `beforeAll(buildApp)`). The dedicated rate-limit-global.test.ts sets a
+// MUCH lower cap before its own `buildApp()` call to prove the overflow
+// path deterministically. Prod default is 1000/min.
+process.env.APP_RATE_LIMIT_GLOBAL_MAX ??= "10000";
 // Per-process UPLOAD_DIR under the OS tmpdir so attachment uploads can't
 // pollute the working tree (the dev default ./infra/uploads is a real path
 // inside the repo and would show up in `git status` after a test run).
