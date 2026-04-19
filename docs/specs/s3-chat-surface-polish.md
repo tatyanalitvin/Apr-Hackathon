@@ -17,14 +17,7 @@ Four v3 spec clauses that had partial or missing implementations after wave 2 me
 - Changes to the `lastReadSeq` markRead endpoint contract — REQ-215 only computes from its existing state.
 - Backend PresenceState protocol — REQ-214 reads from the already-broadcast `presence.changed` stream.
 
-## 3. Requirements (testable — `pnpm trace` greps these)
-
-- **REQ-212** — v3 §2.5.5 admin delete. `DELETE /api/v1/rooms/:id/messages/:msgId` allows room owners/admins to soft-delete other members' messages in group rooms. DMs excluded (v3 §2.5.1). Broadcast payload carries `deletedByRole ∈ {author, admin}`. Frontend MessageActions reveals Delete on non-own messages when viewer role is owner/admin and `room.kind='group'`; Edit stays author-only.
-- **REQ-213** — v3 §2.6.2 paperclip affordance. MessageComposer renders an explicit "Attach files" button next to the emoji trigger when `onUpload` is supplied. Click routes through the same `uploadFiles()` path used by drag-drop and paste. Button disables with the rest of the composer (sending / disabled prop).
-- **REQ-214** — v3 §2.7.1 / §4.4 DM unread badges. `DmList` rows render `<UnreadBadge count={dm.unreadCount ?? 0} />` when count > 0. Backend `GET /api/v1/dms` computes `unreadCount = max(0, headSeq - lastReadSeq)` per DM room (replaces the `0` placeholder in routes/dms.ts).
-- **REQ-215** — v3 §2.2.1 / Appendix A presence suffix. `MemberList` appends a small "(AFK)" or "(offline)" text marker after the display name, sourced from the same `usePresence(userId)` hook that drives the pill. Online members show no suffix.
-
-## 4. Test plan
+## 3. Test plan
 
 Each REQ-ID is embedded verbatim in at least one test name.
 
@@ -32,6 +25,13 @@ Each REQ-ID is embedded verbatim in at least one test name.
 - **REQ-213**: `apps/web/src/components/chat/MessageComposer.test.tsx` — attach button renders when onUpload supplied, omits otherwise, forwards files, disables with composer.
 - **REQ-214**: `apps/web/src/components/dm/DmList.test.tsx` — badge renders when count > 0, hides at 0; `apps/backend/tests/dms-unread-count.test.ts` — end-to-end unreadCount math vs head and last-read markers.
 - **REQ-215**: `apps/web/src/components/chat/MemberList.test.tsx` — presence-state variations render the matching suffix or no suffix.
+
+## 4. Requirements (testable)
+
+- [x] **REQ-212** — v3 §2.5.5 admin delete. `DELETE /api/v1/rooms/:id/messages/:msgId` allows room owners/admins to soft-delete other members' messages in group rooms. DMs excluded (v3 §2.5.1). Broadcast payload carries `deletedByRole ∈ {author, admin}`. Frontend MessageActions reveals Delete on non-own messages when viewer role is owner/admin and `room.kind='group'`; Edit stays author-only.
+- [x] **REQ-213** — v3 §2.6.2 paperclip affordance. MessageComposer renders an explicit "Attach files" button next to the emoji trigger when `onUpload` is supplied. Click routes through the same `uploadFiles()` path used by drag-drop and paste. Button disables with the rest of the composer (sending / disabled prop).
+- [x] **REQ-214** — v3 §2.7.1 / §4.4 DM unread badges. `DmList` rows render `<UnreadBadge count={dm.unreadCount ?? 0} />` when count > 0. Backend `GET /api/v1/dms` computes `unreadCount = max(0, headSeq - lastReadSeq)` per DM room (replaces the `0` placeholder in routes/dms.ts).
+- [x] **REQ-215** — v3 §2.2.1 / Appendix A presence suffix. `MemberList` appends a small "(AFK)" or "(offline)" text marker after the display name, sourced from the same `usePresence(userId)` hook that drives the pill. Online members show no suffix.
 
 ## 5. Design notes
 
