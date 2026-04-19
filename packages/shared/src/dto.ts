@@ -17,12 +17,32 @@ export const messageBodySchema = z.string().min(1).max(3072);
 // Auth (§2.1 / §2.2)
 // ──────────────────────────────────────────────────────────────────────────
 
-export const registerSchema = z.object({
-  email: z.email(),
-  username: usernameSchema,
-  password: z.string().min(8).max(256),
-  name: z.string().min(1).max(64),
-});
+// REQ-007 passwordConfirm: the UI register form sends a second password field
+// and we backstop client validation at the zod guard. passwordConfirm is
+// OPTIONAL on purpose — ~88 backend test sign-up call sites predate this REQ
+// and a required field would force a mechanical sweep with no spec benefit
+// (the REQ's behavioural contract is "mismatch rejects; match proceeds"; both
+// are preserved with an optional field + superRefine). When the browser form
+// submits both fields they must match; zod-issue path lands on
+// `passwordConfirm` with code "custom" + message prefix "password_mismatch".
+export const registerSchema = z
+  .object({
+    email: z.email(),
+    username: usernameSchema,
+    password: z.string().min(8).max(256),
+    passwordConfirm: z.string().optional(),
+    name: z.string().min(1).max(64),
+  })
+  .superRefine((val, ctx) => {
+    if (val.passwordConfirm === undefined) return;
+    if (val.passwordConfirm !== val.password) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["passwordConfirm"],
+        message: "password_mismatch: passwords do not match",
+      });
+    }
+  });
 export type RegisterInput = z.infer<typeof registerSchema>;
 
 export const loginSchema = z.object({
