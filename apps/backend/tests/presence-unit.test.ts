@@ -7,7 +7,7 @@
 // Socket.IO, no DB — the tracker takes a plain emit callback. Integration
 // with the Socket.IO fan-out lives in presence-io.test.ts (REQ-100).
 
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import {
   createPresenceTracker,
   OFFLINE_DEBOUNCE_MS,
@@ -26,7 +26,12 @@ function createSpyBroadcaster(): PresenceBroadcaster & {
 }
 
 describe("REQ-099 presence Map semantics", () => {
-  beforeEach(() => {
+  // Fake timers are opt-in per test. The global setup.ts beforeEach runs
+  // BEFORE any of this file's hooks and uses real setTimeouts inside pg/
+  // redis truncation, so a fake-timer state leaking across tests would hang
+  // the next setup.ts beforeEach at hookTimeout. afterEach resets before
+  // vitest's queued beforeEach fires again.
+  afterEach(() => {
     vi.useRealTimers();
   });
 
