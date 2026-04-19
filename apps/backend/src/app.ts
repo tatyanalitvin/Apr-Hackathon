@@ -21,6 +21,7 @@ import { recordHttpError } from "./lib/metrics";
 import { createSocketIO, type ChatIOServer } from "./socket";
 import { installSocketAuth } from "./socket-auth";
 import { registerSocketHandlers } from "./socket-handlers";
+import { attachPresenceIO } from "./lib/presence";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -107,6 +108,9 @@ export async function buildApp(): Promise<FastifyInstance> {
   // a single `buildApp()`.
   const attached = await createSocketIO(app.server);
   app.decorate("io", attached.io);
+  // Presence tracker's default broadcaster needs `io` to fan out per-room
+  // `presence.changed` events. Bound once per app (S2 REQ-099..105).
+  attachPresenceIO(attached.io);
   installSocketAuth(attached.io);
   attached.io.on("connection", (socket) => {
     registerSocketHandlers(attached.io, socket);
