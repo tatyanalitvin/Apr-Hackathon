@@ -100,17 +100,32 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
       // ON CONFLICT on the (user_id, room_id) unique index — insert is a
       // no-op when a membership already exists. rowCount distinguishes the
       // fresh-insert happy path from the idempotent-repeat no-op.
+      const joinedAt = new Date();
       const insertResult = await db
         .insert(roomMember)
         .values({
           id: randomUUID(),
           userId: ctx.userId,
           roomId: target.id,
+          joinedAt,
         })
         .onConflictDoNothing({
           target: [roomMember.userId, roomMember.roomId],
         });
       const joined = (insertResult.rowCount ?? 0) > 0;
+
+      // Q1 — at-most-once socket fanout, fire only on new-membership
+      // insert. Non-neg #3 (best-effort: no ack, no retry) and #4 (silent
+      // on the idempotent-repeat path to avoid ghost-join toasts).
+      if (joined) {
+        request.server.io.to(target.id).emit("room.member.joined", {
+          type: "room.member.joined",
+          roomId: target.id,
+          userId: ctx.userId,
+          username: ctx.username,
+          joinedAt: joinedAt.toISOString(),
+        });
+      }
 
       return reply.status(200).send({ joined });
     },
