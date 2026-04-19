@@ -16,6 +16,14 @@ import { secondaryStorage } from "./secondary-storage";
 
 const GENERAL_ROOM_ID = "general";
 
+// better-auth namespaces its session cookie with the library prefix; verified
+// at runtime + sourced from node_modules/better-auth/dist/cookies.mjs. Surfaced
+// as a constant so the CSRF cookie-stamping path in app.ts can match against
+// it without re-encoding the prefix inline — bumping better-auth across a
+// major rename will fail typecheck/grep here instead of silently breaking
+// sign-up/sign-in CSRF issuance.
+export const SESSION_COOKIE_PREFIX = "better-auth.session_token=";
+
 export const auth = betterAuth({
   database: drizzleAdapter(db, { provider: "pg" }),
   emailAndPassword: {

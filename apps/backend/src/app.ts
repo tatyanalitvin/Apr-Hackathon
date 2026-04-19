@@ -12,7 +12,7 @@ import { eq } from "drizzle-orm";
 import { user } from "@ai-herders/shared/schema";
 import { registerSchema, loginSchema } from "@ai-herders/shared/dto";
 import { env } from "./env";
-import { auth } from "./auth";
+import { auth, SESSION_COOKIE_PREFIX } from "./auth";
 import { db } from "./db";
 import { toFetchHeaders } from "./lib/fetch-headers";
 import { sessionsRoutes } from "./routes/sessions";
@@ -327,13 +327,13 @@ async function proxyToBetterAuth(request: FastifyRequest, reply: FastifyReply) {
   response.headers.forEach((v, k) => reply.header(k, v));
 
   // REQ-146 — stamp the companion csrf_token cookie whenever better-auth
-  // issued a fresh session cookie. The actual cookie name is
-  // `better-auth.session_token=` (better-auth namespaces its cookies with
-  // the library prefix; confirmed via live-run debug). It only writes this
-  // cookie on successful sign-up, sign-in, and token-refresh paths — failed
-  // logins and validation errors leave the existing csrf cookie untouched.
-  // Hook runs AFTER the response headers have been copied so we don't
-  // accidentally drop a better-auth Set-Cookie.
+  // issued a fresh session cookie. Cookie prefix is centralised in auth.ts
+  // (SESSION_COOKIE_PREFIX) so a better-auth dep bump that renames the cookie
+  // surfaces here as a typecheck/grep break rather than silent CSRF loss.
+  // Only writes on successful sign-up, sign-in, and token-refresh paths —
+  // failed logins and validation errors leave the existing csrf cookie alone.
+  // Hook runs AFTER response headers are copied so we don't accidentally drop
+  // a better-auth Set-Cookie.
   const outgoingCookies = reply.getHeader("set-cookie");
   const cookieList = Array.isArray(outgoingCookies)
     ? outgoingCookies.map(String)
@@ -341,7 +341,7 @@ async function proxyToBetterAuth(request: FastifyRequest, reply: FastifyReply) {
       ? [String(outgoingCookies)]
       : [];
   const establishedSession = cookieList.some((c) =>
-    /^better-auth\.session_token=/.test(c),
+    c.startsWith(SESSION_COOKIE_PREFIX),
   );
   if (establishedSession) {
     issueCsrfCookie(reply, generateCsrfToken());
