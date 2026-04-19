@@ -34,6 +34,10 @@ export interface MyRoomSummary {
   lastReadSeq: string;
   roomHeadSeq: string;
   ownerId?: string;
+  // REQ-123 — ISO timestamp until which the caller has muted this room.
+  // null = unmuted. Past timestamps drift to "effectively unmuted" at
+  // read time (see lib/notifications.ts).
+  mutedUntil?: string | null;
 }
 
 // Mirrors POST /api/v1/rooms → 201 (REQ-023/REQ-015) and PATCH /api/v1/rooms/:id
@@ -86,6 +90,16 @@ export type RoomMutationResponse<T> =
   | { ok: true; data: T }
   | { ok: false; error: RoomMutationError };
 
+export interface MarkRoomReadResult {
+  roomId: string;
+  lastReadSeq: string;
+}
+
+export interface SetRoomMuteResult {
+  roomId: string;
+  mutedUntil: string | null;
+}
+
 export interface ChatAPI {
   sendMessage(roomId: string, input: SendMessageInput): Promise<MessagePayload>;
   fetchHistory(roomId: string, input: FetchHistoryInput): Promise<HistorySliceResponse>;
@@ -97,6 +111,8 @@ export interface ChatAPI {
   updateRoom(roomId: string, input: UpdateRoomInput): Promise<RoomMutationResponse<RoomMutationResult>>;
   deleteRoom(roomId: string): Promise<RoomMutationResponse<null>>;
   leaveRoom(roomId: string): Promise<RoomMutationResponse<null>>;
+  markRoomRead(roomId: string, lastReadSeq: bigint): Promise<MarkRoomReadResult>;
+  setRoomMute(roomId: string, mutedUntil: string | null): Promise<SetRoomMuteResult>;
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -191,6 +207,31 @@ export class RealChatAPI implements ChatAPI {
     return roomMutation<null>(
       `${BACKEND_URL}/api/v1/rooms/${encodeURIComponent(roomId)}/members/me`,
       "DELETE",
+    );
+  }
+
+  async markRoomRead(roomId: string, lastReadSeq: bigint): Promise<MarkRoomReadResult> {
+    return fetchJson<MarkRoomReadResult>(
+      `${BACKEND_URL}/api/v1/rooms/${encodeURIComponent(roomId)}/read`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ lastReadSeq: lastReadSeq.toString() }),
+      },
+    );
+  }
+
+  async setRoomMute(
+    roomId: string,
+    mutedUntil: string | null,
+  ): Promise<SetRoomMuteResult> {
+    return fetchJson<SetRoomMuteResult>(
+      `${BACKEND_URL}/api/v1/rooms/${encodeURIComponent(roomId)}/mute`,
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ mutedUntil }),
+      },
     );
   }
 }
