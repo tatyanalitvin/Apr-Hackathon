@@ -25,6 +25,7 @@ import { accountRoutes } from "./routes/account";
 import { readReceiptsRoutes } from "./routes/read-receipts";
 import { mutesRoutes } from "./routes/mutes";
 import { recordHttpError, shouldCountHttpError } from "./lib/metrics";
+import { csrfPreHandler } from "./lib/csrf";
 import { createSocketIO, type ChatIOServer } from "./socket";
 import { installSocketAuth } from "./socket-auth";
 import { registerSocketHandlers } from "./socket-handlers";
@@ -61,6 +62,13 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
     throwFileSizeLimit: false,
   });
+
+  // REQ-146 — CSRF double-submit on every mutating /api/v1/* request.
+  // Registered as `onRequest` so it fires BEFORE body parsing — a missing or
+  // mismatched header short-circuits before we drain a potentially 20 MB
+  // multipart upload. Exemptions (GET/HEAD/OPTIONS, /api/auth/*, /health,
+  // /socket.io/*) live inside csrfPreHandler itself; see lib/csrf.ts.
+  app.addHook("onRequest", csrfPreHandler);
 
   app.get("/health", async () => ({
     status: "ok",
