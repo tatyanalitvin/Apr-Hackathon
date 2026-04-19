@@ -11,7 +11,7 @@ import type { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { createClient, type RedisClientType } from "redis";
-import { room, roomMember } from "@ai-herders/shared/schema";
+import { message, messageSeq, room, roomMember } from "@ai-herders/shared/schema";
 
 import { db } from "../db";
 import { env } from "../env";
@@ -159,10 +159,43 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
     return reply.status(200).send({ rooms: rows });
   });
 
-  // R4 (non-v4, see ADR-0006) — GET /api/v1/rooms/me
+  // R4 (non-v4, see ADR-0006) — GET /api/v1/rooms/me.
+  // One query: joins room + message_seq (for roomHeadSeq) + message (for
+  // last-activity ordering), grouped by room. LEFT JOINs on both so fresh
+  // rooms without messages or without a seq row still surface (NULLS LAST
+  // keeps them at the tail). bigints serialize as strings on the wire —
+  // ADR-0003 contract, same handling as message.seq.
   app.get("/rooms/me", async (request, reply) => {
     const ctx = await requireFriendshipAuth(request, reply);
     if (!ctx) return;
-    return reply.status(501).send({ error: "not_implemented" });
+
+    const rows = await db
+      .select({
+        id: room.id,
+        name: room.name,
+        kind: room.kind,
+        visibility: room.visibility,
+        lastReadSeq: roomMember.lastReadSeq,
+        headSeq: messageSeq.seq,
+        lastActivityAt: sql<Date | null>`MAX(${message.createdAt})`,
+      })
+      .from(roomMember)
+      .innerJoin(room, eq(room.id, roomMember.roomId))
+      .leftJoin(messageSeq, eq(messageSeq.roomId, roomMember.roomId))
+      .leftJoin(message, eq(message.roomId, roomMember.roomId))
+      .where(eq(roomMember.userId, ctx.userId))
+      .groupBy(room.id, roomMember.lastReadSeq, messageSeq.seq)
+      .orderBy(sql`MAX(${message.createdAt}) DESC NULLS LAST`, asc(room.name));
+
+    const payload = rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      kind: r.kind,
+      visibility: r.visibility,
+      lastReadSeq: r.lastReadSeq.toString(),
+      roomHeadSeq: (r.headSeq ?? 0n).toString(),
+    }));
+
+    return reply.status(200).send({ rooms: payload });
   });
 }
