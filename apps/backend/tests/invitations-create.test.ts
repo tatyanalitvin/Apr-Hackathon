@@ -183,7 +183,7 @@ describe("REQ-089 POST /rooms/:id/invitations — R3 ordering + effects", () => 
     expect(res.body.error).toBe("invitee_already_member");
   });
 
-  test("REQ-089 R3 403 invitee_banned when room_ban row exists (INVITATIONS_ENFORCE_BAN=true)", async () => {
+  test("REQ-089 R3 403 invitee_banned when room_ban row exists", async () => {
     const alice = await registerAgent(app, "r089bn_a@example.com", "r089_bn_a");
     const bob = await registerAgent(app, "r089bn_b@example.com", "r089_bn_b");
     const roomId = await createRoom(alice, "Ban Room R089", "private");

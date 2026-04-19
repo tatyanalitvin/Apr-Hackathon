@@ -26,36 +26,10 @@ import {
 import { createInvitationSchema } from "@ai-herders/shared/dto";
 
 import { db } from "../db";
-import { env } from "../env";
 import { requireFriendshipAuth } from "./friendship";
 import { ROOM_MEMBER_CAP } from "./rooms";
 
-// REQ-089 startup probe — §5 cross-agent coordination. If the flag is on but
-// the `room_ban` relation is missing (agent A's 0007 slipped), log a warning
-// and downgrade to "flag off" at runtime so the invitee-banned SELECT is
-// skipped rather than exploding. Probed once at register-time via a lightweight
-// `to_regclass` lookup; the result caches for the lifetime of the Fastify
-// instance (tests rebuild buildApp per-suite, so the probe reruns between
-// suites, which is the behaviour we want).
-async function probeRoomBan(): Promise<boolean> {
-  if (!env.INVITATIONS_ENFORCE_BAN) return false;
-  const result = await db.execute<{ regclass: string | null }>(
-    sql`SELECT to_regclass('public.room_ban')::text AS regclass`,
-  );
-  const rows = (result as unknown as { rows: Array<{ regclass: string | null }> }).rows ?? [];
-  const present = Array.isArray(rows) && rows.length > 0 && rows[0]?.regclass != null;
-  return present;
-}
-
 export async function invitationsRoutes(app: FastifyInstance): Promise<void> {
-  const enforceBan = await probeRoomBan();
-  if (env.INVITATIONS_ENFORCE_BAN && !enforceBan) {
-    app.log.warn(
-      "INVITATIONS_ENFORCE_BAN=true but room_ban relation missing; " +
-        "skipping 403 invitee_banned branch (agent A 0007 not yet landed).",
-    );
-  }
-
   // ─── R3 / REQ-089 — POST /rooms/:id/invitations ─────────────────────────
   // REQ-147 — 30/min/IP invitation-send cap. Invitations are user-visible
   // notifications, so spam through this surface is a nuisance vector. The
@@ -142,15 +116,13 @@ export async function invitationsRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(409).send({ error: "invitee_already_member" });
       }
 
-      if (enforceBan) {
-        const [ban] = await db
-          .select({ id: roomBan.id })
-          .from(roomBan)
-          .where(and(eq(roomBan.roomId, roomId), eq(roomBan.userId, invitee.id)))
-          .limit(1);
-        if (ban) {
-          return reply.status(403).send({ error: "invitee_banned" });
-        }
+      const [ban] = await db
+        .select({ id: roomBan.id })
+        .from(roomBan)
+        .where(and(eq(roomBan.roomId, roomId), eq(roomBan.userId, invitee.id)))
+        .limit(1);
+      if (ban) {
+        return reply.status(403).send({ error: "invitee_banned" });
       }
 
       // REQ-089a R8 — the partial unique index `(room_id, invitee_id) WHERE

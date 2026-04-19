@@ -17,17 +17,6 @@ const schema = z.object({
   // Default empty: no admins unless explicitly seeded (so tests can't
   // accidentally become admin). See docs/specs on s3-admin and .env.example.
   ADMIN_USER_IDS: z.string().default(""),
-  // REQ-089 — cross-agent coordination (docs/specs/s2-invitations.md §5).
-  // The invitee-banned 403 branch SELECTs from room_ban, which is owned by
-  // agent A's 0007 migration. When `true` (default) the SELECT runs and the
-  // 403 path is live; `false` skips the SELECT so a slipped 0007 cannot break
-  // invitation send. A startup probe confirms the table actually exists when
-  // the flag is on; a missing table downgrades to the same skip semantics as
-  // the flag being off, so the backend never boots into a crash loop.
-  INVITATIONS_ENFORCE_BAN: z
-    .enum(["true", "false"])
-    .default("true")
-    .transform((v) => v === "true"),
   // REQ-147 — global per-IP ceiling applied to every /api/v1/* request by
   // the @fastify/rate-limit plugin (see src/app.ts). Permissive by default
   // so well-behaved clients never trip it; lower this in tests to prove

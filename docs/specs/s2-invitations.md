@@ -48,7 +48,7 @@ Today every group room is `visibility='public'` and self-joinable (s2-rooms REQ-
   - 404 `invitee_not_found` if no user matches `inviteeUsername` (case-insensitive via `citext` as used in friendship lookups).
   - 409 `invitee_already_member` if invitee is already in `room_member` for `:id`.
   - 409 `invite_pending` if a row exists in `room_invitation` for `(roomId=:id, inviteeId, status='pending')` with `expiresAt > now()`.
-  - 403 `invitee_banned` if `room_ban` row exists for `(roomId=:id, userId=inviteeId)`. Runtime-gated (§5 "Cross-agent coordination"): if agent A's `0007` has not landed the `room_ban` table at migrate time, the SELECT is skipped and the 403 branch is unreachable until A merges; behaviour flag `INVITATIONS_ENFORCE_BAN` (default `true`).
+  - 403 `invitee_banned` if `room_ban` row exists for `(roomId=:id, userId=inviteeId)`. Always-on since agent A's `0007` landed; the prior `INVITATIONS_ENFORCE_BAN` runtime gate was removed 2026-04-20.
   - On success: INSERT `room_invitation (id, roomId, inviterId, inviteeId, status='pending', createdAt=now(), expiresAt=now()+interval '14 days')` per approved Q2.
   - Emit `room.invitation.sent` to Socket.IO user channel `user:{inviteeId}` with payload `{ type, invitationId, roomId, roomName, inviterId, inviterUsername, createdAt, expiresAt }`.
   - Response `201 { invitationId, expiresAt }`.
@@ -94,7 +94,7 @@ Today every group room is `visibility='public'` and self-joinable (s2-rooms REQ-
   2. Alice opens ManageRoom → Invitations → types "bob" → sends.
   3. Bob's Inbox shows pending within 2s (via `room.invitation.sent`).
   4. Bob accepts → `core-team` appears in Bob's sidebar → Bob enters → sees existing messages.
-  5. Alice invites Carol who is in `room_ban` → 403 `invitee_banned` (SKIP if `INVITATIONS_ENFORCE_BAN=false` due to A slip).
+  5. Alice invites Carol who is in `room_ban` → 403 `invitee_banned`.
   6. Alice invites Bob again (now a member) → 409 `invitee_already_member`.
   7. Alice sends a fresh invite to Dave → Alice cancels via Invitations tab → Dave's inbox drops it within 2s.
   Trace-IDs: REQ-088, REQ-089.
@@ -201,8 +201,8 @@ Accept (R5) is symmetric in the other direction: fanout is to `user:{inviterId}`
 ### Cross-agent coordination
 
 - **Migration ordering:** `0008_invitations.sql` only ALTERs the pre-existing `room_invite` table + `room_invite_status` enum (both created in `0000`). It does NOT depend on agent A's `0007` at all — `room_ban` and `room_member.role` both already exist since `0000`, so R3's banned-check and admin-role-check work against today's schema.
-- **`INVITATIONS_ENFORCE_BAN` kept as a behaviour flag (defensive):** even though `room_ban` exists, the flag stays as per brief guidance ("if A slips, stub the room_ban SELECT behind a feature flag"). Default `true`. Flag flip cost is one env var. Flag removal tracked in FOLLOWUPS.md once wave1 is merged and A's semantic ban flow (populate `room_ban` rows from kick/ban handler) is in.
-- **Startup probe:** no longer strictly needed given `room_ban` exists since `0000`, but we still log a one-line `roomBan.count()` at startup so any migration regression is loud. Cheap.
+- ~~**`INVITATIONS_ENFORCE_BAN` kept as a behaviour flag (defensive):**~~ Removed 2026-04-20: the `room_ban` table has shipped via agent A's wave-1 work and the ban-check is now unconditional in [routes/invitations.ts](../../apps/backend/src/routes/invitations.ts).
+- ~~**Startup probe:**~~ Removed alongside the flag — the `to_regclass` probe was only meaningful while `room_ban` was hypothetical.
 - **No edits to agent A's territory:** `room_member.role` lookup for the private-room admin gate reads the column directly; no migration edit. Agent A owns populating the role values via kick/ban/promote handlers — we just READ.
 
 ### `POST /rooms` change (rooms.ts — ONLY the `visibility` field, no other edits)
@@ -240,7 +240,7 @@ Accept (R5) is symmetric in the other direction: fanout is to `user:{inviterId}`
 4. [ ] **TDD R1 + R2** — failing tests for private-room catalog exclusion + private-room create in `apps/backend/tests/private-rooms.test.ts`; implement the `visibility` field change in `rooms.ts` + `createRoomSchema`; green.
 5. [ ] **TDD R3** — `apps/backend/tests/invitations.test.ts` covers happy, 401/403/404/409 grid, banned-invitee 403 (flag on) + flag-off skip, socket emit assertion.
 6. [ ] **TDD R4/R5/R6/R7/R8** — inbox, accept (happy + forced-rollback atomicity test), decline, inviter-cancel (incl. invitee-channel fanout), expiry filter.
-7. [ ] `INVITATIONS_ENFORCE_BAN` env + startup probe for `room_ban` table presence.
+7. [x] ~~`INVITATIONS_ENFORCE_BAN` env + startup probe for `room_ban` table presence.~~ Removed 2026-04-20 — `room_ban` is permanent and the ban-check is always-on.
 8. [ ] UI: `CreateRoomDialog` radio, `InvitationsTab` body, `InboxList` component. Manual render check at `localhost:3000`.
 9. [ ] **R9** dual-browser Playwright — Chrome+Firefox per `feedback_playwright_multi_user.md`. Batched smoke at gate, per `feedback_batched_smoke.md`.
 
@@ -250,7 +250,7 @@ Accept (R5) is symmetric in the other direction: fanout is to `user:{inviterId}`
 - **Rate limit 50/24h (REQ-089a)** — tracked in FOLLOWUPS.md after merge.
 - **Expired-invite GC** — REQ-157 scheduler, not ours.
 - **User-block silent-drop (REQ-089a)** — needs `user_block` plumbed; FOLLOWUPS.md.
-- **`INVITATIONS_ENFORCE_BAN` flag removal** — once agent A's `0007` is on `main`, the flag becomes always-on; remove the flag + probe + branching test. FOLLOWUPS.md entry.
+- ~~**`INVITATIONS_ENFORCE_BAN` flag removal**~~ — Done 2026-04-20 in `chore/post-event-cleanup`: flag, probe, and branching test all removed.
 - **Invitee REMOVES a declined invite from history** — we keep the row for audit. No UI to purge.
 - **Notification UI toast on invite accept/decline for inviter** — the socket event is emitted; the toast UI is a nice-to-have deferred if time pressure.
 - **Kill-switch #1 (R7 cancel cut)** — if invoked, FOLLOWUPS.md entry records which UI/endpoint was cut and why.
