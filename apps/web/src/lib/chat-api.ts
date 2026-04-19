@@ -4,6 +4,7 @@ import { BACKEND_URL } from "./backend";
 export interface SendMessageInput {
   body: string;
   clientMessageId?: string;
+  attachmentIds?: string[];
 }
 
 export interface FetchHistoryInput {
@@ -12,9 +13,20 @@ export interface FetchHistoryInput {
   limit?: number;
 }
 
+export interface UploadAttachmentInput {
+  roomId: string;
+  file: File;
+  comment?: string;
+}
+
+export interface UploadAttachmentResult {
+  attachmentId: string;
+}
+
 export interface ChatAPI {
   sendMessage(roomId: string, input: SendMessageInput): Promise<MessagePayload>;
   fetchHistory(roomId: string, input: FetchHistoryInput): Promise<HistorySliceResponse>;
+  uploadAttachment(input: UploadAttachmentInput): Promise<UploadAttachmentResult>;
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -43,5 +55,16 @@ export class RealChatAPI implements ChatAPI {
     const qs = params.toString();
     const url = `${BACKEND_URL}/api/v1/rooms/${encodeURIComponent(roomId)}/messages${qs ? `?${qs}` : ""}`;
     return fetchJson<HistorySliceResponse>(url);
+  }
+
+  async uploadAttachment({ roomId, file, comment }: UploadAttachmentInput): Promise<UploadAttachmentResult> {
+    const form = new FormData();
+    form.append("roomId", roomId);
+    if (comment && comment.length > 0) form.append("comment", comment);
+    form.append("file", file, file.name);
+    return fetchJson<UploadAttachmentResult>(`${BACKEND_URL}/api/v1/attachments`, {
+      method: "POST",
+      body: form,
+    });
   }
 }
