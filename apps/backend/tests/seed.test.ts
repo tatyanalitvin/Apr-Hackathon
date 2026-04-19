@@ -129,6 +129,24 @@ describe("REQ-049 seed script creates demo fixture idempotently", () => {
     expect(seqRow.seq).toBe(3n);
   });
 
+  test("REQ-049 seed assigns deterministic UUIDs so ADMIN_USER_IDS can be pinned in docker-compose.yml", async () => {
+    // The out-of-box /admin experience depends on this contract: alice's
+    // user.id must equal the literal committed in docker-compose.yml and
+    // .env.example, else `git clone && docker compose up` boots with an
+    // empty admin allow-list and the judges see 403 on /admin.
+    await runSeed();
+
+    const db = getTestDb();
+    const rows = await db
+      .select({ username: user.username, id: user.id })
+      .from(user)
+      .where(inArray(user.username, [...SEED_USERNAMES]));
+    const byUsername = new Map(rows.map((r) => [r.username, r.id]));
+    expect(byUsername.get("alice")).toBe("00000000-0000-0000-0000-000000000001");
+    expect(byUsername.get("bob")).toBe("00000000-0000-0000-0000-000000000002");
+    expect(byUsername.get("carol")).toBe("00000000-0000-0000-0000-000000000003");
+  });
+
   test("REQ-049 seeded password hashes via better-auth — sign-in succeeds for alice", async () => {
     await runSeed();
 
