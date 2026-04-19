@@ -3,10 +3,16 @@
 import Link from "next/link";
 import { DmList } from "@/components/dm/DmList";
 import { CreateRoomDialog } from "@/components/chat/CreateRoomDialog";
+import { UnreadBadge } from "@/components/chat/UnreadBadge";
 
 export interface RoomListItem {
   id: string;
   name: string;
+  // REQ-120 — present when the caller has unread messages. Omit (or pass 0)
+  // to skip the badge entirely.
+  unreadCount?: number;
+  // REQ-123 — gray the unread pill when the room is muted.
+  muted?: boolean;
 }
 
 export function RoomList({
@@ -32,9 +38,14 @@ export function RoomList({
           <Link
             key={room.id}
             href={`/rooms/${room.id}`}
-            className={`block rounded px-3 py-1.5 text-sm hover:bg-accent ${active ? "bg-accent font-medium" : ""}`}
+            className={`flex items-center justify-between gap-2 rounded px-3 py-1.5 text-sm hover:bg-accent ${active ? "bg-accent font-medium" : ""}`}
           >
-            #{room.name}
+            <span className="truncate">#{room.name}</span>
+            <UnreadBadge
+              count={room.unreadCount ?? 0}
+              muted={room.muted}
+              current={active}
+            />
           </Link>
         );
       })}
