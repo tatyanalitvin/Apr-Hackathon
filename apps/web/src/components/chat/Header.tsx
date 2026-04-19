@@ -82,6 +82,9 @@ export function Header({ className }: { className?: string }) {
               <span className="text-xs text-muted-foreground">@{username}</span>
             )}
           </div>
+          <Button asChild size="sm" variant="ghost">
+            <Link href="/settings/password">Password</Link>
+          </Button>
           <Button size="sm" variant="outline" onClick={handleSignOut}>
             Sign out
           </Button>

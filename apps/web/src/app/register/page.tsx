@@ -21,7 +21,13 @@ function RegisterForm() {
 
   const form = useForm<RegisterInput>({
     resolver: zodResolver(registerSchema),
-    defaultValues: { email: "", username: "", name: "", password: "" },
+    defaultValues: {
+      email: "",
+      username: "",
+      name: "",
+      password: "",
+      passwordConfirm: "",
+    },
   });
 
   const onSubmit = form.handleSubmit(async (values) => {
@@ -72,6 +78,20 @@ function RegisterForm() {
               <Input id="password" type="password" autoComplete="new-password" {...form.register("password")} />
               {form.formState.errors.password && (
                 <p className="text-sm text-destructive">{form.formState.errors.password.message}</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="passwordConfirm">Confirm password</Label>
+              <Input
+                id="passwordConfirm"
+                type="password"
+                autoComplete="new-password"
+                {...form.register("passwordConfirm")}
+              />
+              {form.formState.errors.passwordConfirm && (
+                <p className="text-sm text-destructive">
+                  {form.formState.errors.passwordConfirm.message}
+                </p>
               )}
             </div>
             {form.formState.errors.root && (
