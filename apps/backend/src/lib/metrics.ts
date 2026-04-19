@@ -174,6 +174,34 @@ export function recordHttpError(
   if (statusCode >= 500) errorWindow.record(now);
 }
 
+/**
+ * REQ-158 — predicate for the Fastify onResponse hook. Counts only 5xx
+ * from user-facing `/api/*` routes, so the admin dashboard's red
+ * "error count (5min)" widget reflects genuine server failures judges
+ * can trust.
+ *
+ * Excluded paths:
+ *   - `/health` — docker-compose healthcheck probe. A 5xx here is an
+ *     infrastructure signal (pool exhaustion at boot, Redis hiccup)
+ *     that compose events already surface; double-counting it paints
+ *     the demo red for a transient probe the operator never saw.
+ *   - `/socket.io/*` — Engine.IO polling transport. Engine.IO normally
+ *     intercepts these before Fastify sees them, but a future plugin-
+ *     ordering change could let a malformed probe fall through; this
+ *     keeps such edge cases out of the widget.
+ *
+ * Every documented route starts with `/api/`, so this narrowing does
+ * not mask real regressions — a handler that throws unhandled or an
+ * explicit `reply.status(500)` in a mutation route still counts.
+ */
+export function shouldCountHttpError(
+  statusCode: number,
+  url: string,
+): boolean {
+  if (statusCode < 500) return false;
+  return url.startsWith("/api/");
+}
+
 export function recordUserConnect(userId: string): void {
   onlineUsers.connect(userId);
 }

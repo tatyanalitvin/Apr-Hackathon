@@ -19,10 +19,12 @@ import { db, pool } from "../apps/backend/src/db";
 import { allocateAndInsertMessage } from "../apps/backend/src/lib/seq-allocator";
 import { closeSecondaryStorage } from "../apps/backend/src/secondary-storage";
 import {
+  account,
   message,
   messageSeq,
   room,
   roomMember,
+  session,
   user,
 } from "@ai-herders/shared/schema";
 
@@ -30,12 +32,32 @@ interface SeedUser {
   email: string;
   username: string;
   name: string;
+  // Deterministic UUID so ADMIN_USER_IDS in docker-compose.yml (and
+  // operator-run exports) can pin a known id without reading the DB.
+  // alice=…001, bob=…002, carol=…003. Must survive re-runs: the swap
+  // below rewrites whatever random id better-auth minted to this one.
+  stableId: string;
 }
 
 const USERS: readonly SeedUser[] = [
-  { email: "alice@herders.local", username: "alice", name: "Alice" },
-  { email: "bob@herders.local", username: "bob", name: "Bob" },
-  { email: "carol@herders.local", username: "carol", name: "Carol" },
+  {
+    email: "alice@herders.local",
+    username: "alice",
+    name: "Alice",
+    stableId: "00000000-0000-0000-0000-000000000001",
+  },
+  {
+    email: "bob@herders.local",
+    username: "bob",
+    name: "Bob",
+    stableId: "00000000-0000-0000-0000-000000000002",
+  },
+  {
+    email: "carol@herders.local",
+    username: "carol",
+    name: "Carol",
+    stableId: "00000000-0000-0000-0000-000000000003",
+  },
 ];
 
 const PASSWORD = "hunter2hunter2";
@@ -50,14 +72,59 @@ const SEED_MESSAGES: ReadonlyArray<{ author: string; body: string }> = [
 
 export interface SeedReport {
   createdUsers: number;
+  resetUsers: number;
   createdRoom: boolean;
   createdMembers: number;
   createdMessages: number;
 }
 
+// Rewrite a just-signed-up user's random id to the deterministic stable id.
+//
+// FK constraints on user.id are not DEFERRABLE and have no ON UPDATE CASCADE,
+// so a naive `UPDATE user SET id = …` would orphan session / account rows.
+// Strategy: in one transaction, free up the UNIQUE columns, insert the
+// stable-id row cloned from the random row, re-point session + account FKs,
+// then drop the random row. Fresh signUpEmail only creates session + account
+// as children, so those are the only tables that need re-pointing.
+async function swapUserIdToStable(
+  randomId: string,
+  u: SeedUser,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    // Free email + username so the stable-id INSERT below doesn't collide
+    // on the UNIQUE constraints. The temp values are scoped to this txn.
+    await tx
+      .update(user)
+      .set({
+        email: `__seed_tmp_${u.stableId}@seed.invalid`,
+        username: `__seed_tmp_${u.stableId.slice(-6)}`,
+      })
+      .where(eq(user.id, randomId));
+
+    // Clone every column except id/email/username (which we override).
+    await tx.execute(sql`
+      INSERT INTO "user" (id, name, email, email_verified, image, username, created_at, updated_at, deleted_at)
+      SELECT ${u.stableId}, name, ${u.email}, email_verified, image, ${u.username}, created_at, updated_at, deleted_at
+      FROM "user" WHERE id = ${randomId}
+    `);
+
+    await tx
+      .update(session)
+      .set({ userId: u.stableId })
+      .where(eq(session.userId, randomId));
+    await tx
+      .update(account)
+      .set({ userId: u.stableId })
+      .where(eq(account.userId, randomId));
+
+    await tx.delete(user).where(eq(user.id, randomId));
+  });
+}
+
 export async function runSeed(): Promise<SeedReport> {
   const report: SeedReport = {
     createdUsers: 0,
+    resetUsers: 0,
     createdRoom: false,
     createdMembers: 0,
     createdMessages: 0,
@@ -72,8 +139,16 @@ export async function runSeed(): Promise<SeedReport> {
       .where(eq(user.username, u.username))
       .limit(1);
     if (existing) {
-      userIds[u.username] = existing.id;
-      continue;
+      if (existing.id === u.stableId) {
+        userIds[u.username] = existing.id;
+        continue;
+      }
+      // Pre-existing user from before stable-id seeding. Dev-mode reset:
+      // delete the random-id row (onDelete: cascade sweeps messages,
+      // memberships, rooms-owned-via-set-null, etc.) and re-sign-up below
+      // so better-auth's scrypt hashing is used instead of hand-crafting.
+      await db.delete(user).where(eq(user.id, existing.id));
+      report.resetUsers += 1;
     }
     await auth.api.signUpEmail({
       body: {
@@ -91,7 +166,10 @@ export async function runSeed(): Promise<SeedReport> {
     if (!created) {
       throw new Error(`seed: user ${u.username} not found after signUpEmail`);
     }
-    userIds[u.username] = created.id;
+    if (created.id !== u.stableId) {
+      await swapUserIdToStable(created.id, u);
+    }
+    userIds[u.username] = u.stableId;
     report.createdUsers += 1;
   }
 

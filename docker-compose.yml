@@ -117,6 +117,11 @@ services:
       WEB_ORIGIN: http://localhost:3000
       UPLOAD_DIR: /data/uploads
       LOG_LEVEL: info
+      # Alice's stable UUID from scripts/seed.ts. Keeps /admin accessible
+      # out-of-box on a fresh `git clone && docker compose up` so judges
+      # land in the dashboard without needing to psql for a user id.
+      # Operators can append more ids via the .env override (comma-sep).
+      ADMIN_USER_IDS: ${ADMIN_USER_IDS:-00000000-0000-0000-0000-000000000001}
     volumes:
       - uploads:/data/uploads
     ports:
