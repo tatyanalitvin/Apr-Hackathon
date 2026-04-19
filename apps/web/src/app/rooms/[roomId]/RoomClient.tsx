@@ -1,7 +1,7 @@
 // REQ-045: Room view — 3-column layout (rooms · messages+composer · members).
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   MessagePayload,
   MessageNewEvent,
@@ -10,12 +10,14 @@ import type {
 import { RequireSession } from "@/components/chat/RequireSession";
 import { Header } from "@/components/chat/Header";
 import { RoomList, type RoomListItem } from "@/components/chat/RoomList";
+import { RoomSettingsModal } from "@/components/chat/RoomSettingsModal";
 import { MemberList } from "@/components/chat/MemberList";
 import { MessageList } from "@/components/chat/MessageList";
 import { MessageComposer } from "@/components/chat/MessageComposer";
 import { useSession } from "@/lib/auth-client";
 import { createChatSocket, createChatApi, type ChatSocket } from "@/lib/socket";
 import { createWatermark } from "@/lib/watermark";
+import type { MyRoomSummary } from "@/lib/chat-api";
 
 const INITIAL_FIRST_INDEX = 1_000_000;
 const HISTORY_PAGE_SIZE = 50;
@@ -39,7 +41,7 @@ function RoomContent({ roomId }: { roomId: string }) {
   const [messages, setMessages] = useState<MessagePayload[]>([]);
   const [firstItemIndex, setFirstItemIndex] = useState(INITIAL_FIRST_INDEX);
   const [hasMoreOlder, setHasMoreOlder] = useState(true);
-  const [sidebarRooms, setSidebarRooms] = useState<RoomListItem[] | null>(null);
+  const [myRooms, setMyRooms] = useState<MyRoomSummary[] | null>(null);
 
   const apiRef = useRef(createChatApi());
   const socketRef = useRef<ChatSocket | null>(null);
@@ -50,7 +52,7 @@ function RoomContent({ roomId }: { roomId: string }) {
   const refreshMyRooms = useCallback(async () => {
     try {
       const rooms = await apiRef.current.listMyRooms();
-      setSidebarRooms(rooms.map((r) => ({ id: r.id, name: r.name })));
+      setMyRooms(rooms);
     } catch {
       // Non-fatal — fallback keeps the current room visible.
     }
@@ -168,11 +170,22 @@ function RoomContent({ roomId }: { roomId: string }) {
 
   // Make sure the current room always appears even if /rooms/me hasn't yet
   // resolved (or transiently lacks membership while reconciling).
-  const displayedRooms: RoomListItem[] = (() => {
-    const base = sidebarRooms ?? FALLBACK_ROOMS;
+  const displayedRooms: RoomListItem[] = useMemo(() => {
+    const base: RoomListItem[] = myRooms
+      ? myRooms.map((r) => ({ id: r.id, name: r.name }))
+      : FALLBACK_ROOMS;
     return base.some((r) => r.id === roomId)
       ? base
       : [...base, { id: roomId, name: roomId }];
+  }, [myRooms, roomId]);
+
+  // REQ-087/089 — surface the settings modal only when we have a membership
+  // row for this room and it's a group room (DMs mutate via their own flow).
+  const currentRoom = myRooms?.find((r) => r.id === roomId) ?? null;
+  const settingsRole: "owner" | "member" | null = (() => {
+    if (!currentRoom || currentRoom.kind !== "group") return null;
+    if (data?.user?.id && currentRoom.ownerId === data.user.id) return "owner";
+    return "member";
   })();
 
   return (
@@ -182,7 +195,18 @@ function RoomContent({ roomId }: { roomId: string }) {
         <RoomList rooms={displayedRooms} currentRoomId={roomId} onRoomCreated={refreshMyRooms} />
       </nav>
       <main className="flex flex-col min-h-0 overflow-hidden">
-        <div className="border-b px-4 py-2 text-sm font-semibold">#{roomId}</div>
+        <div className="flex items-center justify-between border-b px-4 py-2 text-sm font-semibold">
+          <span>#{currentRoom?.name ?? roomId}</span>
+          {settingsRole !== null ? (
+            <RoomSettingsModal
+              roomId={roomId}
+              roomName={currentRoom?.name ?? roomId}
+              role={settingsRole}
+              onRenamed={refreshMyRooms}
+              onLeftOrDeleted={refreshMyRooms}
+            />
+          ) : null}
+        </div>
         <MessageList
           messages={messages}
           hasMoreOlder={hasMoreOlder}
