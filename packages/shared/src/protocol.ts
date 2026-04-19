@@ -139,6 +139,52 @@ export interface RoomDeletedEvent {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
+// room mgmt — reserved event names (wave1 scaffold). Payloads intentionally
+// left as `{}` stubs; the owner agents fill them in their feature branches.
+// Names are fixed here so parallel agents don't collide on wire schema.
+//   agent A: role.changed / member.kicked / member.banned / member.unbanned
+//   agent B: invitation.sent / invitation.accepted / invitation.declined
+// ──────────────────────────────────────────────────────────────────────────
+
+// TODO(agent-A): fill payload — REQ-??? (owner/admin role change broadcast).
+export interface RoomRoleChangedEvent {
+  type: "room.role.changed";
+}
+
+// TODO(agent-A): fill payload — REQ-??? (member kicked from room).
+export interface RoomMemberKickedEvent {
+  type: "room.member.kicked";
+}
+
+// TODO(agent-A): fill payload — REQ-??? (member banned from room).
+export interface RoomMemberBannedEvent {
+  type: "room.member.banned";
+}
+
+// TODO(agent-A): fill payload — REQ-??? (member unbanned from room).
+export interface RoomMemberUnbannedEvent {
+  type: "room.member.unbanned";
+}
+
+// TODO(agent-B): fill payload — REQ-??? (invitation sent to user).
+export interface RoomInvitationSentEvent {
+  type: "room.invitation.sent";
+}
+
+// TODO(agent-B): fill payload — REQ-??? (invitation accepted by invitee).
+export interface RoomInvitationAcceptedEvent {
+  type: "room.invitation.accepted";
+}
+
+// TODO(agent-B): fill payload — REQ-??? (invitation declined by invitee).
+export interface RoomInvitationDeclinedEvent {
+  type: "room.invitation.declined";
+}
+
+// Note: `message.reply.added` is intentionally NOT reserved — replies reuse
+// the existing `message.new` broadcast with `replyToId` populated.
+
+// ──────────────────────────────────────────────────────────────────────────
 // Socket.IO event maps — feed to `new Server<ClientToServerEvents, ServerToClientEvents>`
 // ──────────────────────────────────────────────────────────────────────────
 
@@ -152,6 +198,14 @@ export interface ServerToClientEvents {
   "friend.request.accepted": (evt: FriendRequestAcceptedEvent) => void;
   "room.member.joined": (evt: RoomMemberJoinedEvent) => void;
   "room.deleted": (evt: RoomDeletedEvent) => void;
+  // reserved — wave1 scaffold (agents A/B fill payloads in feature branches).
+  "room.role.changed": (evt: RoomRoleChangedEvent) => void;
+  "room.member.kicked": (evt: RoomMemberKickedEvent) => void;
+  "room.member.banned": (evt: RoomMemberBannedEvent) => void;
+  "room.member.unbanned": (evt: RoomMemberUnbannedEvent) => void;
+  "room.invitation.sent": (evt: RoomInvitationSentEvent) => void;
+  "room.invitation.accepted": (evt: RoomInvitationAcceptedEvent) => void;
+  "room.invitation.declined": (evt: RoomInvitationDeclinedEvent) => void;
 }
 
 export interface ClientToServerEvents {

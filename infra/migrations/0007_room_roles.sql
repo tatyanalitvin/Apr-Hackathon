@@ -1,0 +1,3 @@
+-- reserved for feat/room-roles (agent A), do not edit on main
+-- slot holds roles/kicks/bans schema (room_role enum, room_ban table, etc.).
+-- wave1 scaffold only — agent A fills the DDL on their branch.

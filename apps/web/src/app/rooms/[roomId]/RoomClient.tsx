@@ -14,7 +14,7 @@ import type {
 import { RequireSession } from "@/components/chat/RequireSession";
 import { Header } from "@/components/chat/Header";
 import { RoomList, type RoomListItem } from "@/components/chat/RoomList";
-import { RoomSettingsModal } from "@/components/chat/RoomSettingsModal";
+import { ManageRoomModal } from "@/components/chat/manage-room/ManageRoomModal";
 import { MemberList, type MemberListItem } from "@/components/chat/MemberList";
 import { MessageList } from "@/components/chat/MessageList";
 import { MessageComposer } from "@/components/chat/MessageComposer";
@@ -490,7 +490,7 @@ function RoomContent({ roomId }: { roomId: string }) {
               }
             />
             {settingsRole !== null ? (
-              <RoomSettingsModal
+              <ManageRoomModal
                 roomId={roomId}
                 roomName={currentRoom?.name ?? roomId}
                 role={settingsRole}

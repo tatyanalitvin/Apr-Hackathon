@@ -1,0 +1,3 @@
+-- reserved for feat/invitations (agent B), do not edit on main
+-- slot holds room_invitation table + status enum + indexes.
+-- wave1 scaffold only — agent B fills the DDL on their branch.
