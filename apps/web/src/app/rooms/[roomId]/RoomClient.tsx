@@ -179,7 +179,7 @@ function RoomContent({ roomId }: { roomId: string }) {
     <div className="h-dvh grid grid-cols-1 grid-rows-[auto_1fr_auto] lg:grid-cols-[16rem_1fr_18rem] lg:grid-rows-[auto_1fr]">
       <Header className="lg:col-span-3" />
       <nav className="hidden lg:block border-r min-h-0">
-        <RoomList rooms={displayedRooms} currentRoomId={roomId} />
+        <RoomList rooms={displayedRooms} currentRoomId={roomId} onRoomCreated={refreshMyRooms} />
       </nav>
       <main className="flex flex-col min-h-0 overflow-hidden">
         <div className="border-b px-4 py-2 text-sm font-semibold">#{roomId}</div>
@@ -198,7 +198,7 @@ function RoomContent({ roomId }: { roomId: string }) {
       <div className="lg:hidden contents">
         <details className="border-t">
           <summary className="px-4 py-2 text-sm font-medium cursor-pointer">Rooms</summary>
-          <RoomList rooms={displayedRooms} currentRoomId={roomId} />
+          <RoomList rooms={displayedRooms} currentRoomId={roomId} onRoomCreated={refreshMyRooms} />
         </details>
         <details className="border-t">
           <summary className="px-4 py-2 text-sm font-medium cursor-pointer">Members ({SEEDED_MEMBERS.length})</summary>

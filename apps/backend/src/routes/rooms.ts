@@ -224,6 +224,7 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
         name: room.name,
         kind: room.kind,
         visibility: room.visibility,
+        ownerId: room.ownerId,
         lastReadSeq: roomMember.lastReadSeq,
         headSeq: messageSeq.seq,
         lastActivityAt: sql<Date | null>`MAX(${message.createdAt})`,
@@ -236,11 +237,17 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
       .groupBy(room.id, roomMember.lastReadSeq, messageSeq.seq)
       .orderBy(sql`MAX(${message.createdAt}) DESC NULLS LAST`, asc(room.name));
 
+    // S2 room-mgmt — expose ownerId so the web can gate the Rename/Delete
+    // settings controls on owner === session.user.id without a second round
+    // trip. DM rows (ownerId may be non-null after recent DM seeding) still
+    // reject modify via their dedicated 403 path; the UI hides settings on
+    // kind === "dm" regardless.
     const payload = rows.map((r) => ({
       id: r.id,
       name: r.name,
       kind: r.kind,
       visibility: r.visibility,
+      ownerId: r.ownerId,
       lastReadSeq: r.lastReadSeq.toString(),
       roomHeadSeq: (r.headSeq ?? 0n).toString(),
     }));
