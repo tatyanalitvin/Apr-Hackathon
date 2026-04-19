@@ -91,3 +91,43 @@ export const createDmSchema = z.object({
   userId: z.string().min(1),
 });
 export type CreateDmInput = z.infer<typeof createDmSchema>;
+
+// ──────────────────────────────────────────────────────────────────────────
+// Rooms — create (§2.4 / REQ-021, REQ-022, REQ-023, REQ-015).
+// Binding spec: docs/specs/s1-rooms.md §4 R2/R3/R15.
+// ──────────────────────────────────────────────────────────────────────────
+
+// REQ-021: 3–64 chars, alphanumerics + space/underscore/hyphen, trimmed, NFC.
+// REQ-022: description optional, <=500 chars, NFC, control-characters stripped.
+export const createRoomSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(3)
+    .max(64)
+    .regex(/^[A-Za-z0-9 _-]+$/)
+    .transform((s) => s.normalize("NFC")),
+  description: z
+    .string()
+    .max(500)
+    .optional()
+    .transform((s) =>
+      s
+        ?.normalize("NFC")
+        .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, ""),
+    ),
+});
+export type CreateRoomInput = z.infer<typeof createRoomSchema>;
+
+// REQ-015 — enumerated response keys. `kind` intentionally omitted (this
+// endpoint only creates kind='group'; future DM/private endpoints have their
+// own response schemas). See docs/specs/s1-rooms.md §4 R15 rationale.
+export const roomCreateResponseSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  visibility: z.literal("public"),
+  ownerId: z.string(),
+  createdAt: z.string().datetime(),
+});
+export type RoomCreateResponse = z.infer<typeof roomCreateResponseSchema>;
