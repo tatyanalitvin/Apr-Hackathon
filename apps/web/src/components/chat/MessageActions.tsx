@@ -13,6 +13,8 @@
 import { useState } from "react";
 
 export interface MessageActionsProps {
+  // REQ-212 — onEdit may be omitted by admin-delete callers (who can't
+  // edit another author's row). Authors still pass onEdit; admins omit it.
   onEdit?: () => void;
   onDelete?: () => void;
   onReply?: () => void;

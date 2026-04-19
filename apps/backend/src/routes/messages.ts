@@ -30,6 +30,7 @@ import {
   message,
   messageSeq,
   room,
+  roomMember,
   user,
   type Message,
 } from "@ai-herders/shared/schema";
@@ -669,8 +670,39 @@ export async function messagesRoutes(app: FastifyInstance): Promise<void> {
       if (!target || target.roomId !== roomId) {
         return reply.status(404).send({ error: "message_not_found" });
       }
-      if (target.authorId !== ctx.userId) {
-        return reply.status(403).send({ error: "not_message_author" });
+      // REQ-212 — v3 §2.5.5 extends delete to room admins in group rooms.
+      // Author path short-circuits the extra lookup. For non-authors, the
+      // gate is: room.kind='group' AND caller.role ∈ {owner, admin}. DMs
+      // fall through (v3 §2.5.1 — no admin concept) and 403. Error code
+      // stays `not_message_author` so existing clients keep working.
+      const isAuthor = target.authorId === ctx.userId;
+      let deletedByRole: "author" | "admin" = "author";
+      if (!isAuthor) {
+        const [roomRow] = await db
+          .select({ kind: room.kind })
+          .from(room)
+          .where(eq(room.id, roomId))
+          .limit(1);
+        let allowed = false;
+        if (roomRow?.kind === "group") {
+          const [memberRow] = await db
+            .select({ role: roomMember.role })
+            .from(roomMember)
+            .where(
+              and(
+                eq(roomMember.roomId, roomId),
+                eq(roomMember.userId, ctx.userId),
+              ),
+            )
+            .limit(1);
+          if (memberRow?.role === "owner" || memberRow?.role === "admin") {
+            allowed = true;
+            deletedByRole = "admin";
+          }
+        }
+        if (!allowed) {
+          return reply.status(403).send({ error: "not_message_author" });
+        }
       }
       // Idempotent re-delete — no-op 204. Don't re-broadcast; subscribers
       // already saw the first `message.deleted` fanout.
@@ -704,6 +736,7 @@ export async function messagesRoutes(app: FastifyInstance): Promise<void> {
         roomHeadSeq: roomHeadSeq.toString(),
         messageId,
         deletedAt: deletedAt.toISOString(),
+        deletedByRole,
       };
       request.server.io.to(roomId).emit("message.deleted", evt);
 

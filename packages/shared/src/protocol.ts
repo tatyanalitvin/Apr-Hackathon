@@ -95,6 +95,12 @@ export interface MessageEditedEvent {
   editedAt: string;
 }
 
+// REQ-212 — v3 §2.5.5 admin delete. `deletedByRole` lets clients render a
+// distinct tombstone ("Removed by moderator") without a second RTT.
+// "author"  → message author soft-deleted their own row (v3 §2.5.5 first bullet)
+// "admin"   → room owner/admin soft-deleted another user's row (group-only)
+export type MessageDeletedByRole = "author" | "admin";
+
 export interface MessageDeletedEvent {
   type: "message.deleted";
   roomId: string;
@@ -102,6 +108,7 @@ export interface MessageDeletedEvent {
   roomHeadSeq: string;
   messageId: string;
   deletedAt: string;
+  deletedByRole: MessageDeletedByRole;
 }
 
 export interface PresenceStateEvent {

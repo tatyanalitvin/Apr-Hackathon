@@ -5,7 +5,7 @@
 **Owner (human)**: Tatianka
 **Owner (agent)**: Agent A (Claude Code Opus 4.7)
 **Binding source**: `/Users/littlewin/Work/2026-Apr-Hackaton/task/2026_04_18_AI_herders_jam_-_requirements_v3.docx` §2.4.7 (owner/admin roles) + §2.4.8 (room ban rules) + §4.5 Manage Room modal (Appendix A wireframe). The v4 REQ catalog (`/task/Chat_Server_Requirements_v4.md` §5.5/§5.6 REQ-090..REQ-095) mirrors these rules and is cross-referenced in §10 for the role matrix — v4 IS NOT binding (the brief is explicit: `/task/*.md` files are AI-generated prep, REQ-ID hooks only).
-**Tracking IDs (invented, per brief)**: REQ-200..REQ-211. Claimed in §4, traced by `pnpm trace` after merge.
+**Tracking IDs (invented, per brief)**: REQ-200..REQ-212. Claimed in §4, traced by `pnpm trace` after merge.
 **Sibling agents**: Agent B owns invitations (`feat/invitations`, migration 0008, `InvitationsTab.tsx`, `room.invitation.*` events). No overlap.
 
 ## 1. Why
@@ -84,6 +84,7 @@ Therefore REQ-208 is NOT verify-only: this spec IMPLEMENTS server-side `io.in(ta
   - All destructive actions (`Ban`, `Remove from room`) open a confirm modal per v3.docx §4.5 ("administrative actions ... implemented through modal dialogs"). Ban modal also exposes an optional `reason` textarea (≤ 500 chars) posted as the `reason` field to REQ-204 — no, actually REQ-203 kick-as-ban path doesn't take a reason; for reason-carrying bans the user uses the separate pre-emptive ban flow. Decision locked: `Remove from room` does REQ-203 (reason=null); `Ban` does REQ-204 with reason. See §8 Q5.
 - [ ] **REQ-210** (AdminsTab): list of admins (fetched via the existing `GET /rooms/:id/members` roster endpoint at [apps/backend/src/routes/rooms.ts:330](../../apps/backend/src/routes/rooms.ts#L330), extended to include `role` — this is a single-column addition, not a breaking change, see §5 for rationale). Owner row is labelled "Owner (cannot lose admin rights)" with no action button. Admin rows show `[Remove admin]` button for owner viewer only; hidden for admin/member viewers (belt and braces — REQ-202's server gate is authoritative). Click opens a confirm modal per §4.5; POSTs to REQ-202. On 409 (`cannot_demote_owner`) surface a toast.
 - [ ] **REQ-211** (BannedTab): Table columns `Username | Banned by | Date/time | Actions ([Unban])`. Owner/admin viewer only — if a plain member somehow reaches this tab (see §8 Q2), show an empty-state placeholder "Only admins can view the ban list." Fetches REQ-206. `[Unban]` opens a confirm modal; success triggers optimistic row removal + refetch. On `room.member.unbanned` socket event (receive path — any client open on this tab reacts), the row is removed live.
+- [ ] **REQ-212** (Admin message delete — v3 §2.5.5): Extends `DELETE /api/v1/rooms/:id/messages/:msgId` to allow room owners/admins to soft-delete other members' messages in group rooms. DMs (v3 §2.5.1) are excluded — no admin concept. Broadcast payload gains `deletedByRole ∈ {author, admin}` so clients can render a "Removed by moderator" tombstone without a round trip. Frontend MessageActions reveals Delete on non-own messages when viewer role is owner/admin and room.kind='group'.
 
 ## 5. Design notes
 
@@ -196,7 +197,7 @@ All six resolved 2026-04-19 (human sign-off):
 - [ ] `pnpm --filter backend test:run` green (all REQ-200..REQ-208 branches exercised).
 - [ ] `pnpm --filter web test:run` green (MembersTab/AdminsTab/BannedTab role-gated render tests).
 - [ ] `pnpm typecheck` per workspace green.
-- [ ] `pnpm trace` reports REQ-200..REQ-211 covered.
+- [ ] `pnpm trace` reports REQ-200..REQ-212 covered.
 - [ ] Manual dual-browser smoke completed (§6 task 8); results recorded in this report + FOLLOWUPS.md.
 - [ ] Modal layout matches Appendix A tab labels + column headers (not pixel-perfect — shadcn defaults are fine).
 - [ ] `FOLLOWUPS.md` updated with any kill-switch cuts (brief §Kill-switch: demote → banned-by-column → pre-emptive-ban, in that order).

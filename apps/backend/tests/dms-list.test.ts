@@ -110,7 +110,11 @@ describe("R11 GET /api/v1/dms listing", () => {
     for (const dm of res.body.dms) {
       expect(dm.frozen).toBe(false);
       expect(dm.frozenReason).toBeNull();
-      expect(dm.unreadCount).toBe(0);
+      // REQ-214 — unreadCount is now real math: head - lastReadSeq. Alice
+      // sent in both rooms so head=1 each; POST /messages does not
+      // auto-advance the sender's lastReadSeq (client does via /read),
+      // so Alice sees 1 unread per room until the next /read call.
+      expect(dm.unreadCount).toBe(1);
       expect(dm.other.deleted).toBe(false);
       expect(typeof dm.other.username).toBe("string");
       expect(dm.lastMessage).not.toBeNull();
