@@ -24,6 +24,11 @@ Rationale: heavy smoke checks (docker compose --build, full browser flow) stall 
 
 ## S2 → S3
 
+- **Room moderation per-action rate limit.** `feat/room-roles` ships REQ-201..REQ-206 handlers (promote/demote/kick/ban/unban/ban-list) without a per-actor rate limit. Accepted deviation — approved 2026-04-19 during spec review of `docs/specs/s2-moderation.md` §5 because the project uses hand-rolled Redis INCR bucket helpers (`lib/room-create-rate-limit.ts`, `room-join-rate-limit`, `room-mgmt-rate-limit`, `friend-rate-limit`) and writing a sixth dual-tier helper + test matrix is ~4h that does not improve the demo. Owner/admin DB-query gates are the only defense; a compromised admin session can burn through moderation actions at network speed.
+  - **Fix shape**: add `apps/backend/src/lib/room-moderation-rate-limit.ts` mirroring the `room-mgmt-rate-limit.ts` dual-tier pattern. Suggested caps: burst 10 actions/60s + sustained 60 actions/hour, keyed `${actorUserId}:${roomId}:moderation`. Call the helper at the top of each moderation handler before any DB read, same ordering discipline as `rooms.ts` rename/delete.
+  - **Location**: new file `apps/backend/src/lib/room-moderation-rate-limit.ts`; call sites in the Agent-A moderation routes (`rooms.ts` moderation block or `room-moderation.ts`).
+  - **Raised**: 2026-04-19 during `feat/room-roles` spec review.
+
 - **Attachment orphan GC.** `packages/shared/src/schema.ts` keeps `attachment.messageId` nullable so files can be uploaded in step 1 of a 2-step "upload → send message with references" flow. If step 2 never happens (client crash, abandoned tab, rejected send), the file sits in `UPLOAD_DIR` + the DB row lingers forever. At 300 concurrent users for 24h it's negligible; at S3-hardening time we want a sweep.
   - **Location**: `packages/shared/src/schema.ts` attachment table (`TODO(S3-GC)` comment on the `messageId` column).
   - **Fix shape**: a periodic Fastify task (or a Redis-scheduled job) that deletes rows + files where `messageId IS NULL AND createdAt < now() - INTERVAL '1 hour'`.
