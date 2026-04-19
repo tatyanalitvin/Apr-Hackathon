@@ -37,6 +37,8 @@ The v3 brief §2.2 ("GDPR export") and the submission-gate checklist both requir
 - **Substitution**: `apps/backend/src/lib/users.ts` exports `DELETED_USER_DISPLAY = "[deleted user]"`. Applied in `toMessagePayload` (group history) and in the DM list peer-map + lastMessage serializer.
 - **Deleted-account login guard**: pre-auth wrapper on `/api/auth/sign-in/email` — if the user row exists with `deletedAt NOT NULL`, returns 403 before better-auth's password check runs.
 - **UI**: new page `apps/web/src/app/settings/account/page.tsx` with Export + Delete sections; `apps/web/src/lib/account-api.ts` holds the `fetch` helpers.
+- **Delete confirmation UX (canonical)**: **password-confirm** dialog. The user clicks "Delete my account…", a modal opens asking for the current password, and submission posts `DELETE /api/v1/users/me { password }`. A "type your username / type DELETE" variant was floated in early agent briefs but rejected — password re-auth is strictly stronger (proves identity, not just intent) and reuses the better-auth password check the backend already runs. Any doc still referencing type-to-confirm is stale; the dialog body and test expectations are the source of truth.
+- **Export filename (observed)**: the backend sets `Content-Disposition: attachment; filename="user-data-export-<username>-<ts>.json"` (`apps/backend/src/routes/account.ts`). Client-side, `apps/web/src/lib/account-api.ts` parses this header when CORS exposes it; when it doesn't, the client falls back to a generated name with the same `user-data-export-` prefix. Tracking under "Export download uses client-generated filename" in `docs/FOLLOWUPS.md` (CORS header exposure fix).
 
 ## 6. Tasks
 
