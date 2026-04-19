@@ -246,6 +246,38 @@ export async function messagesRoutes(app: FastifyInstance): Promise<void> {
         }
       }
 
+      // REQ-110 (s2-replies R2, R3) — parent validation + cross-room block.
+      // Collapsed error code `reply_parent_invalid` covers BOTH "no such id"
+      // and "parent belongs to a different room" (Q2); a distinct code would
+      // leak an existence oracle. Fetched BEFORE seq allocation so a bad id
+      // never consumes a seq. One SELECT — indexed on PK; O(1) per send.
+      let parentRow:
+        | {
+            id: string;
+            roomId: string;
+            authorUsername: string;
+            body: string;
+            deletedAt: Date | null;
+          }
+        | null = null;
+      if (request.body.replyToId) {
+        const [p] = await db
+          .select({
+            id: message.id,
+            roomId: message.roomId,
+            authorUsername: message.authorUsername,
+            body: message.body,
+            deletedAt: message.deletedAt,
+          })
+          .from(message)
+          .where(eq(message.id, request.body.replyToId))
+          .limit(1);
+        if (!p || p.roomId !== roomId) {
+          return reply.status(400).send({ error: "reply_parent_invalid" });
+        }
+        parentRow = p;
+      }
+
       const normalized = normalizeBody(request.body.body);
       if (normalized.length === 0) {
         // Post-normalization the body could be entirely stripped (pure control
@@ -291,7 +323,7 @@ export async function messagesRoutes(app: FastifyInstance): Promise<void> {
         throw err;
       }
 
-      const payload = toMessagePayload(inserted);
+      const payload = toMessagePayload(inserted, false, parentRow);
       if (attachmentIds.length > 0 && !deduped) {
         payload.attachments = await loadAttachmentPayloads(inserted.id);
       }
