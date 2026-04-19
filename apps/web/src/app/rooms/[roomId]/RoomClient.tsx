@@ -14,8 +14,14 @@ import { MemberList } from "@/components/chat/MemberList";
 import { MessageList } from "@/components/chat/MessageList";
 import { MessageComposer } from "@/components/chat/MessageComposer";
 import { useSession } from "@/lib/auth-client";
-import { createChatSocket, createChatApi, type ChatSocket } from "@/lib/socket";
+import {
+  attachPresenceBus,
+  createChatSocket,
+  createChatApi,
+  type ChatSocket,
+} from "@/lib/socket";
 import { createWatermark } from "@/lib/watermark";
+import { useIdleDetector, type IdleState } from "@/lib/use-idle-detector";
 
 const INITIAL_FIRST_INDEX = 1_000_000;
 const HISTORY_PAGE_SIZE = 50;
@@ -25,21 +31,30 @@ const HISTORY_PAGE_SIZE = 50;
 // caller has no other memberships.
 const FALLBACK_ROOMS: RoomListItem[] = [{ id: "general", name: "general" }];
 
-// Seeded member list (real backend presence fills this in S2).
-const SEEDED_MEMBERS = [
-  { id: "user-alice", username: "alice", displayName: "Alice", online: true },
-  { id: "user-bob", username: "bob", displayName: "Bob", online: true },
-  { id: "user-carol", username: "carol", displayName: "Carol", online: false },
+// Seeded non-self member list (the caller themselves is spliced in at render
+// so their own pill renders with the real userId for live presence).
+const SEEDED_OTHER_MEMBERS = [
+  { id: "user-alice", username: "alice", displayName: "Alice" },
+  { id: "user-bob", username: "bob", displayName: "Bob" },
+  { id: "user-carol", username: "carol", displayName: "Carol" },
 ];
 
 function RoomContent({ roomId }: { roomId: string }) {
   const { data } = useSession();
   const userId = data?.user?.id ?? "anon";
+  const sessionUsername =
+    data?.user && "username" in data.user
+      ? (data.user as { username: string }).username
+      : undefined;
+  const sessionDisplayName = data?.user?.name;
 
   const [messages, setMessages] = useState<MessagePayload[]>([]);
   const [firstItemIndex, setFirstItemIndex] = useState(INITIAL_FIRST_INDEX);
   const [hasMoreOlder, setHasMoreOlder] = useState(true);
   const [sidebarRooms, setSidebarRooms] = useState<RoomListItem[] | null>(null);
+  // REQ-103 — track the local idle state so the Header self-pill can render
+  // it before the server round-trips `presence.changed` back.
+  const [selfPresence, setSelfPresence] = useState<IdleState>("online");
 
   const apiRef = useRef(createChatApi());
   const socketRef = useRef<ChatSocket | null>(null);
@@ -84,6 +99,10 @@ function RoomContent({ roomId }: { roomId: string }) {
     const socket = createChatSocket();
     socketRef.current = socket;
 
+    // REQ-105 — pipe `presence.changed` into presenceStore so every
+    // PresencePill mounted under this room picks up the transition.
+    const detachPresence = attachPresenceBus(socket);
+
     const onMessageNew = (evt: MessageNewEvent) => {
       if (evt.roomId !== roomId) return;
       void watermarkRef.current.ingest(evt);
@@ -120,6 +139,7 @@ function RoomContent({ roomId }: { roomId: string }) {
 
     return () => {
       cancelled = true;
+      detachPresence();
       socket.off("message.new", onMessageNew);
       socket.off("room.member.joined", onMemberJoined);
       socket.emit("room.unsubscribe", roomId);
@@ -127,6 +147,16 @@ function RoomContent({ roomId }: { roomId: string }) {
       socketRef.current = null;
     };
   }, [roomId, refreshMyRooms]);
+
+  // REQ-103 — local idle detector. Transitions go both to local state (so
+  // the Header self-pill flips instantly) and out through the socket as
+  // `presence.setState`, which the backend fans out to this user's rooms.
+  useIdleDetector(
+    useCallback((state: IdleState) => {
+      setSelfPresence(state);
+      socketRef.current?.emit("presence.setState", { state });
+    }, []),
+  );
 
   const loadOlder = useCallback(async () => {
     const oldest = messages[0];
@@ -175,9 +205,25 @@ function RoomContent({ roomId }: { roomId: string }) {
       : [...base, { id: roomId, name: roomId }];
   })();
 
+  // Splice the caller onto the top of the member list with their real id so
+  // the self-pill is driven by the live presenceStore. Seeded alice/bob/carol
+  // remain for visual density — their ids are placeholders until a real
+  // room-member roster endpoint lands.
+  const displayedMembers =
+    data?.user?.id
+      ? [
+          {
+            id: data.user.id,
+            username: sessionUsername ?? "me",
+            displayName: sessionDisplayName ?? "Me",
+          },
+          ...SEEDED_OTHER_MEMBERS,
+        ]
+      : SEEDED_OTHER_MEMBERS;
+
   return (
     <div className="h-dvh grid grid-cols-1 grid-rows-[auto_1fr_auto] lg:grid-cols-[16rem_1fr_18rem] lg:grid-rows-[auto_1fr]">
-      <Header className="lg:col-span-3" />
+      <Header className="lg:col-span-3" selfPresence={selfPresence} />
       <nav className="hidden lg:block border-r min-h-0">
         <RoomList rooms={displayedRooms} currentRoomId={roomId} />
       </nav>
@@ -192,7 +238,7 @@ function RoomContent({ roomId }: { roomId: string }) {
         <MessageComposer userId={userId} roomId={roomId} onSend={handleSend} onUpload={handleUpload} />
       </main>
       <aside className="hidden lg:block border-l min-h-0">
-        <MemberList members={SEEDED_MEMBERS} />
+        <MemberList members={displayedMembers} />
       </aside>
 
       <div className="lg:hidden contents">
@@ -201,8 +247,8 @@ function RoomContent({ roomId }: { roomId: string }) {
           <RoomList rooms={displayedRooms} currentRoomId={roomId} />
         </details>
         <details className="border-t">
-          <summary className="px-4 py-2 text-sm font-medium cursor-pointer">Members ({SEEDED_MEMBERS.length})</summary>
-          <MemberList members={SEEDED_MEMBERS} />
+          <summary className="px-4 py-2 text-sm font-medium cursor-pointer">Members ({displayedMembers.length})</summary>
+          <MemberList members={displayedMembers} />
         </details>
       </div>
     </div>

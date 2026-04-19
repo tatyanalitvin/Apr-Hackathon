@@ -15,7 +15,7 @@
 // "one tab idle, one active" flap from briefly flagging the user away.
 
 import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
-import { createIdleDetector } from "./use-idle-detector";
+import { createIdleDetector, type IdleState } from "./use-idle-detector";
 
 describe("REQ-103 idle detector core timer semantics", () => {
   beforeEach(() => {
