@@ -2,12 +2,13 @@
 // the Fastify backend. Export triggers a browser download (Blob → anchor
 // click); delete posts a password and signals success/failure for the
 // calling component to route back to /register.
-import { BACKEND_URL } from "./backend";
+import { BACKEND_URL, csrfHeaders } from "./backend";
 
 export async function downloadAccountExport(): Promise<void> {
   const res = await fetch(`${BACKEND_URL}/api/v1/users/me/export`, {
     method: "POST",
     credentials: "include",
+    headers: csrfHeaders(),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -35,7 +36,7 @@ export async function deleteAccount(password: string): Promise<void> {
   const res = await fetch(`${BACKEND_URL}/api/v1/users/me`, {
     method: "DELETE",
     credentials: "include",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...csrfHeaders() },
     body: JSON.stringify({ password }),
   });
   if (!res.ok) {

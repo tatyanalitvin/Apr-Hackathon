@@ -1,5 +1,24 @@
 import type { MessagePayload, HistorySliceResponse } from "@ai-herders/shared/protocol";
-import { BACKEND_URL } from "./backend";
+import { BACKEND_URL, csrfHeaders } from "./backend";
+
+// REQ-146 — merge the caller's headers with the CSRF echo header on mutating
+// requests. Centralised here so none of the bespoke fetch wrappers below
+// forget the token; callers still pass their own content-type / auth headers
+// unchanged.
+function withCsrf(init: RequestInit | undefined): RequestInit {
+  const method = (init?.method ?? "GET").toUpperCase();
+  if (method === "GET" || method === "HEAD" || method === "OPTIONS") {
+    return { credentials: "include", ...init };
+  }
+  return {
+    credentials: "include",
+    ...init,
+    headers: {
+      ...(init?.headers as Record<string, string> | undefined),
+      ...csrfHeaders(),
+    },
+  };
+}
 
 export interface SendMessageInput {
   body: string;
@@ -276,7 +295,7 @@ export interface ChatAPI {
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, { credentials: "include", ...init });
+  const res = await fetch(url, withCsrf(init));
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`HTTP ${res.status}: ${text || res.statusText}`);
@@ -548,13 +567,17 @@ async function invitationMutation<T>(
 ): Promise<InvitationResponse<T>> {
   let res: Response;
   try {
-    res = await fetch(url, {
-      method,
-      credentials: "include",
-      headers:
-        body !== undefined ? { "content-type": "application/json" } : undefined,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
+    res = await fetch(
+      url,
+      withCsrf({
+        method,
+        headers:
+          body !== undefined
+            ? { "content-type": "application/json" }
+            : undefined,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      }),
+    );
   } catch (err) {
     return {
       ok: false,
@@ -626,12 +649,17 @@ async function roomMutation<T>(
 ): Promise<RoomMutationResponse<T>> {
   let res: Response;
   try {
-    res = await fetch(url, {
-      method,
-      credentials: "include",
-      headers: body !== undefined ? { "content-type": "application/json" } : undefined,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
+    res = await fetch(
+      url,
+      withCsrf({
+        method,
+        headers:
+          body !== undefined
+            ? { "content-type": "application/json" }
+            : undefined,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      }),
+    );
   } catch (err) {
     return {
       ok: false,
@@ -705,12 +733,17 @@ async function moderationMutation<T>(
 ): Promise<ModerationMutationResponse<T>> {
   let res: Response;
   try {
-    res = await fetch(url, {
-      method,
-      credentials: "include",
-      headers: body !== undefined ? { "content-type": "application/json" } : undefined,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
+    res = await fetch(
+      url,
+      withCsrf({
+        method,
+        headers:
+          body !== undefined
+            ? { "content-type": "application/json" }
+            : undefined,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      }),
+    );
   } catch (err) {
     return {
       ok: false,
@@ -788,12 +821,17 @@ async function messageMutation<T>(
 ): Promise<MessageMutationResponse<T>> {
   let res: Response;
   try {
-    res = await fetch(url, {
-      method,
-      credentials: "include",
-      headers: body !== undefined ? { "content-type": "application/json" } : undefined,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
+    res = await fetch(
+      url,
+      withCsrf({
+        method,
+        headers:
+          body !== undefined
+            ? { "content-type": "application/json" }
+            : undefined,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      }),
+    );
   } catch (err) {
     return {
       ok: false,

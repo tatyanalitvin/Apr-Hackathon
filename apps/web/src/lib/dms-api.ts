@@ -5,7 +5,7 @@
 // friendship union type.
 
 import type { DmListItem } from "@ai-herders/shared/protocol";
-import { BACKEND_URL } from "./backend";
+import { BACKEND_URL, csrfHeaders } from "./backend";
 
 export type DmErrorCode =
   | "unauthorized"
@@ -73,7 +73,7 @@ export async function createDm(userId: string): Promise<DmResult<CreateDmResult>
     res = await fetch(`${BACKEND_URL}/api/v1/dms`, {
       method: "POST",
       credentials: "include",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...csrfHeaders() },
       body: JSON.stringify({ userId }),
     });
   } catch {

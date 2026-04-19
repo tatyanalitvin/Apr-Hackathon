@@ -11,7 +11,7 @@
 // cross-reference the outgoing list — brief rule #2.
 
 import type { SendFriendRequestInput } from "@ai-herders/shared/dto";
-import { BACKEND_URL } from "./backend";
+import { BACKEND_URL, csrfHeaders } from "./backend";
 
 export interface FriendSummary {
   userId: string;
@@ -104,6 +104,8 @@ async function request<T>(
   init?: RequestInit,
 ): Promise<Result<T>> {
   let res: Response;
+  const method = (init?.method ?? "GET").toUpperCase();
+  const isMutation = method !== "GET" && method !== "HEAD";
   try {
     res = await fetch(`${BACKEND_URL}${input}`, {
       credentials: "include",
@@ -111,6 +113,9 @@ async function request<T>(
       headers: {
         ...(init?.body ? { "content-type": "application/json" } : {}),
         ...init?.headers,
+        // REQ-146 — echo csrf_token on every mutating request. GET/HEAD are
+        // exempt server-side so we skip the header to keep the wire clean.
+        ...(isMutation ? csrfHeaders() : {}),
       },
     });
   } catch {
