@@ -79,3 +79,15 @@ export const sendFriendRequestSchema = z.union([
   }),
 ]);
 export type SendFriendRequestInput = z.infer<typeof sendFriendRequestSchema>;
+
+// ──────────────────────────────────────────────────────────────────────────
+// Direct messages (§2.4 DM = room with kind='dm'; see ADR-0007)
+// ──────────────────────────────────────────────────────────────────────────
+
+// REQ-061 find-or-create target. UserId only — REQ-052 analogue (contacts-
+// panel "start DM" already has the target userId in session state). REQ-level
+// username-based DM creation is not required; DTO stays minimal.
+export const createDmSchema = z.object({
+  userId: z.string().min(1),
+});
+export type CreateDmInput = z.infer<typeof createDmSchema>;

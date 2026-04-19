@@ -114,12 +114,23 @@ export const room = pgTable(
     kind: roomKind("kind").notNull().default("group"),
     visibility: roomVisibility("visibility").notNull().default("public"),
     ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
+    // s2-dms R2 / ADR-0007 — canonical "userALow:userBHigh" key for DM
+    // rooms. Populated by `POST /api/v1/dms`; NULL on group rooms (the
+    // partial unique index below excludes them). The key is sorted
+    // lexicographically by the caller so idempotent creates are an
+    // ON CONFLICT at the DB boundary.
+    dmPairKey: text("dm_pair_key"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
   (t) => ({
     visibilityIdx: index("room_visibility_idx").on(t.visibility, t.deletedAt),
     kindIdx: index("room_kind_idx").on(t.kind),
+    // Partial unique index — enforces one-DM-per-pair only when kind='dm'.
+    // Group rooms may freely carry NULL dm_pair_key without colliding.
+    dmPairUq: uniqueIndex("room_dm_pair_uq")
+      .on(t.dmPairKey)
+      .where(sql`${t.kind} = 'dm'`),
   }),
 );
 

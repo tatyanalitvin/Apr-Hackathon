@@ -148,3 +148,26 @@ export interface HistorySliceResponse {
   roomHeadSeq: string;
   messages: MessagePayload[];
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// DM listing (s2-dms R11). DMs reuse `room` rows with kind='dm' — this is
+// the wire shape for `GET /api/v1/dms`. `frozen` + `frozenReason` are
+// computed server-side at read time from friendship + user_block + counterpart
+// deletion state (see ADR-0007).
+// ──────────────────────────────────────────────────────────────────────────
+
+export type DmFrozenReason = "not_friends" | "blocked" | "user_deleted";
+
+export interface DmListItem {
+  roomId: string;
+  other: {
+    userId: string;
+    username: string;
+    name: string;
+    deleted: boolean;
+  };
+  lastMessage: MessagePayload | null;
+  unreadCount: number;
+  frozen: boolean;
+  frozenReason: DmFrozenReason | null;
+}
