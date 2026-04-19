@@ -27,7 +27,10 @@ import { BannedTab } from "./BannedTab";
 import { InvitationsTab } from "./InvitationsTab";
 import { SettingsTab } from "./SettingsTab";
 
-type Role = "owner" | "member";
+// REQ-209/210/211 open Q2 — Role union widens to include 'admin'. The
+// moderation tabs are visible when role !== 'member'; plain members see only
+// the Settings (leave-room) body, matching the prior shell behaviour.
+type Role = "owner" | "admin" | "member";
 
 interface ManageRoomModalProps {
   roomId: string;
@@ -45,7 +48,7 @@ export function ManageRoomModal({
   onLeftOrDeleted,
 }: ManageRoomModalProps) {
   const [open, setOpen] = useState(false);
-  const isOwner = role === "owner";
+  const canModerate = role !== "member";
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -63,13 +66,13 @@ export function ManageRoomModal({
         <DialogHeader>
           <DialogTitle>#{roomName}</DialogTitle>
           <DialogDescription>
-            {isOwner
+            {canModerate
               ? "Manage members, invitations, and room settings."
               : "Leave this room. You can rejoin later from Browse."}
           </DialogDescription>
         </DialogHeader>
 
-        {isOwner ? (
+        {canModerate ? (
           <Tabs defaultValue="members" className="mt-2">
             <TabsList>
               <TabsTrigger value="members">Members</TabsTrigger>
@@ -79,13 +82,13 @@ export function ManageRoomModal({
               <TabsTrigger value="settings">Settings</TabsTrigger>
             </TabsList>
             <TabsContent value="members" className="mt-4">
-              <MembersTab roomId={roomId} />
+              <MembersTab roomId={roomId} roomName={roomName} viewerRole={role} />
             </TabsContent>
             <TabsContent value="admins" className="mt-4">
-              <AdminsTab roomId={roomId} />
+              <AdminsTab roomId={roomId} viewerRole={role} />
             </TabsContent>
             <TabsContent value="banned" className="mt-4">
-              <BannedTab roomId={roomId} />
+              <BannedTab roomId={roomId} viewerRole={role} />
             </TabsContent>
             <TabsContent value="invitations" className="mt-4">
               <InvitationsTab roomId={roomId} />

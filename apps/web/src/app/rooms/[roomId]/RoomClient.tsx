@@ -443,9 +443,16 @@ function RoomContent({ roomId }: { roomId: string }) {
 
   // REQ-087/089 — surface the settings modal only when we have a membership
   // row for this room and it's a group room (DMs mutate via their own flow).
+  // REQ-209/210 — prefer the fetched role from /rooms/me so promoted admins
+  // see the moderation tabs; fall back to ownerId comparison for older
+  // backends that don't yet emit `role`.
   const currentRoom = myRooms?.find((r) => r.id === roomId) ?? null;
-  const settingsRole: "owner" | "member" | null = (() => {
+  const settingsRole: "owner" | "admin" | "member" | null = (() => {
     if (!currentRoom || currentRoom.kind !== "group") return null;
+    if (currentRoom.role === "owner" || currentRoom.role === "admin") {
+      return currentRoom.role;
+    }
+    if (currentRoom.role === "member") return "member";
     if (data?.user?.id && currentRoom.ownerId === data.user.id) return "owner";
     return "member";
   })();

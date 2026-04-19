@@ -13,7 +13,9 @@ import { toast } from "sonner";
 import { createChatApi } from "@/lib/socket";
 import type { RoomMutationError } from "@/lib/chat-api";
 
-type Role = "owner" | "member";
+// REQ-210 widens Role to cover promoted admins; admin viewers get the leave
+// affordance (same as member) — rename/delete stays owner-only per REQ-087/089.
+type Role = "owner" | "admin" | "member";
 
 interface SettingsTabProps {
   roomId: string;

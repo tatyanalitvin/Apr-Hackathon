@@ -240,6 +240,7 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
         kind: room.kind,
         visibility: room.visibility,
         ownerId: room.ownerId,
+        role: roomMember.role,
         lastReadSeq: roomMember.lastReadSeq,
         mutedUntil: roomMember.mutedUntil,
         headSeq: messageSeq.seq,
@@ -250,20 +251,20 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
       .leftJoin(messageSeq, eq(messageSeq.roomId, roomMember.roomId))
       .leftJoin(message, eq(message.roomId, roomMember.roomId))
       .where(eq(roomMember.userId, ctx.userId))
-      .groupBy(room.id, roomMember.lastReadSeq, roomMember.mutedUntil, messageSeq.seq)
+      .groupBy(room.id, roomMember.role, roomMember.lastReadSeq, roomMember.mutedUntil, messageSeq.seq)
       .orderBy(sql`MAX(${message.createdAt}) DESC NULLS LAST`, asc(room.name));
 
-    // S2 room-mgmt — expose ownerId so the web can gate the Rename/Delete
-    // settings controls on owner === session.user.id without a second round
-    // trip. DM rows (ownerId may be non-null after recent DM seeding) still
-    // reject modify via their dedicated 403 path; the UI hides settings on
-    // kind === "dm" regardless.
+    // REQ-209/210 — expose `role` so ManageRoomModal can gate the moderation
+    // tab visibility (owner|admin see them, member hides them) in a single
+    // /rooms/me round trip. DM rows carry role='owner' for the DM creator in
+    // the current seed path; ManageRoomModal hides on kind==='dm' anyway.
     const payload = rows.map((r) => ({
       id: r.id,
       name: r.name,
       kind: r.kind,
       visibility: r.visibility,
       ownerId: r.ownerId,
+      role: r.role,
       lastReadSeq: r.lastReadSeq.toString(),
       roomHeadSeq: (r.headSeq ?? 0n).toString(),
       mutedUntil: r.mutedUntil ? r.mutedUntil.toISOString() : null,
@@ -373,11 +374,14 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(403).send({ error: "room_not_member" });
       }
 
+      // REQ-209 — additive `role` on each roster row so MembersTab/AdminsTab
+      // can render role badges + gate action buttons without a second fetch.
       const members = await db
         .select({
           id: user.id,
           username: user.username,
           displayName: user.name,
+          role: roomMember.role,
         })
         .from(roomMember)
         .innerJoin(user, eq(user.id, roomMember.userId))
