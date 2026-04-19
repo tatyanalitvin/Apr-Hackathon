@@ -585,4 +585,144 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(204).send();
     },
   );
+
+  // REQ-201 — POST /api/v1/rooms/:id/admins/:userId. Owner-only promote
+  // member→admin. Idempotent: already-admin returns {promoted:false} (silent);
+  // owner target is 409 already_owner (v3.docx §2.4.7 "owner cannot lose
+  // admin rights" — you can't re-promote an owner). Fanout on real promotions.
+  //
+  // Ordering (mirrors PATCH/DELETE above minus rate-limit — moderation RL is
+  // punted to S3 per docs/FOLLOWUPS.md): auth → resolve room → authz
+  // (owner?) → resolve target membership → state branch → UPDATE → emit.
+  app.post<{ Params: { id: string; userId: string } }>(
+    "/rooms/:id/admins/:userId",
+    async (request, reply) => {
+      const ctx = await requireFriendshipAuth(request, reply);
+      if (!ctx) return;
+
+      const { id: roomId, userId: targetUserId } = request.params;
+
+      const [target] = await db
+        .select({ id: room.id, ownerId: room.ownerId })
+        .from(room)
+        .where(eq(room.id, roomId))
+        .limit(1);
+      if (!target) {
+        return reply.status(404).send({ error: "room_not_found" });
+      }
+      if (target.ownerId !== ctx.userId) {
+        return reply.status(403).send({ error: "not_owner" });
+      }
+
+      const [membership] = await db
+        .select({ role: roomMember.role })
+        .from(roomMember)
+        .where(
+          and(
+            eq(roomMember.roomId, roomId),
+            eq(roomMember.userId, targetUserId),
+          ),
+        )
+        .limit(1);
+      if (!membership) {
+        return reply.status(404).send({ error: "user_not_member" });
+      }
+      if (membership.role === "owner") {
+        return reply.status(409).send({ error: "already_owner" });
+      }
+      if (membership.role === "admin") {
+        return reply.status(200).send({ promoted: false, role: "admin" });
+      }
+
+      await db
+        .update(roomMember)
+        .set({ role: "admin" })
+        .where(
+          and(
+            eq(roomMember.roomId, roomId),
+            eq(roomMember.userId, targetUserId),
+          ),
+        );
+
+      const changedAt = new Date().toISOString();
+      request.server.io.to(roomId).emit("room.role.changed", {
+        type: "room.role.changed",
+        roomId,
+        userId: targetUserId,
+        role: "admin",
+        changedBy: ctx.userId,
+        changedAt,
+      });
+
+      return reply.status(200).send({ promoted: true, role: "admin" });
+    },
+  );
+
+  // REQ-202 — DELETE /api/v1/rooms/:id/admins/:userId. Owner-only demote
+  // admin→member. Idempotent: already-member returns {demoted:false} (silent);
+  // owner target is 409 cannot_demote_owner (v3.docx §2.4.7 — you can't demote
+  // an owner). Fanout on real demotions.
+  app.delete<{ Params: { id: string; userId: string } }>(
+    "/rooms/:id/admins/:userId",
+    async (request, reply) => {
+      const ctx = await requireFriendshipAuth(request, reply);
+      if (!ctx) return;
+
+      const { id: roomId, userId: targetUserId } = request.params;
+
+      const [target] = await db
+        .select({ id: room.id, ownerId: room.ownerId })
+        .from(room)
+        .where(eq(room.id, roomId))
+        .limit(1);
+      if (!target) {
+        return reply.status(404).send({ error: "room_not_found" });
+      }
+      if (target.ownerId !== ctx.userId) {
+        return reply.status(403).send({ error: "not_owner" });
+      }
+
+      const [membership] = await db
+        .select({ role: roomMember.role })
+        .from(roomMember)
+        .where(
+          and(
+            eq(roomMember.roomId, roomId),
+            eq(roomMember.userId, targetUserId),
+          ),
+        )
+        .limit(1);
+      if (!membership) {
+        return reply.status(404).send({ error: "user_not_member" });
+      }
+      if (membership.role === "owner") {
+        return reply.status(409).send({ error: "cannot_demote_owner" });
+      }
+      if (membership.role === "member") {
+        return reply.status(200).send({ demoted: false, role: "member" });
+      }
+
+      await db
+        .update(roomMember)
+        .set({ role: "member" })
+        .where(
+          and(
+            eq(roomMember.roomId, roomId),
+            eq(roomMember.userId, targetUserId),
+          ),
+        );
+
+      const changedAt = new Date().toISOString();
+      request.server.io.to(roomId).emit("room.role.changed", {
+        type: "room.role.changed",
+        roomId,
+        userId: targetUserId,
+        role: "member",
+        changedBy: ctx.userId,
+        changedAt,
+      });
+
+      return reply.status(200).send({ demoted: true, role: "member" });
+    },
+  );
 }

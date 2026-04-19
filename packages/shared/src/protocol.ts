@@ -146,9 +146,17 @@ export interface RoomDeletedEvent {
 //   agent B: invitation.sent / invitation.accepted / invitation.declined
 // ──────────────────────────────────────────────────────────────────────────
 
-// TODO(agent-A): fill payload — REQ-??? (owner/admin role change broadcast).
+// REQ-201 / REQ-202 / REQ-207 — broadcast on owner-only role mutations
+// (promote member→admin, demote admin→member). Fanout target:
+// `server.to(roomId).emit(...)`. At-most-once best-effort — no watermark,
+// no replay; reconcile via `/rooms/:id/members` on reconnect.
 export interface RoomRoleChangedEvent {
   type: "room.role.changed";
+  roomId: string;
+  userId: string;
+  role: "admin" | "member";
+  changedBy: string;       // userId of the owner issuing the change
+  changedAt: string;       // ISO timestamp
 }
 
 // TODO(agent-A): fill payload — REQ-??? (member kicked from room).
