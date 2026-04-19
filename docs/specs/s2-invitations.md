@@ -101,41 +101,44 @@ Today every group room is `visibility='public'` and self-joinable (s2-rooms REQ-
 
 ## 5. Design notes
 
-### Data model — migration `0008_invitations.sql`
+### Data model — migration `0008_invitations.sql` (spec correction 2026-04-19 post-approval)
 
-Ordering: runs AFTER agent A's `0007_room_roles.sql` (which adds `room_member.role` enum + `room_ban` table). Our DDL does NOT reference A's new columns directly — we only join against `room_member` and `room_ban` at query time in application code.
+**Correction:** the initial migration `0000_chilly_whirlwind.sql` already created a `room_invite` table + `room_invite_status` enum (`'pending','accepted','rejected'`) + full UNIQUE on `(room_id, invitee_id)` as wave-0 scaffolding. The brief's instruction to create a new `room_invitation` table conflicts with that pre-existing scaffold. Evolving the existing table is the clean path:
+
+1. Keep table name `room_invite` (Drizzle symbol `roomInvite`) — renaming would churn migration snapshots, `db-helpers.ts`, and cross-refs for zero semantic gain.
+2. RENAME enum value `'rejected'` → `'declined'` (matches spec/event name; rows are fresh scaffolding so zero data risk).
+3. ADD enum value `'expired'` (for the future GC sweep — we don't write it ourselves in wave1).
+4. ADD column `responded_at timestamptz` (nullable).
+5. ADD column `expires_at timestamptz NOT NULL DEFAULT (now() + interval '14 days')`.
+6. DROP the full UNIQUE `room_invite_room_invitee_uq`; REPLACE with partial `room_invite_room_invitee_pending_uq` WHERE status='pending' (allows multiple historical rows per (room, invitee); only one live pending at a time).
+7. ADD index `room_invite_invitee_status_idx` on `(invitee_id, status)`.
+
+Endpoint names, event names, and UI language stay **"invitation"** (human-facing), while the DB name stays `room_invite` (historical).
 
 ```sql
 -- 0008_invitations.sql
-CREATE TYPE room_invitation_status AS ENUM ('pending', 'accepted', 'declined', 'expired');
-
-CREATE TABLE room_invitation (
-  id            text PRIMARY KEY,
-  room_id       text NOT NULL REFERENCES room(id) ON DELETE CASCADE,
-  inviter_id    text NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
-  invitee_id    text NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
-  status        room_invitation_status NOT NULL DEFAULT 'pending',
-  created_at    timestamptz NOT NULL DEFAULT now(),
-  responded_at  timestamptz,
-  expires_at    timestamptz NOT NULL DEFAULT (now() + interval '7 days')
-);
-
-CREATE UNIQUE INDEX room_invitation_room_invitee_pending_uq
-  ON room_invitation (room_id, invitee_id)
+ALTER TYPE "public"."room_invite_status" RENAME VALUE 'rejected' TO 'declined';
+--> statement-breakpoint
+ALTER TYPE "public"."room_invite_status" ADD VALUE 'expired';
+--> statement-breakpoint
+ALTER TABLE "room_invite"
+  ADD COLUMN "responded_at" timestamp with time zone;
+--> statement-breakpoint
+ALTER TABLE "room_invite"
+  ADD COLUMN "expires_at" timestamp with time zone NOT NULL
+  DEFAULT (now() + interval '14 days');
+--> statement-breakpoint
+DROP INDEX IF EXISTS "room_invite_room_invitee_uq";
+--> statement-breakpoint
+CREATE UNIQUE INDEX "room_invite_room_invitee_pending_uq"
+  ON "room_invite" ("room_id", "invitee_id")
   WHERE status = 'pending';
-
-CREATE INDEX room_invitation_invitee_status_idx
-  ON room_invitation (invitee_id, status);
+--> statement-breakpoint
+CREATE INDEX "room_invite_invitee_status_idx"
+  ON "room_invite" ("invitee_id", "status");
 ```
 
-Mirrored in `packages/shared/src/schema.ts` as `roomInvitationStatus` pgEnum + `roomInvitation` pgTable. The partial UNIQUE mirrors the DB using Drizzle's `.where(sql...)` template idiom (same pattern as the existing `room_dm_pair_uq` partial unique on `room`):
-
-```ts
-// inside the roomInvitation pgTable second arg (index builder)
-invPendingUq: uniqueIndex("room_invitation_room_invitee_pending_uq")
-  .on(t.roomId, t.inviteeId)
-  .where(sql`${t.status} = 'pending'`),
-```
+Mirrored in `packages/shared/src/schema.ts` by extending the existing `roomInvite` pgTable: add `respondedAt`, `expiresAt`, switch unique to partial on status='pending', add `(inviteeId, status)` index; update `roomInviteStatus` enum values to `['pending','accepted','declined','expired']`.
 
 A user_id cascade on inviter/invitee deletion is fine — REQ-126 soft-delete sets name to "[deleted user]" but the FK uses hard id; we accept the dangling cascade semantics (matches `room_member` behavior).
 
@@ -197,10 +200,10 @@ Accept (R5) is symmetric in the other direction: fanout is to `user:{inviterId}`
 
 ### Cross-agent coordination
 
-- **Migration ordering:** `0008_invitations.sql` references only `room` and `user` tables — it does NOT reference agent A's `room_ban` at DDL time, so it applies cleanly even if A's `0007` is still an empty reserved slot. Route-level code (R3's `invitee_banned` branch) *does* SELECT from `room_ban`.
-- **`INVITATIONS_ENFORCE_BAN` behaviour flag:** new env var in `apps/backend/src/env.ts`, default `true`. When `false`, R3's `room_ban` SELECT is skipped and the 403 branch is unreachable. Rationale: if agent A's `0007` slips past our merge, we can ship invitations with the flag off and flip it to `true` once A lands. The flag is tested in both states (banned + 403 / flag-off + no-check). Flag removal tracked in FOLLOWUPS.md — remove once A's `0007` is on `main`.
-- **Startup probe (defensive):** backend boot does one `SELECT 1 FROM information_schema.tables WHERE table_name='room_ban'` at server start; if missing AND `INVITATIONS_ENFORCE_BAN=true`, log a WARN and force the flag to `false` in-memory for that process. Avoids hard 500s on a half-merged environment.
-- **No edits to agent A's territory:** the `room_member.role` lookup for the private-room admin gate reads the column from the already-schema'd `roomMember` Drizzle table; no migration edit. If `role` values are `'owner' | 'admin' | 'member'` (matches `roomRole` pgEnum on `main`), our code is compatible with A's eventual population of those values.
+- **Migration ordering:** `0008_invitations.sql` only ALTERs the pre-existing `room_invite` table + `room_invite_status` enum (both created in `0000`). It does NOT depend on agent A's `0007` at all — `room_ban` and `room_member.role` both already exist since `0000`, so R3's banned-check and admin-role-check work against today's schema.
+- **`INVITATIONS_ENFORCE_BAN` kept as a behaviour flag (defensive):** even though `room_ban` exists, the flag stays as per brief guidance ("if A slips, stub the room_ban SELECT behind a feature flag"). Default `true`. Flag flip cost is one env var. Flag removal tracked in FOLLOWUPS.md once wave1 is merged and A's semantic ban flow (populate `room_ban` rows from kick/ban handler) is in.
+- **Startup probe:** no longer strictly needed given `room_ban` exists since `0000`, but we still log a one-line `roomBan.count()` at startup so any migration regression is loud. Cheap.
+- **No edits to agent A's territory:** `room_member.role` lookup for the private-room admin gate reads the column directly; no migration edit. Agent A owns populating the role values via kick/ban/promote handlers — we just READ.
 
 ### `POST /rooms` change (rooms.ts — ONLY the `visibility` field, no other edits)
 
