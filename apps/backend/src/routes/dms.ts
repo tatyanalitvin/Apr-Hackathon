@@ -34,6 +34,7 @@ import type { DmFrozenReason, DmListItem } from "@ai-herders/shared/protocol";
 import { auth } from "../auth";
 import { db } from "../db";
 import { toFetchHeaders } from "../lib/fetch-headers";
+import { DELETED_USER_DISPLAY } from "../lib/users";
 import { toMessagePayload } from "./messages";
 
 function zodBodyGuard<T>(schema: ZodType<T>): preHandlerHookHandler {
@@ -241,9 +242,17 @@ export async function dmsRoutes(app: FastifyInstance): Promise<void> {
     const ctx = await requireDmAuth(request, reply);
     if (!ctx) return;
 
-    // Rooms where the caller is a member AND kind='dm'.
+    // Rooms where the caller is a member AND kind='dm'. We pull `dmPairKey`
+    // off the room row (not room_member) so the peer resolution survives the
+    // REQ-018 account-delete cascade: when the peer deletes, their
+    // room_member row is hard-deleted but `room.dm_pair_key` persists and
+    // still encodes both userIds. Parsing the pair key is the stable way to
+    // recover the peer id for substitution downstream.
     const callerMemberships = await db
-      .select({ roomId: roomMember.roomId })
+      .select({
+        roomId: roomMember.roomId,
+        dmPairKey: room.dmPairKey,
+      })
       .from(roomMember)
       .innerJoin(room, eq(room.id, roomMember.roomId))
       .where(and(eq(roomMember.userId, ctx.userId), eq(room.kind, "dm")));
@@ -252,34 +261,50 @@ export async function dmsRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(200).send({ dms: [] });
     }
 
-    // Counterpart memberships (everyone else in these rooms).
-    const others = await db
-      .select({
-        roomId: roomMember.roomId,
-        userId: roomMember.userId,
-        username: user.username,
-        name: user.name,
-        deletedAt: user.deletedAt,
-      })
-      .from(roomMember)
-      .innerJoin(user, eq(user.id, roomMember.userId))
-      .where(
-        and(
-          inArray(roomMember.roomId, roomIds),
-          sql`${roomMember.userId} <> ${ctx.userId}`,
-        ),
-      );
+    // Pair-key parse: `${low}:${high}` (see buildDmPairKey). The peer is the
+    // half that is not the caller. Skip malformed / nullish keys defensively.
+    const peerIdByRoom = new Map<string, string>();
+    for (const m of callerMemberships) {
+      if (!m.dmPairKey) continue;
+      const [low, high] = m.dmPairKey.split(":");
+      if (!low || !high) continue;
+      peerIdByRoom.set(m.roomId, low === ctx.userId ? high : low);
+    }
+
+    const peerIds = [...new Set(peerIdByRoom.values())];
+    const peerRows =
+      peerIds.length === 0
+        ? []
+        : await db
+            .select({
+              id: user.id,
+              username: user.username,
+              name: user.name,
+              deletedAt: user.deletedAt,
+            })
+            .from(user)
+            .where(inArray(user.id, peerIds));
+    const peerById = new Map<
+      string,
+      { userId: string; username: string; name: string; deleted: boolean }
+    >();
+    for (const p of peerRows) {
+      const deleted = p.deletedAt !== null;
+      peerById.set(p.id, {
+        userId: p.id,
+        username: deleted ? DELETED_USER_DISPLAY : p.username,
+        name: deleted ? DELETED_USER_DISPLAY : p.name,
+        deleted,
+      });
+    }
+
     const otherByRoom = new Map<
       string,
       { userId: string; username: string; name: string; deleted: boolean }
     >();
-    for (const o of others) {
-      otherByRoom.set(o.roomId, {
-        userId: o.userId,
-        username: o.username,
-        name: o.name,
-        deleted: o.deletedAt !== null,
-      });
+    for (const [roomId, peerId] of peerIdByRoom) {
+      const entry = peerById.get(peerId);
+      if (entry) otherByRoom.set(roomId, entry);
     }
 
     // Latest message per room. Simple N small subqueries — DM count per user
@@ -378,8 +403,13 @@ export async function dmsRoutes(app: FastifyInstance): Promise<void> {
         reason = "not_friends";
       }
 
+      // REQ-018 — substitute "[deleted user]" on lastMessage.authorUsername
+      // when the author is the deleted peer. peer-map lookup avoids a second
+      // round trip; DM authors are always one of the two room members.
       const latest = latestByRoom.get(roomId) ?? null;
-      const lastMessage = latest ? toMessagePayload(latest) : null;
+      const authorDeleted =
+        latest != null && peerById.get(latest.authorId)?.deleted === true;
+      const lastMessage = latest ? toMessagePayload(latest, authorDeleted) : null;
 
       return {
         roomId,
