@@ -11,6 +11,8 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import request from "supertest";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
+import type { AddressInfo } from "node:net";
+import { io as ioClient, type Socket as ClientSocket } from "socket.io-client";
 import { and, eq } from "drizzle-orm";
 import { sendMessageSchema } from "@ai-herders/shared/dto";
 import {
@@ -23,11 +25,58 @@ import {
 import {
   REPLY_PREVIEW_ELLIPSIS,
   REPLY_PREVIEW_MAX,
+  type ClientToServerEvents,
+  type MessageNewEvent,
   type MessagePayload,
+  type ServerToClientEvents,
 } from "@ai-herders/shared/protocol";
 
 import { buildApp } from "../src/app";
 import { getTestDb } from "./db-helpers";
+
+type TypedClient = ClientSocket<ServerToClientEvents, ClientToServerEvents>;
+
+async function registerWithCookie(
+  app: FastifyInstance,
+  email: string,
+  username: string,
+): Promise<{ agent: request.Agent; userId: string; cookieHeader: string }> {
+  const agent = request.agent(app.server);
+  const res = await agent
+    .post("/api/auth/sign-up/email")
+    .send({ email, username, password: "password1234", name: username })
+    .expect(200);
+  const setCookie = res.headers["set-cookie"];
+  const cookies = Array.isArray(setCookie)
+    ? setCookie
+    : setCookie
+      ? [setCookie]
+      : [];
+  const cookieHeader = cookies.map((c) => c.split(";")[0]).join("; ");
+  const [row] = await getTestDb()
+    .select({ id: user.id })
+    .from(user)
+    .where(eq(user.email, email))
+    .limit(1);
+  if (!row) throw new Error(`user not found: ${email}`);
+  return { agent, userId: row.id, cookieHeader };
+}
+
+async function connectClient(
+  baseUrl: string,
+  cookieHeader: string,
+): Promise<TypedClient> {
+  const client: TypedClient = ioClient(baseUrl, {
+    transports: ["websocket"],
+    extraHeaders: { cookie: cookieHeader },
+    reconnection: false,
+  });
+  await new Promise<void>((resolve, reject) => {
+    client.once("connect", () => resolve());
+    client.once("connect_error", (err) => reject(err));
+  });
+  return client;
+}
 
 async function registerAgent(
   app: FastifyInstance,
@@ -423,5 +472,136 @@ describe("REQ-110 send-path parent validation", () => {
     });
     expect(res.status).toBe(400);
     expect(res.body.error).toBe("validation");
+  });
+});
+
+// ─── REQ-110 R5 broadcast shape (socket-level) ─────────────────────────────
+
+describe("REQ-110 R5 message.new event carries replyTo", () => {
+  let app: FastifyInstance;
+  let baseUrl: string;
+
+  beforeAll(async () => {
+    app = await buildApp();
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const addr = app.server.address() as AddressInfo;
+    baseUrl = `http://127.0.0.1:${addr.port}`;
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  test("REQ-110 R5 reply send emits message.new with hydrated replyTo", async () => {
+    // Three agents: alice sends parent, bob sends reply, carol observes
+    // via socket. Keeping the observer distinct from the senders avoids
+    // the "once listener vs own-broadcast" races that timed out when the
+    // reply sender was also the socket subscriber.
+    const alice = await registerWithCookie(
+      app,
+      "r5-sock-a@example.com",
+      "r5_sock_a",
+    );
+    const bob = await registerWithCookie(
+      app,
+      "r5-sock-b@example.com",
+      "r5_sock_b",
+    );
+    const carol = await registerWithCookie(
+      app,
+      "r5-sock-c@example.com",
+      "r5_sock_c",
+    );
+    await createRoom("r-r5-sock", alice.userId);
+    await addMember("r-r5-sock", alice.userId);
+    await addMember("r-r5-sock", bob.userId);
+    await addMember("r-r5-sock", carol.userId);
+
+    const carolClient = await connectClient(baseUrl, carol.cookieHeader);
+    try {
+      const subAck = await new Promise<{ ok: boolean }>((resolve) => {
+        carolClient.emit("room.subscribe", "r-r5-sock", (res) => resolve(res));
+      });
+      expect(subAck.ok).toBe(true);
+
+      // Collect all message.new events carol sees; pick out the reply by seq.
+      const events: MessageNewEvent[] = [];
+      carolClient.on("message.new", (evt) => events.push(evt));
+
+      const parentRes = await alice.agent
+        .post("/api/v1/rooms/r-r5-sock/messages")
+        .send({ body: "hello team" });
+      expect(parentRes.status).toBe(201);
+      const parentId: string = parentRes.body.id;
+
+      const replyRes = await bob.agent
+        .post("/api/v1/rooms/r-r5-sock/messages")
+        .send({ body: "re: yes", replyToId: parentId });
+      expect(replyRes.status).toBe(201);
+
+      // Wait for both events (seq=1 parent, seq=2 reply).
+      const deadline = Date.now() + 2000;
+      while (events.length < 2 && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      expect(events).toHaveLength(2);
+
+      const replyEvt = events.find((e) => e.message.seq === "2");
+      expect(replyEvt).toBeDefined();
+      expect(replyEvt!.message.replyToId).toBe(parentId);
+      expect(replyEvt!.message.replyTo).toEqual({
+        id: parentId,
+        text: "hello team",
+        authorUsername: "r5_sock_a",
+        deletedAt: null,
+      });
+
+      const parentEvt = events.find((e) => e.message.seq === "1");
+      expect(parentEvt!.message.replyTo).toBeNull();
+    } finally {
+      carolClient.close();
+    }
+  });
+
+  test("REQ-110 R5 non-reply send emits message.new with replyTo: null", async () => {
+    const alice = await registerWithCookie(
+      app,
+      "r5-sock-plain-a@example.com",
+      "r5_plain_a",
+    );
+    const bob = await registerWithCookie(
+      app,
+      "r5-sock-plain-b@example.com",
+      "r5_plain_b",
+    );
+    await createRoom("r-r5-plain-sock", alice.userId);
+    await addMember("r-r5-plain-sock", alice.userId);
+    await addMember("r-r5-plain-sock", bob.userId);
+
+    const bobClient = await connectClient(baseUrl, bob.cookieHeader);
+    try {
+      await new Promise<{ ok: boolean }>((resolve) => {
+        bobClient.emit("room.subscribe", "r-r5-plain-sock", (res) =>
+          resolve(res),
+        );
+      });
+      const received = new Promise<MessageNewEvent>((resolve) => {
+        bobClient.once("message.new", (evt) => resolve(evt));
+      });
+      const res = await alice.agent
+        .post("/api/v1/rooms/r-r5-plain-sock/messages")
+        .send({ body: "no quote" });
+      expect(res.status).toBe(201);
+      const evt = await Promise.race<MessageNewEvent>([
+        received,
+        new Promise<MessageNewEvent>((_, reject) =>
+          setTimeout(() => reject(new Error("timeout")), 2000),
+        ),
+      ]);
+      expect(evt.message.replyToId).toBeNull();
+      expect(evt.message.replyTo).toBeNull();
+    } finally {
+      bobClient.close();
+    }
   });
 });
