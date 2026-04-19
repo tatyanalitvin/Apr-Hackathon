@@ -9,7 +9,7 @@
 
 import type { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { createClient, type RedisClientType } from "redis";
 import { room, roomMember } from "@ai-herders/shared/schema";
 
@@ -131,11 +131,32 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  // R3 / REQ-025 — GET /api/v1/rooms
+  // R3 / REQ-025 — GET /api/v1/rooms — public-group catalog.
+  // Q2 (pre-resolved): private rooms stay out of the catalog regardless of
+  // caller membership; private rooms the caller belongs to surface via R4.
+  // isMember uses COALESCE(BOOL_OR(...), false) because LEFT JOIN yields NULL
+  // rows for rooms with zero members, and BOOL_OR over NULL is NULL.
   app.get("/rooms", async (request, reply) => {
     const ctx = await requireFriendshipAuth(request, reply);
     if (!ctx) return;
-    return reply.status(501).send({ error: "not_implemented" });
+
+    const memberCountExpr = sql<number>`COUNT(${roomMember.userId})::int`;
+    const rows = await db
+      .select({
+        id: room.id,
+        name: room.name,
+        kind: room.kind,
+        visibility: room.visibility,
+        memberCount: memberCountExpr,
+        isMember: sql<boolean>`COALESCE(BOOL_OR(${roomMember.userId} = ${ctx.userId}), false)`,
+      })
+      .from(room)
+      .leftJoin(roomMember, eq(roomMember.roomId, room.id))
+      .where(and(eq(room.kind, "group"), eq(room.visibility, "public")))
+      .groupBy(room.id)
+      .orderBy(sql`${memberCountExpr} DESC`, asc(room.name));
+
+    return reply.status(200).send({ rooms: rows });
   });
 
   // R4 (non-v4, see ADR-0006) — GET /api/v1/rooms/me
