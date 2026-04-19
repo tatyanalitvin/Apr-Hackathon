@@ -226,7 +226,10 @@ export interface ChatAPI {
   fetchHistory(roomId: string, input: FetchHistoryInput): Promise<HistorySliceResponse>;
   uploadAttachment(input: UploadAttachmentInput): Promise<UploadAttachmentResult>;
   listMyRooms(): Promise<MyRoomSummary[]>;
-  listRoomCatalog(): Promise<RoomCatalogEntry[]>;
+  // §2.4.3 — optional `q` narrows the public-room catalog by name (ILIKE
+  // '%q%' server-side). Omitted / empty / whitespace-only degrades to the
+  // unfiltered path, matching the backend contract.
+  listRoomCatalog(input?: { q?: string }): Promise<RoomCatalogEntry[]>;
   joinRoom(roomId: string): Promise<JoinRoomResult>;
   createRoom(input: CreateRoomInput): Promise<RoomMutationResponse<RoomMutationResult>>;
   updateRoom(roomId: string, input: UpdateRoomInput): Promise<RoomMutationResponse<RoomMutationResult>>;
@@ -315,10 +318,13 @@ export class RealChatAPI implements ChatAPI {
     return rooms;
   }
 
-  async listRoomCatalog(): Promise<RoomCatalogEntry[]> {
-    const { rooms } = await fetchJson<{ rooms: RoomCatalogEntry[] }>(
-      `${BACKEND_URL}/api/v1/rooms`,
-    );
+  async listRoomCatalog(input?: { q?: string }): Promise<RoomCatalogEntry[]> {
+    const trimmed = input?.q?.trim() ?? "";
+    const url =
+      trimmed.length > 0
+        ? `${BACKEND_URL}/api/v1/rooms?q=${encodeURIComponent(trimmed)}`
+        : `${BACKEND_URL}/api/v1/rooms`;
+    const { rooms } = await fetchJson<{ rooms: RoomCatalogEntry[] }>(url);
     return rooms;
   }
 
