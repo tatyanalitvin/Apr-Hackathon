@@ -17,6 +17,7 @@ import { roomsRoutes } from "./routes/rooms";
 import { attachmentsRoutes } from "./routes/attachments";
 import { dmsRoutes } from "./routes/dms";
 import { adminRoutes } from "./routes/admin";
+import { accountRoutes } from "./routes/account";
 import { recordHttpError } from "./lib/metrics";
 import { createSocketIO, type ChatIOServer } from "./socket";
 import { installSocketAuth } from "./socket-auth";
@@ -83,6 +84,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(attachmentsRoutes, { prefix: "/api/v1/attachments" });
   await app.register(dmsRoutes, { prefix: "/api/v1/dms" });
   await app.register(adminRoutes, { prefix: "/api/v1/admin" });
+  await app.register(accountRoutes, { prefix: "/api/v1" });
 
   // REQ-158 — feed the /admin dashboard's errorCount5min widget. onResponse
   // fires for every handled request (including 401/403/404), so we filter
