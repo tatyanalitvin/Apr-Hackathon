@@ -14,11 +14,13 @@
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import request from "supertest";
 import type { FastifyInstance } from "fastify";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import fs from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import {
   attachment,
+  friendship,
   message,
   messageSeq,
   room,
@@ -73,6 +75,22 @@ async function addMember(roomId: string, userId: string): Promise<void> {
   await getTestDb()
     .insert(roomMember)
     .values({ id: `${roomId}-${userId}`, roomId, userId, role: "member" });
+}
+
+async function addFriendship(a: string, b: string): Promise<void> {
+  const [userAId, userBId] = a < b ? [a, b] : [b, a];
+  await getTestDb()
+    .insert(friendship)
+    .values({ id: randomUUID(), userAId, userBId });
+}
+
+async function removeFriendship(a: string, b: string): Promise<void> {
+  const [userAId, userBId] = a < b ? [a, b] : [b, a];
+  await getTestDb()
+    .delete(friendship)
+    .where(
+      and(eq(friendship.userAId, userAId), eq(friendship.userBId, userBId)),
+    );
 }
 
 describe("R15 cascade on room delete", () => {
@@ -180,16 +198,84 @@ describe("R15 cascade on room delete", () => {
 });
 
 describe("R13 DM-freeze hold points", () => {
-  // R13 requires `apps/backend/src/lib/dm-freeze.ts`, which is owned by
-  // s2-dms.md (see docs/specs/s2-attachments.md §4 R13). Timeboxed-out of
-  // S2 attachments; skipped with a marker so the hand-off point is grep-
-  // able. When the dm-freeze helper lands, flip `.skip` to plain test.
-  test.skip("R13 freeze blocks attachment-bearing send (dm-freeze.ts pending)", async () => {
-    // Placeholder body so the intent survives: in the unfrozen branch the
-    // upload + send succeed; in the frozen branch the upload returns 201
-    // (upload is scratch-pad, not gated) but the send returns 409
-    // dialog_frozen with seq NOT advanced and the attachment row still
-    // messageId=NULL.
-    expect(true).toBe(true);
+  let app: FastifyInstance;
+
+  beforeAll(async () => {
+    app = await buildApp();
+    await app.ready();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  // R13 — DM-freeze gates attachment-bearing sends identically to plain
+  // sends. Upload itself is NOT gated (scratch-pad semantics — the row
+  // goes in with messageId=NULL either way and gets GC'd if never linked).
+  // The send handler consults `isDmFrozen` BEFORE seq allocation and
+  // before the attachment link tx, so on a frozen DM the attachment row
+  // must retain messageId=NULL, messageSeq must not advance, and no
+  // message row is created.
+  test("REQ-066 R13 freeze blocks attachment-bearing send on DM room", async () => {
+    const alice = await registerAgent(
+      app,
+      "r13-dmfreeze-a@example.com",
+      "r13_dmfreeze_a",
+    );
+    const bob = await registerAgent(
+      app,
+      "r13-dmfreeze-b@example.com",
+      "r13_dmfreeze_b",
+    );
+    await addFriendship(alice.userId, bob.userId);
+
+    const createRes = await alice.agent
+      .post("/api/v1/dms")
+      .send({ userId: bob.userId });
+    expect(createRes.status).toBe(201);
+    const roomId = createRes.body.roomId as string;
+
+    // Break the friendship — the DM is now frozen (reason: not_friends).
+    await removeFriendship(alice.userId, bob.userId);
+
+    // Upload still succeeds — scratch-pad semantics, R13 does not gate
+    // the upload itself (only the link + send).
+    const up = await alice.agent
+      .post("/api/v1/attachments")
+      .field("roomId", roomId)
+      .attach("file", Buffer.from("frozen-upload"), {
+        filename: "f.txt",
+        contentType: "text/plain",
+      });
+    expect(up.status).toBe(201);
+    const attId: string = up.body.attachmentId;
+
+    // Send referencing the uploaded attachment → 409 dialog_frozen.
+    const send = await alice.agent
+      .post(`/api/v1/rooms/${roomId}/messages`)
+      .send({ body: "frozen-send", attachmentIds: [attId] });
+    expect(send.status).toBe(409);
+    expect(send.body).toMatchObject({ error: "dialog_frozen" });
+
+    // Seq did not advance — freeze check returns BEFORE seq allocation.
+    const [seqRow] = await getTestDb()
+      .select({ seq: messageSeq.seq })
+      .from(messageSeq)
+      .where(eq(messageSeq.roomId, roomId));
+    expect(seqRow!.seq).toBe(0n);
+
+    // Attachment row still orphan (messageId=NULL) — the link tx never ran.
+    const [attRow] = await getTestDb()
+      .select({ messageId: attachment.messageId })
+      .from(attachment)
+      .where(eq(attachment.id, attId));
+    expect(attRow!.messageId).toBeNull();
+
+    // No message row was created for this room.
+    const msgs = await getTestDb()
+      .select()
+      .from(message)
+      .where(eq(message.roomId, roomId));
+    expect(msgs).toHaveLength(0);
   });
 });
