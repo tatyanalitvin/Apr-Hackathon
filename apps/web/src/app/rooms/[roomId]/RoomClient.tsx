@@ -2,9 +2,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import type {
   MessagePayload,
   MessageNewEvent,
+  RoomDeletedEvent,
   RoomMemberJoinedEvent,
 } from "@ai-herders/shared/protocol";
 import { RequireSession } from "@/components/chat/RequireSession";
@@ -17,6 +19,7 @@ import { MessageComposer } from "@/components/chat/MessageComposer";
 import { useSession } from "@/lib/auth-client";
 import { createChatSocket, createChatApi, type ChatSocket } from "@/lib/socket";
 import { createWatermark } from "@/lib/watermark";
+import { toast } from "sonner";
 import type { MyRoomSummary } from "@/lib/chat-api";
 
 const INITIAL_FIRST_INDEX = 1_000_000;
@@ -37,6 +40,7 @@ const SEEDED_MEMBERS = [
 function RoomContent({ roomId }: { roomId: string }) {
   const { data } = useSession();
   const userId = data?.user?.id ?? "anon";
+  const router = useRouter();
 
   const [messages, setMessages] = useState<MessagePayload[]>([]);
   const [firstItemIndex, setFirstItemIndex] = useState(INITIAL_FIRST_INDEX);
@@ -100,6 +104,17 @@ function RoomContent({ roomId }: { roomId: string }) {
     };
     socket.on("room.member.joined", onMemberJoined);
 
+    // REQ-089 — owner deletion kicks every subscriber out. The server emits
+    // BEFORE the DB row vanishes so we still receive it while subscribed.
+    // Show a toast so users understand why they were moved and navigate to
+    // /rooms (the index page handles "which room to show next").
+    const onRoomDeleted = (evt: RoomDeletedEvent) => {
+      if (evt.roomId !== roomId) return;
+      toast.info("This room was deleted by its owner.");
+      router.replace("/rooms");
+    };
+    socket.on("room.deleted", onRoomDeleted);
+
     let cancelled = false;
     void (async () => {
       await new Promise<void>((resolve) => {
@@ -124,11 +139,12 @@ function RoomContent({ roomId }: { roomId: string }) {
       cancelled = true;
       socket.off("message.new", onMessageNew);
       socket.off("room.member.joined", onMemberJoined);
+      socket.off("room.deleted", onRoomDeleted);
       socket.emit("room.unsubscribe", roomId);
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [roomId, refreshMyRooms]);
+  }, [roomId, refreshMyRooms, router]);
 
   const loadOlder = useCallback(async () => {
     const oldest = messages[0];
