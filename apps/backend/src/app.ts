@@ -21,6 +21,8 @@ import { attachmentsRoutes } from "./routes/attachments";
 import { dmsRoutes } from "./routes/dms";
 import { adminRoutes } from "./routes/admin";
 import { accountRoutes } from "./routes/account";
+import { readReceiptsRoutes } from "./routes/read-receipts";
+import { mutesRoutes } from "./routes/mutes";
 import { recordHttpError, shouldCountHttpError } from "./lib/metrics";
 import { createSocketIO, type ChatIOServer } from "./socket";
 import { installSocketAuth } from "./socket-auth";
@@ -89,6 +91,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(dmsRoutes, { prefix: "/api/v1/dms" });
   await app.register(adminRoutes, { prefix: "/api/v1/admin" });
   await app.register(accountRoutes, { prefix: "/api/v1" });
+  await app.register(readReceiptsRoutes, { prefix: "/api/v1/rooms" });
+  await app.register(mutesRoutes, { prefix: "/api/v1/rooms" });
 
   // REQ-158 — feed the /admin dashboard's errorCount5min widget. onResponse
   // fires for every handled request (including 401/403/404), so we filter
