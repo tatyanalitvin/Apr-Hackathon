@@ -197,6 +197,55 @@ describe("REQ-100 presence.changed room-scoped fanout", () => {
     }
   });
 
+  test("REQ-102 p95 propagation latency from presence.setState to observer delivery is under 2s", async () => {
+    __resetPresenceForTests();
+    const alice = await signUpCookie(app, "r102-alice@example.com", "r102_alice");
+    const bob = await signUpCookie(app, "r102-bob@example.com", "r102_bob");
+    const roomId = await insertPublicGroupRoom("r102-room");
+    await insertMembership(roomId, alice.userId);
+    await insertMembership(roomId, bob.userId);
+
+    const bobSocket = await connectClient(baseUrl, bob.cookie);
+    let aliceSocket: TypedClient | null = null;
+    try {
+      await subscribe(bobSocket, roomId);
+
+      // Order matters: bob must be in the room before alice connects so
+      // bob sees alice's initial `online` event (onSocketConnect fires on
+      // the server *before* bob could possibly subscribe otherwise).
+      const onlineSeen = waitForPresenceChanged(
+        bobSocket,
+        (e) => e.userId === alice.userId && e.state === "online",
+      );
+      aliceSocket = await connectClient(baseUrl, alice.cookie);
+      await onlineSeen;
+
+      const TRIALS = 50;
+      const latencies: number[] = [];
+      for (let i = 0; i < TRIALS; i += 1) {
+        const next: "online" | "away" = i % 2 === 0 ? "away" : "online";
+        const awaited = waitForPresenceChanged(
+          bobSocket,
+          (e) => e.userId === alice.userId && e.state === next,
+          3_000,
+        );
+        const sentAt = Date.now();
+        aliceSocket.emit("presence.setState", { state: next });
+        await awaited;
+        latencies.push(Date.now() - sentAt);
+      }
+
+      latencies.sort((a, b) => a - b);
+      const p95Index = Math.floor(latencies.length * 0.95);
+      const p95 = latencies[p95Index] ?? latencies[latencies.length - 1];
+      // Brief §1c / R9: p95 under 2000ms. Typical in-process: <50ms.
+      expect(p95).toBeLessThan(2_000);
+    } finally {
+      aliceSocket?.close();
+      bobSocket.close();
+    }
+  });
+
   test("REQ-101 presence.changed does not fan out to non-members of the room", async () => {
     __resetPresenceForTests();
     const alice = await signUpCookie(app, "r101-alice@example.com", "r101_alice");
