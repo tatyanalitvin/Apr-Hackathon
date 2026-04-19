@@ -191,19 +191,44 @@ export interface RoomMemberUnbannedEvent {
   type: "room.member.unbanned";
 }
 
-// TODO(agent-B): fill payload — REQ-??? (invitation sent to user).
+// REQ-089 — fanout target `user:{inviteeId}`. At-most-once best-effort (no
+// watermark); missed events reconcile on next `GET /invitations`.
+// Denorm roomName + inviterUsername so the toast/inbox renders without a
+// follow-up fetch. See docs/specs/s2-invitations.md §5 "Protocol payloads".
 export interface RoomInvitationSentEvent {
   type: "room.invitation.sent";
+  invitationId: string;
+  roomId: string;
+  roomName: string;
+  inviterId: string;
+  inviterUsername: string;
+  createdAt: string;       // ISO
+  expiresAt: string;       // ISO — REQ-089a (14d default)
 }
 
-// TODO(agent-B): fill payload — REQ-??? (invitation accepted by invitee).
+// REQ-089 — fanout target `user:{inviterId}`. Emitted after invitee accepts.
+// The `room.member.joined` room-scoped event is ALSO emitted (reuses s2-rooms
+// broadcast) so other room members see the arrival; this event is specifically
+// for the inviter to close their "outgoing" state.
 export interface RoomInvitationAcceptedEvent {
   type: "room.invitation.accepted";
+  invitationId: string;
+  roomId: string;
+  inviteeId: string;
+  inviteeUsername: string;
+  acceptedAt: string;      // ISO
 }
 
-// TODO(agent-B): fill payload — REQ-??? (invitation declined by invitee).
+// REQ-089 — fanout target asymmetry (spec §5 "Fanout asymmetry"):
+//   - invitee declines (R6) → fanout to `user:{inviterId}` (inviter's outgoing list drops row)
+//   - inviter cancels (R7)  → fanout to `user:{inviteeId}` (invitee's inbox drops row)
+// Same event name, same payload shape, different routing target. Implementers
+// MUST NOT emit to both channels — that double-notifies and races the UI.
 export interface RoomInvitationDeclinedEvent {
   type: "room.invitation.declined";
+  invitationId: string;
+  roomId: string;
+  declinedAt: string;      // ISO
 }
 
 // Note: `message.reply.added` is intentionally NOT reserved — replies reuse

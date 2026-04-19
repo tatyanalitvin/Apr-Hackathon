@@ -278,7 +278,7 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
         .status(400)
         .send({ error: "invalid_body", details: parsed.error.flatten() });
     }
-    const { name, description } = parsed.data;
+    const { name, description, visibility } = parsed.data;
     const roomId = randomUUID();
 
     try {
@@ -290,7 +290,7 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
             name,
             description: description ?? null,
             kind: "group",
-            visibility: "public",
+            visibility,
             ownerId: ctx.userId,
           })
           .returning();
@@ -309,7 +309,7 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
         id: created!.id,
         name: created!.name,
         description: created!.description,
-        visibility: "public" as const,
+        visibility: created!.visibility,
         ownerId: created!.ownerId!,
         createdAt: created!.createdAt.toISOString(),
       });

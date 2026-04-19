@@ -132,13 +132,17 @@ describe("REQ-023 POST /api/v1/rooms", () => {
     expect(res.body).not.toHaveProperty("kind");
   });
 
-  test("REQ-023 forces visibility=public regardless of client input", async () => {
+  // REQ-088 (docs/specs/s2-invitations.md §4 R2) supersedes the former
+  // "REQ-023 forces visibility=public" clamp — visibility now honors client
+  // input. Kept here as a regression guard that visibility=private is accepted
+  // and written through (the full R1/R2 suite lives in private-rooms.test.ts).
+  test("REQ-088 honors client-supplied visibility=private (supersedes REQ-023 clamp)", async () => {
     const alice = await registerAgent(app, "r023pv@example.com", "r023_pv");
     const res = await alice.agent
       .post("/api/v1/rooms")
       .send({ name: "Visibility Test", visibility: "private" });
     expect(res.status).toBe(201);
-    expect(res.body.visibility).toBe("public");
+    expect(res.body.visibility).toBe("private");
   });
 
   test("REQ-023 invalid body (name too short) → 400", async () => {

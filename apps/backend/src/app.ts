@@ -17,6 +17,7 @@ import { sessionsRoutes } from "./routes/sessions";
 import { messagesRoutes } from "./routes/messages";
 import { friendshipRoutes } from "./routes/friendship";
 import { roomsRoutes } from "./routes/rooms";
+import { invitationsRoutes } from "./routes/invitations";
 import { attachmentsRoutes } from "./routes/attachments";
 import { dmsRoutes } from "./routes/dms";
 import { adminRoutes } from "./routes/admin";
@@ -87,6 +88,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(messagesRoutes, { prefix: "/api/v1/rooms" });
   await app.register(friendshipRoutes, { prefix: "/api/v1" });
   await app.register(roomsRoutes, { prefix: "/api/v1" });
+  await app.register(invitationsRoutes, { prefix: "/api/v1" });
   await app.register(attachmentsRoutes, { prefix: "/api/v1/attachments" });
   await app.register(dmsRoutes, { prefix: "/api/v1/dms" });
   await app.register(adminRoutes, { prefix: "/api/v1/admin" });

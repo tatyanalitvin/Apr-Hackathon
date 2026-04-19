@@ -1,6 +1,7 @@
-// REQ-023 — client-side "+ New room" dialog. Posts to /api/v1/rooms with
-// a trimmed, NFC-normalised name and navigates into the created room on
-// success. Error-code → toast mapping mirrors NewDmDialog's pattern.
+// REQ-023 + REQ-088 — client-side "+ New room" dialog. Posts to /api/v1/rooms
+// with a trimmed, NFC-normalised name and a visibility selector (default
+// public). On success navigates into the created room. Error-code → toast
+// mapping mirrors NewDmDialog's pattern.
 
 "use client";
 
@@ -25,10 +26,13 @@ interface CreateRoomDialogProps {
   onCreated?: () => void;
 }
 
+type Visibility = "public" | "private";
+
 export function CreateRoomDialog({ onCreated }: CreateRoomDialogProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
+  const [visibility, setVisibility] = useState<Visibility>("public");
   const [submitting, setSubmitting] = useState(false);
   const [api] = useState(() => createChatApi());
 
@@ -40,11 +44,12 @@ export function CreateRoomDialog({ onCreated }: CreateRoomDialogProps) {
       return;
     }
     setSubmitting(true);
-    const r = await api.createRoom({ name: trimmed });
+    const r = await api.createRoom({ name: trimmed, visibility });
     setSubmitting(false);
     if (r.ok) {
       setOpen(false);
       setName("");
+      setVisibility("public");
       onCreated?.();
       router.push(`/rooms/${r.data.id}`);
       return;
@@ -86,7 +91,8 @@ export function CreateRoomDialog({ onCreated }: CreateRoomDialogProps) {
         <DialogHeader>
           <DialogTitle>Create a new room</DialogTitle>
           <DialogDescription>
-            Public group rooms appear in the catalog at /rooms/browse.
+            Public rooms appear in the catalog at /rooms/browse. Private rooms
+            are invite-only — members join via a room invitation.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -103,6 +109,47 @@ export function CreateRoomDialog({ onCreated }: CreateRoomDialogProps) {
               maxLength={64}
             />
           </div>
+
+          <fieldset
+            className="space-y-2"
+            aria-label="Room visibility"
+            disabled={submitting}
+          >
+            <legend className="text-sm font-medium">Visibility</legend>
+            <label className="flex items-start gap-2 text-sm">
+              <input
+                type="radio"
+                name="visibility"
+                value="public"
+                checked={visibility === "public"}
+                onChange={() => setVisibility("public")}
+                className="mt-1"
+              />
+              <span>
+                <span className="font-medium">Public</span>
+                <span className="block text-xs text-muted-foreground">
+                  Anyone can browse and join.
+                </span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2 text-sm">
+              <input
+                type="radio"
+                name="visibility"
+                value="private"
+                checked={visibility === "private"}
+                onChange={() => setVisibility("private")}
+                className="mt-1"
+              />
+              <span>
+                <span className="font-medium">Private</span>
+                <span className="block text-xs text-muted-foreground">
+                  Invite-only. Owners and admins can send invitations.
+                </span>
+              </span>
+            </label>
+          </fieldset>
+
           <DialogFooter>
             <Button type="submit" disabled={submitting}>
               {submitting ? "Creating…" : "Create room"}
