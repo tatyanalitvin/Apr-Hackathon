@@ -171,3 +171,31 @@ export interface DmListItem {
   frozen: boolean;
   frozenReason: DmFrozenReason | null;
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// REQ-158 — /admin dashboard metrics snapshot (s3-admin).
+// Consumed by the web admin page (2s polling, no push — see S3_ADMIN brief).
+// `recentSecurityEvents` is fed by `recordSecurityEvent()` in metrics.ts;
+// the s3-hardening agent calls it from CSRF / rate-limit / failed-login paths.
+// ──────────────────────────────────────────────────────────────────────────
+
+export type AdminSecurityEventType =
+  | "csrf_fail"
+  | "rate_limited"
+  | "login_failed";
+
+export interface AdminSecurityEvent {
+  at: string;                           // ISO timestamp
+  type: AdminSecurityEventType;
+  ip?: string;                          // SHA-256(ip+SESSION_SECRET) slice(0,8)
+  route?: string;                       // e.g. "POST /api/v1/dms"
+}
+
+export interface AdminMetricsSnapshot {
+  generatedAt: string;                  // ISO timestamp
+  onlineUsers: number;                  // distinct userIds with ≥1 live socket
+  messagesPerMinute: number;            // total count in last 60s
+  messagesPerMinuteSeries: number[];    // 12 buckets × 5s, oldest first
+  errorCount5min: number;               // Fastify 5xx responses in last 5m
+  recentSecurityEvents: AdminSecurityEvent[];
+}

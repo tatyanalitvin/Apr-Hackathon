@@ -13,6 +13,10 @@ const schema = z.object({
   SESSION_SECRET: z.string().min(16),
   // §3.4 local-FS storage root for attachments
   UPLOAD_DIR: z.string().default("./infra/uploads"),
+  // REQ-158 — CSV of better-auth user IDs allowed to hit /api/v1/admin/*.
+  // Default empty: no admins unless explicitly seeded (so tests can't
+  // accidentally become admin). See docs/specs on s3-admin and .env.example.
+  ADMIN_USER_IDS: z.string().default(""),
 });
 
 const parsed = schema.safeParse(process.env);
