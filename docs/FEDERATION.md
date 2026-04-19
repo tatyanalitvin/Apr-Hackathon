@@ -29,6 +29,29 @@ Components:
 4. **Identity mapping** — remote JIDs (`alice@peer.org`) land as a dedicated `remote_user` row with a foreign-origin flag. They can only speak in rooms whose `federation_allowed` is true.
 5. **Outbound** — when a local message is persisted and the room is federation-enabled, a tiny worker translates it to `<message/>` and hands it to Prosody for S2S delivery.
 
+## Architecture readiness
+
+The core protocol is already bridge-friendly. `packages/shared/src/protocol.ts` defines the event shapes that flow over Socket.IO — `message.new`, `presence.changed`, and the admin-namespace events — with stable fields (room id, sender id, seq, content, timestamps). A federation bridge consumes these on a subscribed Socket.IO client and translates each event into the corresponding XMPP stanza. No core code change is required to attach the bridge; the seq allocator remains the single source of message ordering truth for both local and federated delivery.
+
+Outbound message flow (local user → remote peer):
+
+```text
+alice (web)  →  apps/backend (seq +1)  →  Postgres messages
+                      │                         │
+                      └───> federation bridge <──┘
+                                 │ <message/>
+                                 ▼
+                           Prosody (mod_s2s)
+                                 │ :5269 + TLS + dialback
+                                 ▼
+                           peer.example.org
+                                 │
+                                 ▼
+                            bob@peer.example.org
+```
+
+Inbound is the reverse: Prosody receives a `<message/>` from the peer, the custom storage module calls the same `next_seq(room_id)` allocator the Fastify core uses, and the stanza lands in the `messages` table like any Socket.IO-originated message. Clients already subscribed to the room receive it through the normal watermark/fanout path.
+
 ## Why we scoped it out
 
 - **Budget.** S4 spec was 8h. Spike estimate for a working Prosody + custom storage + bridge + dialback cert was ~12h — 1.5× the S4 budget, bleeding into buffer reserved for submission-gate hardening.

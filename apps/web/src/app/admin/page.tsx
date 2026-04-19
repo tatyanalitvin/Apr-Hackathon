@@ -8,6 +8,7 @@
 // explicitly scopes this down to numbers + bars. The coexisting
 // /admin/federation page is the S4 agent's and remains untouched.
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { AdminMetricsSnapshot } from "@ai-herders/shared/protocol";
 import {
@@ -174,6 +175,15 @@ export default function AdminPage() {
             </ul>
           )}
         </Card>
+      </div>
+
+      <div className="mt-6 text-sm">
+        <Link
+          href="/admin/federation"
+          className="text-muted-foreground underline-offset-4 hover:underline"
+        >
+          Federation status →
+        </Link>
       </div>
     </main>
   );

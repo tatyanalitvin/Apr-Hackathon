@@ -38,6 +38,7 @@ Rationale: heavy smoke checks (docker compose --build, full browser flow) stall 
 - **Username change (REQ-127)** — explicitly deferred in `docs/BRIEF.md`.
 - **Email verification at signup** — `requireEmailVerification: false`; `user.emailVerified` column stays for better-auth compatibility but is always `false`. `docs/specs/s1-auth.md` §5.
 - **Admin "force logout all users" tooling** — not in the REQ range.
+- **XMPP federation (v3.docx §6 / REQ-180 range).** Deliberately deferred per [ADR-0002](adr/0002-no-xmpp.md). The MVP ships a façade at `/admin/federation` + [docs/FEDERATION.md](./FEDERATION.md) documenting the full enable path (Prosody + `mod_s2s` + custom Postgres storage module). Reason for deferral: TLS/DNS prerequisites exceed the 52h window and a half-shipped s2s daemon risks the `docker compose up` submission gate. Architecture is bridge-ready; the deferral is a scope call, not tech debt.
 
 ## ADR-0006 deviations (2026-04-18 retrofit)
 
