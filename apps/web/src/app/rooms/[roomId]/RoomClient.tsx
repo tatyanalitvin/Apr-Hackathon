@@ -2,10 +2,14 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { MessagePayload, MessageNewEvent } from "@ai-herders/shared/protocol";
+import type {
+  MessagePayload,
+  MessageNewEvent,
+  RoomMemberJoinedEvent,
+} from "@ai-herders/shared/protocol";
 import { RequireSession } from "@/components/chat/RequireSession";
 import { Header } from "@/components/chat/Header";
-import { RoomList } from "@/components/chat/RoomList";
+import { RoomList, type RoomListItem } from "@/components/chat/RoomList";
 import { MemberList } from "@/components/chat/MemberList";
 import { MessageList } from "@/components/chat/MessageList";
 import { MessageComposer } from "@/components/chat/MessageComposer";
@@ -16,8 +20,11 @@ import { createWatermark } from "@/lib/watermark";
 const INITIAL_FIRST_INDEX = 1_000_000;
 const HISTORY_PAGE_SIZE = 50;
 
-// S1 hardcoded membership (see spec R3).
-const SEEDED_ROOMS = [{ id: "general", name: "general" }];
+// Fallback rendered only while /rooms/me hasn't answered yet — keeps the
+// current room in the sidebar so the visit never dead-ends even if the
+// caller has no other memberships.
+const FALLBACK_ROOMS: RoomListItem[] = [{ id: "general", name: "general" }];
+
 // Seeded member list (real backend presence fills this in S2).
 const SEEDED_MEMBERS = [
   { id: "user-alice", username: "alice", displayName: "Alice", online: true },
@@ -32,9 +39,26 @@ function RoomContent({ roomId }: { roomId: string }) {
   const [messages, setMessages] = useState<MessagePayload[]>([]);
   const [firstItemIndex, setFirstItemIndex] = useState(INITIAL_FIRST_INDEX);
   const [hasMoreOlder, setHasMoreOlder] = useState(true);
+  const [sidebarRooms, setSidebarRooms] = useState<RoomListItem[] | null>(null);
 
   const apiRef = useRef(createChatApi());
   const socketRef = useRef<ChatSocket | null>(null);
+
+  // Refresh the caller's membership list from the backend. Idempotent — we
+  // re-call on room.member.joined so self-join (elsewhere in this tab) and
+  // cross-tab joins both reconcile.
+  const refreshMyRooms = useCallback(async () => {
+    try {
+      const rooms = await apiRef.current.listMyRooms();
+      setSidebarRooms(rooms.map((r) => ({ id: r.id, name: r.name })));
+    } catch {
+      // Non-fatal — fallback keeps the current room visible.
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshMyRooms();
+  }, [refreshMyRooms]);
 
   const emit = useCallback((m: MessagePayload) => {
     setMessages((prev) => {
@@ -66,6 +90,14 @@ function RoomContent({ roomId }: { roomId: string }) {
     };
     socket.on("message.new", onMessageNew);
 
+    // S2 Q1 — a best-effort in-room notification when someone self-joins. We
+    // only receive this for rooms already subscribed to (server uses
+    // `.to(roomId).emit`), so a no-op in foreign rooms is guaranteed.
+    const onMemberJoined = (_evt: RoomMemberJoinedEvent) => {
+      void refreshMyRooms();
+    };
+    socket.on("room.member.joined", onMemberJoined);
+
     let cancelled = false;
     void (async () => {
       await new Promise<void>((resolve) => {
@@ -89,11 +121,12 @@ function RoomContent({ roomId }: { roomId: string }) {
     return () => {
       cancelled = true;
       socket.off("message.new", onMessageNew);
+      socket.off("room.member.joined", onMemberJoined);
       socket.emit("room.unsubscribe", roomId);
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [roomId]);
+  }, [roomId, refreshMyRooms]);
 
   const loadOlder = useCallback(async () => {
     const oldest = messages[0];
@@ -133,11 +166,20 @@ function RoomContent({ roomId }: { roomId: string }) {
     [roomId],
   );
 
+  // Make sure the current room always appears even if /rooms/me hasn't yet
+  // resolved (or transiently lacks membership while reconciling).
+  const displayedRooms: RoomListItem[] = (() => {
+    const base = sidebarRooms ?? FALLBACK_ROOMS;
+    return base.some((r) => r.id === roomId)
+      ? base
+      : [...base, { id: roomId, name: roomId }];
+  })();
+
   return (
     <div className="h-dvh grid grid-cols-1 grid-rows-[auto_1fr_auto] lg:grid-cols-[16rem_1fr_18rem] lg:grid-rows-[auto_1fr]">
       <Header className="lg:col-span-3" />
       <nav className="hidden lg:block border-r min-h-0">
-        <RoomList rooms={SEEDED_ROOMS} currentRoomId={roomId} />
+        <RoomList rooms={displayedRooms} currentRoomId={roomId} />
       </nav>
       <main className="flex flex-col min-h-0 overflow-hidden">
         <div className="border-b px-4 py-2 text-sm font-semibold">#{roomId}</div>
@@ -156,7 +198,7 @@ function RoomContent({ roomId }: { roomId: string }) {
       <div className="lg:hidden contents">
         <details className="border-t">
           <summary className="px-4 py-2 text-sm font-medium cursor-pointer">Rooms</summary>
-          <RoomList rooms={SEEDED_ROOMS} currentRoomId={roomId} />
+          <RoomList rooms={displayedRooms} currentRoomId={roomId} />
         </details>
         <details className="border-t">
           <summary className="px-4 py-2 text-sm font-medium cursor-pointer">Members ({SEEDED_MEMBERS.length})</summary>

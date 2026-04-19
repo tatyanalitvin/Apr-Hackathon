@@ -23,10 +23,39 @@ export interface UploadAttachmentResult {
   attachmentId: string;
 }
 
+// Mirrors backend GET /api/v1/rooms/me payload. bigints arrive as strings
+// per ADR-0003 watermark contract — we keep them as strings at this layer
+// and let callers parse when needed.
+export interface MyRoomSummary {
+  id: string;
+  name: string;
+  kind: "group" | "dm";
+  visibility: "public" | "private";
+  lastReadSeq: string;
+  roomHeadSeq: string;
+}
+
+// Mirrors backend GET /api/v1/rooms public-group catalog payload.
+export interface RoomCatalogEntry {
+  id: string;
+  name: string;
+  kind: "group";
+  visibility: "public";
+  memberCount: number;
+  isMember: boolean;
+}
+
+export interface JoinRoomResult {
+  joined: boolean;
+}
+
 export interface ChatAPI {
   sendMessage(roomId: string, input: SendMessageInput): Promise<MessagePayload>;
   fetchHistory(roomId: string, input: FetchHistoryInput): Promise<HistorySliceResponse>;
   uploadAttachment(input: UploadAttachmentInput): Promise<UploadAttachmentResult>;
+  listMyRooms(): Promise<MyRoomSummary[]>;
+  listRoomCatalog(): Promise<RoomCatalogEntry[]>;
+  joinRoom(roomId: string): Promise<JoinRoomResult>;
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -66,5 +95,26 @@ export class RealChatAPI implements ChatAPI {
       method: "POST",
       body: form,
     });
+  }
+
+  async listMyRooms(): Promise<MyRoomSummary[]> {
+    const { rooms } = await fetchJson<{ rooms: MyRoomSummary[] }>(
+      `${BACKEND_URL}/api/v1/rooms/me`,
+    );
+    return rooms;
+  }
+
+  async listRoomCatalog(): Promise<RoomCatalogEntry[]> {
+    const { rooms } = await fetchJson<{ rooms: RoomCatalogEntry[] }>(
+      `${BACKEND_URL}/api/v1/rooms`,
+    );
+    return rooms;
+  }
+
+  async joinRoom(roomId: string): Promise<JoinRoomResult> {
+    return fetchJson<JoinRoomResult>(
+      `${BACKEND_URL}/api/v1/rooms/${encodeURIComponent(roomId)}/join`,
+      { method: "POST" },
+    );
   }
 }
