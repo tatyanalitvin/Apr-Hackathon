@@ -43,6 +43,10 @@ Rationale: heavy smoke checks (docker compose --build, full browser flow) stall 
   - **Location**: `apps/backend/src/routes/account.ts`, `packages/shared/src/schema.ts` attachment table.
   - **Raised**: 2026-04-19 during S2 implementation.
 
+- **Export download uses client-generated filename.** The export endpoint sets `Content-Disposition: attachment; filename="…"`, but cross-origin browsers hide that header from JS unless the server lists it in `Access-Control-Expose-Headers`. Our fetch-based download helper reads the header and, when missing, falls back to `ai-herders-export-<timestamp>.json`. The download works; the filename is just uglier than the server-proposed one. Fix: add `"content-disposition"` to the `exposedHeaders` list in the backend CORS config.
+  - **Location**: `apps/backend/src/plugins/cors.ts` (or wherever `@fastify/cors` is registered), `apps/web/src/lib/account-api.ts` (reads the header).
+  - **Raised**: 2026-04-19 during in-browser verification of the S2 flow.
+
 ## Out of hackathon scope (referenced so reviewers don't flag as missing)
 
 - **Username change (REQ-127)** — explicitly deferred in `docs/BRIEF.md`.
