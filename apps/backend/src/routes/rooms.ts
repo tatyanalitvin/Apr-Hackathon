@@ -453,4 +453,76 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
       }
     },
   );
+
+  // REQ-089 — DELETE /api/v1/rooms/:id. Owner-only cascade delete. Emits
+  // `room.deleted` to room subscribers BEFORE the DB row disappears so
+  // Socket.IO's per-room routing still sees the target.
+  //
+  // Cascade is automatic via FK ON DELETE CASCADE on:
+  //   - room_member.room_id
+  //   - message.room_id
+  //   - message_seq.room_id
+  //   - attachment.room_id
+  //   - room_ban.room_id
+  //   - room_invite.room_id
+  //
+  // Ordering mirrors PATCH: auth → rate-limit → resolve → DM guard → authz
+  // → emit → DELETE. The emit-before-delete sequence mirrors Slack's
+  // channel_deleted — clients need a signal to leave the room view before
+  // subsequent history fetches start 404-ing.
+  app.delete<{ Params: { id: string } }>(
+    "/rooms/:id",
+    async (request, reply) => {
+      const ctx = await requireFriendshipAuth(request, reply);
+      if (!ctx) return;
+
+      const rl = await checkRoomMgmtRateLimit(
+        `rate:room-delete:${ctx.userId}`,
+        ROOM_DELETE_LIMIT,
+      );
+      if (!rl.allowed) {
+        return reply
+          .status(429)
+          .send({ error: "rate_limited", retryAfterSec: rl.retryAfterSec });
+      }
+
+      const roomId = request.params.id;
+      const [target] = await db
+        .select({
+          id: room.id,
+          kind: room.kind,
+          ownerId: room.ownerId,
+        })
+        .from(room)
+        .where(eq(room.id, roomId))
+        .limit(1);
+      if (!target) {
+        return reply.status(404).send({ error: "room_not_found" });
+      }
+      if (target.kind === "dm") {
+        return reply
+          .status(403)
+          .send({ error: "cannot_delete_dm_via_this_route" });
+      }
+      if (target.ownerId !== ctx.userId) {
+        return reply.status(403).send({ error: "not_room_owner" });
+      }
+
+      const deletedAt = new Date();
+      // Emit BEFORE the delete: room subscribers are still routed via the
+      // live room_member rows at the moment of the emit. Delete first and
+      // the fanout would miss everyone. At-most-once best-effort per
+      // ADR-0003 — missed emits reconcile on the next /rooms/me fetch.
+      request.server.io.to(roomId).emit("room.deleted", {
+        type: "room.deleted",
+        roomId,
+        deletedAt: deletedAt.toISOString(),
+        deletedBy: ctx.userId,
+      });
+
+      await db.delete(room).where(eq(room.id, roomId));
+
+      return reply.status(204).send();
+    },
+  );
 }

@@ -229,32 +229,34 @@ describe("REQ-089 DELETE /api/v1/rooms/:id", () => {
   });
 
   test("REQ-089 rate limit: 5 deletes succeed, 6th → 429", async () => {
-    const alice = await registerAgent(app, "r089r@example.com", "r089_r");
-    // Prime 5 owned rooms; delete all; 6th attempt trips the bucket.
-    const roomIds: string[] = [];
-    for (let i = 0; i < 5; i++) {
-      const res = await alice.agent
-        .post("/api/v1/rooms")
-        .send({ name: `R089 RL ${i}` });
-      expect(res.status).toBe(201);
-      roomIds.push(res.body.id as string);
-    }
-    for (const id of roomIds) {
-      const ok = await alice.agent.delete(`/api/v1/rooms/${id}`);
-      expect(ok.status).toBe(204);
-    }
-
-    // Create one more room; the DELETE bucket should already be exhausted.
-    const extra = await alice.agent
-      .post("/api/v1/rooms")
-      .send({ name: "R089 RL Extra" });
-    expect(extra.status).toBe(201);
-    const denied = await alice.agent.delete(
-      `/api/v1/rooms/${extra.body.id as string}`,
+    // Rate-limit runs BEFORE the resolve step (same ordering rationale as
+    // room-join's §5). Five bogus-id DELETEs each 404 AND burn the bucket;
+    // the 6th — against a real owned room — should 429 without even
+    // reaching the resolve step. Avoids wrestling the POST /rooms burst
+    // limit (3/60s) that would otherwise cap room creation here.
+    const alice = await createRoomAsOwner(
+      app,
+      "r089r@example.com",
+      "r089_r",
+      "R089 RL Owner Room",
     );
+    for (let i = 0; i < 5; i++) {
+      const res = await alice.agent.delete(
+        `/api/v1/rooms/00000000-0000-0000-0000-00000000000${i}`,
+      );
+      expect(res.status).toBe(404);
+    }
+    const denied = await alice.agent.delete(`/api/v1/rooms/${alice.roomId}`);
     expect(denied.status).toBe(429);
     expect(denied.body).toMatchObject({ error: "rate_limited" });
     expect(typeof denied.body.retryAfterSec).toBe("number");
+
+    // Real room still there — 429 short-circuits before delete runs.
+    const rows = await getTestDb()
+      .select()
+      .from(room)
+      .where(eq(room.id, alice.roomId));
+    expect(rows).toHaveLength(1);
   });
 
   test("REQ-089 rate limit: pre-seeded bucket → denied on first attempt", async () => {
