@@ -51,28 +51,17 @@ export const auth = betterAuth({
     additionalFields: {
       username: { type: "string", required: true, input: true },
     },
-    // Task #11 (v3.docx §2.1.5 "Account Removal"). `deleteUser.enabled: true`
-    // exposes better-auth's built-in `POST /api/auth/delete-user` (verified
-    // POST in update-user.mjs:215 — Context7 docs say DELETE; docs are wrong),
-    // which accepts `{ password }` in the body for re-auth. FK-level
-    // `onDelete: "cascade"` on `session.userId` and `account.userId`
-    // (schema.ts) does the auth-surface cleanup; `beforeDelete` is the hook
-    // where v3 §2.1.5's room-level cascade WILL live in S2 (currently a
-    // no-op — rooms don't exist yet). See §10 "before task #11" and
-    // "task #11 — method" for rationale. NOTE: commit 38679e1's subject line
-    // says "task #7" — that was written before the collision was spotted and
-    // is an immutable git-history artifact; current §6 + §10 numbering treats
-    // account deletion as task #11.
-    deleteUser: {
-      enabled: true,
-      beforeDelete: async (_u: unknown) => {
-        // TODO(S2-rooms): enumerate rooms owned by the user, delete them
-        // and their messages+attachments. v3.docx §2.1.5 mandates this;
-        // schema's `room.ownerId` is `onDelete: "set null"` today, which
-        // would leave orphaned rooms behind — flip to cascade OR do it
-        // here. Deferred until rooms ship.
-      },
-    },
+    // S2 supersedes the S1 task #11 hard-delete path. better-auth's built-in
+    // `POST /api/auth/delete-user` would purge the user row, which conflicts
+    // with v3.docx §2.2 ("messages remain visible after account removal") and
+    // would break `message.authorId` FKs. The S2 contract lives at
+    // `DELETE /api/v1/users/me` (apps/backend/src/routes/account.ts): soft-
+    // delete user + hard-delete relationship edges + preserve messages with
+    // "[deleted user]" substitution at serialization. Leaving
+    // `deleteUser.enabled` unset keeps the old path returning 404, so there's
+    // exactly one deletion surface. s1-auth.md §4 R18's REQ-125 claim is now
+    // covered by `tests/account-delete.test.ts`'s happy-path case (sessions
+    // revoked, cookie stops auth'ing).
   },
   // Redis-backed KV for rate-limit counters (and any future session-cache
   // opt-in). See src/secondary-storage.ts and s1-auth.md §10 decision log —

@@ -6,9 +6,12 @@ import Fastify, {
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import type { ZodType } from "zod";
+import { eq } from "drizzle-orm";
+import { user } from "@ai-herders/shared/schema";
 import { registerSchema, loginSchema } from "@ai-herders/shared/dto";
 import { env } from "./env";
 import { auth } from "./auth";
+import { db } from "./db";
 import { toFetchHeaders } from "./lib/fetch-headers";
 import { sessionsRoutes } from "./routes/sessions";
 import { messagesRoutes } from "./routes/messages";
@@ -17,6 +20,7 @@ import { roomsRoutes } from "./routes/rooms";
 import { attachmentsRoutes } from "./routes/attachments";
 import { dmsRoutes } from "./routes/dms";
 import { adminRoutes } from "./routes/admin";
+import { accountRoutes } from "./routes/account";
 import { recordHttpError, shouldCountHttpError } from "./lib/metrics";
 import { createSocketIO, type ChatIOServer } from "./socket";
 import { installSocketAuth } from "./socket-auth";
@@ -70,7 +74,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   );
   app.post(
     "/api/auth/sign-in/email",
-    { preHandler: zodBodyGuard(loginSchema) },
+    { preHandler: [zodBodyGuard(loginSchema), deletedAccountGuard] },
     proxyToBetterAuth,
   );
 
@@ -84,6 +88,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(attachmentsRoutes, { prefix: "/api/v1/attachments" });
   await app.register(dmsRoutes, { prefix: "/api/v1/dms" });
   await app.register(adminRoutes, { prefix: "/api/v1/admin" });
+  await app.register(accountRoutes, { prefix: "/api/v1" });
 
   // REQ-158 — feed the /admin dashboard's errorCount5min widget. onResponse
   // fires for every handled request (including 401/403/404), so we filter
@@ -143,6 +148,37 @@ function zodBodyGuard<T>(schema: ZodType<T>) {
       })),
     });
   };
+}
+
+// ─── deleted-account guard (S2-account) ────────────────────────────────────
+// REQ-019 — block sign-in for soft-deleted users. Runs BEFORE the better-auth
+// proxy so a tombstoned account never gets a fresh session issued.
+//
+// Pre-auth wrapper was chosen over `databaseHooks.session.create.before`
+// (brief §8 fallback) because the better-auth hook fires deep in the sign-in
+// pipeline — returning false there leaves the handler's cookie / response
+// shape unclear for a user-visible path. A pre-handler that short-circuits
+// with a clean 401 is easier to reason about and matches the existing
+// zodBodyGuard pattern above. Email anti-enumeration: we return the same
+// 401 shape as better-auth's wrong-password path so "account gone" is not
+// distinguishable from "never existed" at the HTTP surface.
+async function deletedAccountGuard(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  // Body was already parsed + normalized by zodBodyGuard — it's LoginInput.
+  const email = (request.body as { email?: unknown })?.email;
+  if (typeof email !== "string") return;
+  const [row] = await db
+    .select({ deletedAt: user.deletedAt })
+    .from(user)
+    .where(eq(user.email, email))
+    .limit(1);
+  if (row?.deletedAt != null) {
+    return reply
+      .status(401)
+      .send({ code: "INVALID_EMAIL_OR_PASSWORD", message: "Invalid email or password" });
+  }
 }
 
 async function proxyToBetterAuth(request: FastifyRequest, reply: FastifyReply) {

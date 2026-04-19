@@ -25,6 +25,7 @@ import {
   message,
   messageSeq,
   room,
+  user,
   type Message,
 } from "@ai-herders/shared/schema";
 import type {
@@ -43,6 +44,7 @@ import {
   allocateAndInsertMessage,
   AttachmentLinkError,
 } from "../lib/seq-allocator";
+import { DELETED_USER_DISPLAY } from "../lib/users";
 
 function zodBodyGuard<T>(schema: ZodType<T>): preHandlerHookHandler {
   return async (request: FastifyRequest, reply: FastifyReply) => {
@@ -62,13 +64,22 @@ function zodBodyGuard<T>(schema: ZodType<T>): preHandlerHookHandler {
   };
 }
 
-export function toMessagePayload(row: Message): MessagePayload {
+// REQ-018 — when the author's user row has `deletedAt != null` the
+// serialization swaps the denormalised username/name for "[deleted user]".
+// Callers that know the author is alive (send handler, live broadcasts) may
+// omit the flag; history/DM-list paths JOIN user.deletedAt and pass it.
+export function toMessagePayload(
+  row: Message,
+  authorDeleted = false,
+): MessagePayload {
+  const authorUsername = authorDeleted ? DELETED_USER_DISPLAY : row.authorUsername;
+  const authorName = authorDeleted ? DELETED_USER_DISPLAY : row.authorName;
   return {
     id: row.id,
     roomId: row.roomId,
     authorId: row.authorId,
-    authorUsername: row.authorUsername,
-    authorName: row.authorName,
+    authorUsername,
+    authorName,
     body: row.body,
     seq: row.seq.toString(),
     replyToId: row.replyToId ?? null,
@@ -300,6 +311,13 @@ export async function messagesRoutes(app: FastifyInstance): Promise<void> {
         }
       }
 
+      // REQ-018 — after fetching messages, batch-lookup each distinct author
+      // to learn their `user.deletedAt` state. The denormalised
+      // authorUsername on `message` is a send-time snapshot (Slack/Discord
+      // semantics) and does NOT track deletion; the lookup decides whether
+      // the serializer swaps in "[deleted user]". A separate SELECT (vs a
+      // JOIN in the main query) keeps the message path's plan stable and
+      // doesn't risk changing row multiplicity.
       const rows =
         roomHeadSeq === 0n
           ? []
@@ -317,7 +335,21 @@ export async function messagesRoutes(app: FastifyInstance): Promise<void> {
               .orderBy(asc(message.seq))
               .limit(parsed.data.limit);
 
-      const payloads = rows.map(toMessagePayload);
+      const deletedAuthorIds = new Set<string>();
+      if (rows.length > 0) {
+        const authorIds = [...new Set(rows.map((r) => r.authorId))];
+        const authorRows = await db
+          .select({ id: user.id, deletedAt: user.deletedAt })
+          .from(user)
+          .where(inArray(user.id, authorIds));
+        for (const a of authorRows) {
+          if (a.deletedAt !== null) deletedAuthorIds.add(a.id);
+        }
+      }
+
+      const payloads = rows.map((r) =>
+        toMessagePayload(r, deletedAuthorIds.has(r.authorId)),
+      );
       if (payloads.length > 0) {
         const byMessageId = await loadAttachmentPayloadsForMessages(
           payloads.map((p) => p.id),
