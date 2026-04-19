@@ -23,8 +23,13 @@
 // On dedup (existing row returned) the caller should NOT re-broadcast
 // message.new — `deduped: true` is the signal.
 
-import { and, eq, sql } from "drizzle-orm";
-import { message, messageSeq, type Message } from "@ai-herders/shared/schema";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import {
+  attachment,
+  message,
+  messageSeq,
+  type Message,
+} from "@ai-herders/shared/schema";
 import { db } from "../db";
 
 export interface AllocateMessageInput {
@@ -37,12 +42,25 @@ export interface AllocateMessageInput {
   body: string;
   replyToId?: string | null;
   clientMessageId?: string | null;
+  // R12 — optional attachment link step. The INSERT + seq allocation + link
+  // all commit together; if any id in this list doesn't match (wrong uploader,
+  // wrong room, already linked, unknown id) the whole transaction rolls back
+  // and the allocator throws AttachmentLinkError. seq is never advanced on
+  // rollback (the UPDATE to message_seq rolls back with everything else).
+  attachmentIds?: string[];
 }
 
 export interface AllocatedMessage {
   message: Message;
   roomHeadSeq: bigint;
   deduped: boolean;
+}
+
+export class AttachmentLinkError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AttachmentLinkError";
+  }
 }
 
 export async function allocateAndInsertMessage(
@@ -115,7 +133,10 @@ export async function allocateAndInsertMessage(
         })
         .returning();
       const row = inserted[0];
-      if (row) return { message: row, roomHeadSeq: newSeq, deduped: false };
+      if (row) {
+        await linkAttachments(tx, input, row.id);
+        return { message: row, roomHeadSeq: newSeq, deduped: false };
+      }
 
       // Race lost — another committer wrote the same (roomId, cid) between our
       // SELECT and INSERT. Return their row.
@@ -141,6 +162,44 @@ export async function allocateAndInsertMessage(
     if (!inserted) {
       throw new Error("INSERT INTO message returned no row");
     }
+
+    await linkAttachments(tx, input, inserted.id);
+
     return { message: inserted, roomHeadSeq: newSeq, deduped: false };
   });
+}
+
+// R12 — SELECT ... FOR UPDATE filters on uploader_id + room_id + messageId
+// IS NULL to enforce ownership + room match + orphan-only in a single query.
+// If any id is missing from the result we throw AttachmentLinkError; the
+// outer transaction rolls back the message INSERT and the seq advance.
+async function linkAttachments(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  input: AllocateMessageInput,
+  messageId: string,
+): Promise<void> {
+  const ids = input.attachmentIds ?? [];
+  if (ids.length === 0) return;
+
+  const candidates = await tx
+    .select({ id: attachment.id })
+    .from(attachment)
+    .where(
+      and(
+        inArray(attachment.id, ids),
+        eq(attachment.uploaderId, input.authorId),
+        eq(attachment.roomId, input.roomId),
+        isNull(attachment.messageId),
+      ),
+    )
+    .for("update");
+
+  if (candidates.length !== ids.length) {
+    throw new AttachmentLinkError("attachment_invalid");
+  }
+
+  await tx
+    .update(attachment)
+    .set({ messageId })
+    .where(inArray(attachment.id, ids));
 }

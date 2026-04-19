@@ -1,0 +1,246 @@
+// REQ-075/077/078/079/081/082/083 — attachment upload + download endpoints.
+//
+// Two-step flow: client POSTs the file (orphan attachment row, messageId NULL)
+// then references the returned id in `attachmentIds` on the next message send
+// (linked inside the existing transaction at routes/messages.ts).
+//
+// Auth runs ahead of multipart parsing so a missing session returns 401
+// without draining a (possibly large) request body. Membership is checked
+// AFTER the multipart fields are read because roomId arrives in the body —
+// when it fails we drain the file stream so the client connection terminates
+// cleanly.
+
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import fs from "node:fs";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
+import { pipeline } from "node:stream/promises";
+import { and, eq } from "drizzle-orm";
+import { attachment, roomMember } from "@ai-herders/shared/schema";
+
+import { auth } from "../auth";
+import { db } from "../db";
+import { toFetchHeaders } from "../lib/fetch-headers";
+import {
+  buildStoragePath,
+  resolveStorageAbsolute,
+} from "../lib/attachment-storage";
+
+const FILE_CAP_BYTES = 20 * 1024 * 1024;
+const IMAGE_CAP_BYTES = 3 * 1024 * 1024;
+const COMMENT_MAX = 500;
+
+function drain(stream: NodeJS.ReadableStream): void {
+  // Best-effort: if the multipart stream is left unconsumed the request hangs
+  // on the client side until idle timeout. Resume() ditches the bytes; the
+  // plugin still tears down the connection cleanly.
+  stream.resume();
+}
+
+export async function attachmentsRoutes(app: FastifyInstance): Promise<void> {
+  app.post(
+    "/",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const headers = toFetchHeaders(request);
+      const session = await auth.api.getSession({ headers });
+      if (!session) {
+        return reply.status(401).send({ error: "unauthorized" });
+      }
+      const userId = session.user.id;
+
+      let data: Awaited<ReturnType<FastifyRequest["file"]>>;
+      try {
+        data = await request.file();
+      } catch (err) {
+        // The multipart plugin throws when the request lacks a multipart
+        // content-type (typed as MB_ERR_INVALID_MULTIPART_CONTENT_TYPE) or
+        // when limits are exceeded synchronously. Treat as 400.
+        request.log.warn({ err }, "attachment multipart parse failed");
+        return reply.status(400).send({ error: "invalid_multipart" });
+      }
+
+      if (!data) {
+        return reply.status(400).send({ error: "missing_file" });
+      }
+
+      const fields = data.fields as Record<
+        string,
+        { value?: unknown } | undefined
+      >;
+      const roomIdField = fields.roomId?.value;
+      if (typeof roomIdField !== "string" || roomIdField.length === 0) {
+        drain(data.file);
+        return reply.status(400).send({ error: "missing_room_id" });
+      }
+      const roomId = roomIdField;
+
+      const [membership] = await db
+        .select({ id: roomMember.id })
+        .from(roomMember)
+        .where(
+          and(eq(roomMember.roomId, roomId), eq(roomMember.userId, userId)),
+        )
+        .limit(1);
+      if (!membership) {
+        drain(data.file);
+        // Same 403-as-oracle-suppression rationale as message-auth.
+        return reply.status(403).send({ error: "forbidden" });
+      }
+
+      const commentField = fields.comment?.value;
+      let comment: string | null = null;
+      if (typeof commentField === "string" && commentField.length > 0) {
+        if (commentField.length > COMMENT_MAX) {
+          drain(data.file);
+          return reply.status(400).send({ error: "comment_too_long" });
+        }
+        comment = commentField.normalize("NFC");
+      }
+
+      // R4 — `originalName` is preserved verbatim modulo NFC normalisation
+      // (same pipeline as message body per REQ-031). Path-unsafe characters
+      // are NOT stripped from this column; sanitisation lives in the
+      // storagePath derivation instead (R10).
+      const originalName = (data.filename ?? "").normalize("NFC");
+      const mimeType = data.mimetype || "application/octet-stream";
+
+      const attachmentId = randomUUID();
+      const { relativePath, absolutePath } = buildStoragePath(
+        attachmentId,
+        originalName,
+      );
+
+      try {
+        await fs.promises.mkdir(path.dirname(absolutePath), { recursive: true });
+      } catch (err) {
+        drain(data.file);
+        request.log.error({ err, absolutePath }, "attachment mkdir failed");
+        return reply.status(500).send({ error: "storage_unavailable" });
+      }
+
+      let bytesWritten = 0;
+      data.file.on("data", (chunk: Buffer) => {
+        bytesWritten += chunk.length;
+      });
+
+      try {
+        await pipeline(data.file, fs.createWriteStream(absolutePath));
+      } catch (err) {
+        await fs.promises.unlink(absolutePath).catch(() => {});
+        request.log.error({ err, absolutePath }, "attachment write failed");
+        return reply.status(500).send({ error: "storage_unavailable" });
+      }
+
+      // R7 — multipart's fileSize cap marks the stream truncated if the byte
+      // limit was hit. We unlink the partial file and surface 413; the row
+      // is never inserted.
+      if (data.file.truncated) {
+        await fs.promises.unlink(absolutePath).catch(() => {});
+        return reply.status(413).send({ error: "file_too_large" });
+      }
+
+      // R8 — image cap is conditional on mime so it lives at the handler.
+      // Plugin would have to per-request reconfigure to push this lower.
+      if (mimeType.startsWith("image/") && bytesWritten > IMAGE_CAP_BYTES) {
+        await fs.promises.unlink(absolutePath).catch(() => {});
+        return reply.status(413).send({ error: "image_too_large" });
+      }
+
+      try {
+        await db.insert(attachment).values({
+          id: attachmentId,
+          messageId: null,
+          roomId,
+          uploaderId: userId,
+          originalName,
+          storagePath: relativePath,
+          mimeType,
+          sizeBytes: bytesWritten,
+          comment,
+        });
+      } catch (err) {
+        await fs.promises.unlink(absolutePath).catch(() => {});
+        request.log.error({ err }, "attachment row insert failed");
+        return reply.status(500).send({ error: "storage_unavailable" });
+      }
+
+      return reply.status(201).send({ attachmentId });
+    },
+  );
+
+  app.get<{ Params: { id: string } }>(
+    "/:id",
+    async (
+      request: FastifyRequest<{ Params: { id: string } }>,
+      reply: FastifyReply,
+    ) => {
+      const headers = toFetchHeaders(request);
+      const session = await auth.api.getSession({ headers });
+      if (!session) {
+        return reply.status(401).send({ error: "unauthorized" });
+      }
+      const userId = session.user.id;
+
+      const [row] = await db
+        .select({
+          id: attachment.id,
+          roomId: attachment.roomId,
+          originalName: attachment.originalName,
+          storagePath: attachment.storagePath,
+          mimeType: attachment.mimeType,
+          sizeBytes: attachment.sizeBytes,
+        })
+        .from(attachment)
+        .where(eq(attachment.id, request.params.id))
+        .limit(1);
+      if (!row) {
+        return reply.status(404).send({ error: "not_found" });
+      }
+
+      // R6 / REQ-083 — membership recomputed on every request. No signed URLs,
+      // no cached grants. Former members → 403 (even the uploader, per R14 /
+      // ADR-0006 deviation from v4's `/uploads/mine`).
+      const [membership] = await db
+        .select({ id: roomMember.id })
+        .from(roomMember)
+        .where(
+          and(
+            eq(roomMember.roomId, row.roomId),
+            eq(roomMember.userId, userId),
+          ),
+        )
+        .limit(1);
+      if (!membership) {
+        return reply.status(403).send({ error: "forbidden" });
+      }
+
+      const onDisk = resolveStorageAbsolute(row.storagePath);
+      if (!fs.existsSync(onDisk)) {
+        request.log.error({ onDisk, id: row.id }, "attachment file missing");
+        return reply.status(500).send({ error: "storage_gone" });
+      }
+
+      // R11 — RFC 5987 Content-Disposition. `filename*=UTF-8''<pct-encoded>`
+      // survives unicode filenames (REQ-078 + R4). Always `attachment` so the
+      // browser never auto-executes scripts; inline preview is S3-owned.
+      const encoded = encodeRFC5987(row.originalName);
+      reply.header("content-type", row.mimeType);
+      reply.header("content-length", row.sizeBytes);
+      reply.header(
+        "content-disposition",
+        `attachment; filename*=UTF-8''${encoded}`,
+      );
+
+      return reply.send(fs.createReadStream(onDisk));
+    },
+  );
+}
+
+// RFC 5987 §3.2.1 — percent-encode every byte that is not an attr-char
+// (ALPHA / DIGIT / "!" / "#" / "$" / "&" / "+" / "-" / "." / "^" / "_" / "`" /
+// "|" / "~"). encodeURIComponent covers most of this but leaves !*'() alone,
+// so we escape those afterwards.
+function encodeRFC5987(value: string): string {
+  return encodeURIComponent(value)
+    .replace(/['()*!]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+}

@@ -17,6 +17,7 @@
   "dependencies": {
     "@ai-herders/shared": "workspace:*",
     "@fastify/cors": "^10.0.1",
+    "@fastify/multipart": "^10.0.0",
     "@fastify/rate-limit": "^10.2.0",
     "@socket.io/redis-adapter": "^8.3.0",
     "better-auth": "^1.3.8",

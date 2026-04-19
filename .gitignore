@@ -35,3 +35,8 @@ tests/e2e/screenshots/
 # local-FS upload volume contents — keep dir, ignore files
 infra/uploads/*
 !infra/uploads/.gitkeep
+# Defence in depth: backend tests run with cwd=apps/backend and the env.ts
+# default UPLOAD_DIR resolves to apps/backend/infra/uploads. tests/setup.ts
+# now points UPLOAD_DIR at os.tmpdir(), but a stray tsx/dev process or a
+# misconfigured fixture could still land bytes here.
+apps/backend/infra/uploads/

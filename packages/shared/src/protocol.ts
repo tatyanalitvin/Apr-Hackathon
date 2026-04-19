@@ -15,6 +15,19 @@ export type PresenceState = "online" | "afk" | "offline";
 // Wire-format payload types
 // ──────────────────────────────────────────────────────────────────────────
 
+// REQ-075/077/078/081/082 — inline attachment metadata carried on every
+// message broadcast. Lets the renderer choose <img> vs filename chip without a
+// second round trip. `downloadUrl` is RELATIVE (`/api/v1/attachments/:id`);
+// the client composes the absolute URL with NEXT_PUBLIC_BACKEND_URL.
+export interface AttachmentPayload {
+  id: string;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  comment: string | null;
+  downloadUrl: string;
+}
+
 export interface MessagePayload {
   id: string;
   roomId: string;
@@ -29,6 +42,8 @@ export interface MessagePayload {
   replyToId: string | null;
   editedAt: string | null;
   createdAt: string;
+  // Optional for back-compat: messages without attachments omit the field.
+  attachments?: AttachmentPayload[];
 }
 
 export interface MessageNewEvent {

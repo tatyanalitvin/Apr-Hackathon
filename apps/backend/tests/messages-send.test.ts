@@ -225,17 +225,21 @@ describe("REQ-029 POST /api/v1/rooms/:id/messages send message", () => {
     expect(res.body.replyToId).toBe("not-yet-validated");
   });
 
-  test("REQ-029 attachmentIds accepted but ignored in S1", async () => {
+  test("REQ-029 empty attachmentIds → send succeeds, no attachments key", async () => {
+    // S2 wires the R12 link step (see docs/specs/s2-attachments.md §4 R12 +
+    // tests/attachments-link.test.ts). The old S1 behavior ("accepted but
+    // ignored") is replaced: unknown ids now return 400. Empty array is a
+    // no-op and the 201 body omits `attachments` (R17 — optional field).
     const { agent, userId } = await registerAgent(app, "req029-att@example.com", "req029_att");
     await createRoom("r-req029-att");
     await addMember("r-req029-att", userId);
 
     const res = await agent
       .post("/api/v1/rooms/r-req029-att/messages")
-      .send({ body: "with an ignored attachment", attachmentIds: ["a-1", "a-2"] });
+      .send({ body: "no files here", attachmentIds: [] });
 
     expect(res.status).toBe(201);
-    // Field is intentionally absent from MessagePayload — see spec §2 non-goals.
+    expect(res.body).not.toHaveProperty("attachments");
     expect(res.body).not.toHaveProperty("attachmentIds");
   });
 });

@@ -4,6 +4,7 @@ import Fastify, {
   type FastifyReply,
 } from "fastify";
 import cors from "@fastify/cors";
+import multipart from "@fastify/multipart";
 import type { ZodType } from "zod";
 import { registerSchema, loginSchema } from "@ai-herders/shared/dto";
 import { env } from "./env";
@@ -13,6 +14,7 @@ import { sessionsRoutes } from "./routes/sessions";
 import { messagesRoutes } from "./routes/messages";
 import { friendshipRoutes } from "./routes/friendship";
 import { roomsRoutes } from "./routes/rooms";
+import { attachmentsRoutes } from "./routes/attachments";
 import { createSocketIO, type ChatIOServer } from "./socket";
 import { installSocketAuth } from "./socket-auth";
 import { registerSocketHandlers } from "./socket-handlers";
@@ -32,6 +34,21 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(cors, {
     origin: env.WEB_ORIGIN,
     credentials: true,
+  });
+
+  // S2 attachments. Outer fileSize = 20 MB hard cap (REQ-077 file ceiling); the
+  // 3 MB image cap is enforced in the handler post-write (R8) because the
+  // plugin can't conditionalise on mimetype. files=1 is the single-file rule
+  // (REQ-079 + R2). fields/fieldSize bound the metadata side: file +
+  // roomId + comment (≤500 chars) + a margin for the future S3 csrf token.
+  await app.register(multipart, {
+    limits: {
+      fileSize: 20 * 1024 * 1024,
+      files: 1,
+      fields: 4,
+      fieldSize: 600,
+    },
+    throwFileSizeLimit: false,
   });
 
   app.get("/health", async () => ({
@@ -60,6 +77,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(messagesRoutes, { prefix: "/api/v1/rooms" });
   await app.register(friendshipRoutes, { prefix: "/api/v1" });
   await app.register(roomsRoutes, { prefix: "/api/v1" });
+  await app.register(attachmentsRoutes, { prefix: "/api/v1/attachments" });
 
   // Bridge better-auth's fetch-style handler into Fastify. See ADR-0004.
   // Owns every /api/auth/* path not already declared above.
