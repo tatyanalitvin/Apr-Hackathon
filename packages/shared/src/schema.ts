@@ -167,8 +167,13 @@ export const roomMember = pgTable(
     joinedAt: timestamp("joined_at", { withTimezone: true }).notNull().defaultNow(),
     // §2.7 unread counter pointer — per-room seq watermark the user has read through.
     lastReadSeq: bigint("last_read_seq", { mode: "bigint" }).notNull().default(sql`0`),
-    // §2.7.3 mute/unmute per room
+    // §2.7.3 mute/unmute per room (S1 legacy boolean; superseded by mutedUntil).
     muted: boolean("muted").notNull().default(false),
+    // REQ-123 — timed mute. NULL = unmuted. Future timestamp = muted until that
+    // instant; past timestamp is treated as unmuted at read time (no sweeper
+    // needed). Additive alongside the S1 `muted` boolean; the unread hook only
+    // reads `mutedUntil` so the boolean can retire in a later S3 cleanup.
+    mutedUntil: timestamp("muted_until", { withTimezone: true }),
   },
   (t) => ({
     userRoomUq: uniqueIndex("room_member_user_room_uq").on(t.userId, t.roomId),

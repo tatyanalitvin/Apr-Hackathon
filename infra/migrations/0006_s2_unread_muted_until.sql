@@ -1,0 +1,1 @@
+ALTER TABLE "room_member" ADD COLUMN "muted_until" timestamp with time zone;
