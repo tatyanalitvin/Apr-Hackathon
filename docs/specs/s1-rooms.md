@@ -262,7 +262,7 @@ app.delete<{ Params: { id: string } }>("/rooms/:id/members/me", async (req, repl
 
 ## 7. Out of scope / follow-ups
 
-- **REQ-028 membership cap = 1000.** Enforced on the JOIN path (`POST /api/v1/rooms/:id/members`), which lives in [s2-rooms.md](./s2-rooms.md) R2. Task 7 above adds a new R-number to `s2-rooms.md §4` with the cap check + test (SELECT count(*) FROM room_member WHERE room_id=:id >= 1000 → 403 `room_full`). Leaving REQ-028 as a cross-spec pointer rather than a §4 entry here keeps the spec owning only what this spec's code owns.
+- **REQ-028 membership cap = 1000.** Enforced on the JOIN path (`POST /api/v1/rooms/:id/members`), which lives in [s2-rooms.md](./s2-rooms.md) R5. That R-number carries with the cap check + test (SELECT count(*) FROM room_member WHERE room_id=:id >= 1000 → 403 `room_full`). Leaving REQ-028 as a cross-spec pointer rather than a §4 entry here keeps the spec owning only what this spec's code owns.
 - **REQ-025 catalog search.** `GET /rooms` returns the full public-group-rooms list unfiltered. UI-side fuzzy filter or a server-side `?q=` param is future work; not gated by v3.docx §2.4.3 ("simple search") on the backend.
 - **REQ-086 ownership transfer.** No `PATCH /rooms/:id/owner`. Owners are stuck until delete ships.
 - **REQ-087 delete room.** The `room.deleted_at` column exists and the case-insensitive unique index respects it, so delete is low-risk when it lands — the name frees automatically.
