@@ -99,3 +99,40 @@ describe("REQ-018 GET /api/v1/sessions lists caller's sessions (task #6a)", () =
     }
   });
 });
+
+// REQ-014 — session lifetime. Spec target is ≥ 7 days so users who tick
+// "keep me signed in" are not kicked back to /login daily. We assert on a
+// freshly minted session's `expiresAt - createdAt` (≥ 6 days as the epsilon
+// vs 7, to stay robust against clock skew / minor better-auth internals).
+describe("REQ-014 session expiresIn ≥ 7 days", () => {
+  let app: FastifyInstance;
+  beforeAll(async () => {
+    app = await buildApp();
+    await app.ready();
+  });
+  afterAll(async () => {
+    await app.close();
+  });
+
+  test("REQ-014 new session row's expiresAt is at least 6 days after createdAt", async () => {
+    const agent = request.agent(app.server);
+    await agent
+      .post("/api/auth/sign-up/email")
+      .send({
+        email: "req014-ttl@example.com",
+        username: "req014_ttl",
+        password: "password1234",
+        name: "TTL Anna",
+      })
+      .expect(200);
+
+    const res = await agent.get("/api/v1/sessions");
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(1);
+    const [row] = res.body;
+    const expiresAt = new Date(row.expiresAt).getTime();
+    const createdAt = new Date(row.createdAt).getTime();
+    const deltaDays = (expiresAt - createdAt) / (1000 * 60 * 60 * 24);
+    expect(deltaDays).toBeGreaterThanOrEqual(6);
+  });
+});
