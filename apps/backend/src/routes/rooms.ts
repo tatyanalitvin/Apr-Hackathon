@@ -11,7 +11,7 @@ import type { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { createClient, type RedisClientType } from "redis";
-import { message, messageSeq, room, roomMember } from "@ai-herders/shared/schema";
+import { message, messageSeq, room, roomMember, user } from "@ai-herders/shared/schema";
 import { createRoomSchema, roomCreateResponseSchema } from "@ai-herders/shared/dto";
 
 import { db } from "../db";
@@ -266,6 +266,57 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
       throw err;
     }
   });
+
+  // Gate-3 demo patch — GET /api/v1/rooms/:id/members.
+  // Lets RoomClient key PresencePill on real user.id values instead of
+  // seeded placeholders. Ordering: 404 unknown room → 403 non-member → 200
+  // roster, same ordering discipline as DELETE /rooms/:id/members/me below.
+  // Membership gate prevents DM roster enumeration (kind='dm' rooms).
+  app.get<{ Params: { id: string } }>(
+    "/rooms/:id/members",
+    async (request, reply) => {
+      const ctx = await requireFriendshipAuth(request, reply);
+      if (!ctx) return;
+
+      const roomId = request.params.id;
+
+      const [roomRow] = await db
+        .select({ id: room.id })
+        .from(room)
+        .where(eq(room.id, roomId))
+        .limit(1);
+      if (!roomRow) {
+        return reply.status(404).send({ error: "room_not_found" });
+      }
+
+      const [membership] = await db
+        .select({ id: roomMember.id })
+        .from(roomMember)
+        .where(
+          and(
+            eq(roomMember.userId, ctx.userId),
+            eq(roomMember.roomId, roomId),
+          ),
+        )
+        .limit(1);
+      if (!membership) {
+        return reply.status(403).send({ error: "room_not_member" });
+      }
+
+      const members = await db
+        .select({
+          id: user.id,
+          username: user.username,
+          displayName: user.name,
+        })
+        .from(roomMember)
+        .innerJoin(user, eq(user.id, roomMember.userId))
+        .where(eq(roomMember.roomId, roomId))
+        .orderBy(asc(user.username));
+
+      return reply.status(200).send({ members });
+    },
+  );
 
   // REQ-027 — DELETE /api/v1/rooms/:id/members/me. Members leave freely;
   // owners cannot leave (they must delete the room — deferred to S2).

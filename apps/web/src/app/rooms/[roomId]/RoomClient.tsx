@@ -10,7 +10,7 @@ import type {
 import { RequireSession } from "@/components/chat/RequireSession";
 import { Header } from "@/components/chat/Header";
 import { RoomList, type RoomListItem } from "@/components/chat/RoomList";
-import { MemberList } from "@/components/chat/MemberList";
+import { MemberList, type MemberListItem } from "@/components/chat/MemberList";
 import { MessageList } from "@/components/chat/MessageList";
 import { MessageComposer } from "@/components/chat/MessageComposer";
 import { useSession } from "@/lib/auth-client";
@@ -31,14 +31,6 @@ const HISTORY_PAGE_SIZE = 50;
 // caller has no other memberships.
 const FALLBACK_ROOMS: RoomListItem[] = [{ id: "general", name: "general" }];
 
-// Seeded non-self member list (the caller themselves is spliced in at render
-// so their own pill renders with the real userId for live presence).
-const SEEDED_OTHER_MEMBERS = [
-  { id: "user-alice", username: "alice", displayName: "Alice" },
-  { id: "user-bob", username: "bob", displayName: "Bob" },
-  { id: "user-carol", username: "carol", displayName: "Carol" },
-];
-
 function RoomContent({ roomId }: { roomId: string }) {
   const { data } = useSession();
   const userId = data?.user?.id ?? "anon";
@@ -52,6 +44,10 @@ function RoomContent({ roomId }: { roomId: string }) {
   const [firstItemIndex, setFirstItemIndex] = useState(INITIAL_FIRST_INDEX);
   const [hasMoreOlder, setHasMoreOlder] = useState(true);
   const [sidebarRooms, setSidebarRooms] = useState<RoomListItem[] | null>(null);
+  // Gate-3 patch — real roster keyed by user.id so PresencePill subscribes
+  // to the correct presence slot. null until the fetch resolves; on failure
+  // we fall back to self-only (see displayedMembers below).
+  const [roomMembers, setRoomMembers] = useState<MemberListItem[] | null>(null);
   // REQ-103 — track the local idle state so the Header self-pill can render
   // it before the server round-trips `presence.changed` back.
   const [selfPresence, setSelfPresence] = useState<IdleState>("online");
@@ -74,6 +70,23 @@ function RoomContent({ roomId }: { roomId: string }) {
   useEffect(() => {
     void refreshMyRooms();
   }, [refreshMyRooms]);
+
+  // Fetch the real room roster so PresencePill keys on real userIds. Re-run
+  // on roomId change and when a new member joins this room so the list stays
+  // live for the demo flow (bob joins → alice sees bob in the panel).
+  const refreshRoomMembers = useCallback(async () => {
+    try {
+      const members = await apiRef.current.listRoomMembers(roomId);
+      setRoomMembers(members);
+    } catch {
+      // Non-fatal — displayedMembers falls back to self-only.
+    }
+  }, [roomId]);
+
+  useEffect(() => {
+    setRoomMembers(null);
+    void refreshRoomMembers();
+  }, [refreshRoomMembers]);
 
   const emit = useCallback((m: MessagePayload) => {
     setMessages((prev) => {
@@ -114,6 +127,7 @@ function RoomContent({ roomId }: { roomId: string }) {
     // `.to(roomId).emit`), so a no-op in foreign rooms is guaranteed.
     const onMemberJoined = (_evt: RoomMemberJoinedEvent) => {
       void refreshMyRooms();
+      void refreshRoomMembers();
     };
     socket.on("room.member.joined", onMemberJoined);
 
@@ -146,7 +160,7 @@ function RoomContent({ roomId }: { roomId: string }) {
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [roomId, refreshMyRooms]);
+  }, [roomId, refreshMyRooms, refreshRoomMembers]);
 
   // REQ-103 — local idle detector. Transitions go both to local state (so
   // the Header self-pill flips instantly) and out through the socket as
@@ -205,21 +219,18 @@ function RoomContent({ roomId }: { roomId: string }) {
       : [...base, { id: roomId, name: roomId }];
   })();
 
-  // Splice the caller onto the top of the member list with their real id so
-  // the self-pill is driven by the live presenceStore. Seeded alice/bob/carol
-  // remain for visual density — their ids are placeholders until a real
-  // room-member roster endpoint lands.
-  const displayedMembers =
-    data?.user?.id
-      ? [
-          {
-            id: data.user.id,
-            username: sessionUsername ?? "me",
-            displayName: sessionDisplayName ?? "Me",
-          },
-          ...SEEDED_OTHER_MEMBERS,
-        ]
-      : SEEDED_OTHER_MEMBERS;
+  // Prefer the fetched roster (real user.id values → PresencePill subscribes
+  // correctly). While the fetch is pending or if it fails, fall back to a
+  // self-only list so the panel never collapses to empty mid-render.
+  const selfEntry: MemberListItem | null = data?.user?.id
+    ? {
+        id: data.user.id,
+        username: sessionUsername ?? "me",
+        displayName: sessionDisplayName ?? "Me",
+      }
+    : null;
+  const displayedMembers: MemberListItem[] =
+    roomMembers ?? (selfEntry ? [selfEntry] : []);
 
   return (
     <div className="h-dvh grid grid-cols-1 grid-rows-[auto_1fr_auto] lg:grid-cols-[16rem_1fr_18rem] lg:grid-rows-[auto_1fr]">

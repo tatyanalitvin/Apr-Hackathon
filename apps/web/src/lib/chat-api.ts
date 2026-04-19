@@ -49,6 +49,14 @@ export interface JoinRoomResult {
   joined: boolean;
 }
 
+// Mirrors backend GET /api/v1/rooms/:id/members — real user ids so
+// PresencePill can subscribe to the correct per-user presence slot.
+export interface RoomMemberEntry {
+  id: string;
+  username: string;
+  displayName: string;
+}
+
 export interface ChatAPI {
   sendMessage(roomId: string, input: SendMessageInput): Promise<MessagePayload>;
   fetchHistory(roomId: string, input: FetchHistoryInput): Promise<HistorySliceResponse>;
@@ -56,6 +64,7 @@ export interface ChatAPI {
   listMyRooms(): Promise<MyRoomSummary[]>;
   listRoomCatalog(): Promise<RoomCatalogEntry[]>;
   joinRoom(roomId: string): Promise<JoinRoomResult>;
+  listRoomMembers(roomId: string): Promise<RoomMemberEntry[]>;
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -116,5 +125,12 @@ export class RealChatAPI implements ChatAPI {
       `${BACKEND_URL}/api/v1/rooms/${encodeURIComponent(roomId)}/join`,
       { method: "POST" },
     );
+  }
+
+  async listRoomMembers(roomId: string): Promise<RoomMemberEntry[]> {
+    const { members } = await fetchJson<{ members: RoomMemberEntry[] }>(
+      `${BACKEND_URL}/api/v1/rooms/${encodeURIComponent(roomId)}/members`,
+    );
+    return members;
   }
 }
