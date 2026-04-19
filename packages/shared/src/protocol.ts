@@ -41,6 +41,12 @@ export interface MessagePayload {
   seq: string;        // bigint as string
   replyToId: string | null;
   editedAt: string | null;
+  // REQ-112/113 — set when the author soft-deletes the message. History
+  // endpoint filters deletedAt IS NOT NULL out of GETs; live clients that
+  // held the row before deletion use this flag + the cleared `body` to
+  // render a tombstone. Never populated on GET responses (always null);
+  // toggled locally by the client when a `message.deleted` event arrives.
+  deletedAt: string | null;
   createdAt: string;
   // Optional for back-compat: messages without attachments omit the field.
   attachments?: AttachmentPayload[];
@@ -70,6 +76,7 @@ export interface MessageDeletedEvent {
   seq: string;
   roomHeadSeq: string;
   messageId: string;
+  deletedAt: string;
 }
 
 export interface PresenceStateEvent {

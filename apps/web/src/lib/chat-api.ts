@@ -100,6 +100,23 @@ export interface SetRoomMuteResult {
   mutedUntil: string | null;
 }
 
+// REQ-110/112/113/114 — edit/delete error shapes lifted to a narrow union so
+// UI code switches on `code` instead of re-parsing HTTP semantics per site.
+export type MessageMutationError =
+  | { code: "validation"; message: string }
+  | { code: "unauthorized" }
+  | { code: "not_message_author" }      // 403 when author mismatch (REQ-114)
+  | { code: "forbidden"; message: string } // 403 non-member-of-room etc.
+  | { code: "not_found" }               // 404 wrong room id
+  | { code: "gone" }                    // 410 editing a deleted message (REQ-113)
+  | { code: "rate_limited"; retryAfterSec?: number }
+  | { code: "network"; message: string }
+  | { code: "unknown"; message: string };
+
+export type MessageMutationResponse<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: MessageMutationError };
+
 export interface ChatAPI {
   sendMessage(roomId: string, input: SendMessageInput): Promise<MessagePayload>;
   fetchHistory(roomId: string, input: FetchHistoryInput): Promise<HistorySliceResponse>;
@@ -113,6 +130,8 @@ export interface ChatAPI {
   leaveRoom(roomId: string): Promise<RoomMutationResponse<null>>;
   markRoomRead(roomId: string, lastReadSeq: bigint): Promise<MarkRoomReadResult>;
   setRoomMute(roomId: string, mutedUntil: string | null): Promise<SetRoomMuteResult>;
+  editMessage(roomId: string, messageId: string, body: string): Promise<MessageMutationResponse<MessagePayload>>;
+  deleteMessage(roomId: string, messageId: string): Promise<MessageMutationResponse<null>>;
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -234,6 +253,28 @@ export class RealChatAPI implements ChatAPI {
       },
     );
   }
+
+  async editMessage(
+    roomId: string,
+    messageId: string,
+    body: string,
+  ): Promise<MessageMutationResponse<MessagePayload>> {
+    return messageMutation<MessagePayload>(
+      `${BACKEND_URL}/api/v1/rooms/${encodeURIComponent(roomId)}/messages/${encodeURIComponent(messageId)}`,
+      "PATCH",
+      { body },
+    );
+  }
+
+  async deleteMessage(
+    roomId: string,
+    messageId: string,
+  ): Promise<MessageMutationResponse<null>> {
+    return messageMutation<null>(
+      `${BACKEND_URL}/api/v1/rooms/${encodeURIComponent(roomId)}/messages/${encodeURIComponent(messageId)}`,
+      "DELETE",
+    );
+  }
 }
 
 // Shared adapter for POST/PATCH/DELETE /rooms routes. Normalises backend
@@ -298,6 +339,81 @@ async function roomMutation<T>(
     return { ok: false, error: { code: "room_not_found" } };
   if (res.status === 403 && payload.error === "not_room_owner")
     return { ok: false, error: { code: "not_room_owner" } };
+  if (res.status === 403)
+    return {
+      ok: false,
+      error: {
+        code: "forbidden",
+        message: typeof payload.error === "string" ? payload.error : "forbidden",
+      },
+    };
+  return {
+    ok: false,
+    error: {
+      code: "unknown",
+      message: `HTTP ${res.status}${payload.error ? `: ${payload.error}` : ""}`,
+    },
+  };
+}
+
+// Shared adapter for PATCH/DELETE /rooms/:roomId/messages/:messageId (REQ-110/112).
+// Maps backend `{ error }` shapes into MessageMutationError so call sites can
+// branch on `not_message_author` (author check), `gone` (editing deleted), etc.
+async function messageMutation<T>(
+  url: string,
+  method: "PATCH" | "DELETE",
+  body?: unknown,
+): Promise<MessageMutationResponse<T>> {
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method,
+      credentials: "include",
+      headers: body !== undefined ? { "content-type": "application/json" } : undefined,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      error: {
+        code: "network",
+        message: err instanceof Error ? err.message : "network error",
+      },
+    };
+  }
+
+  if (res.status === 204) return { ok: true, data: null as T };
+  if (res.status === 200) {
+    const data = (await res.json().catch(() => null)) as T | null;
+    if (data === null) {
+      return { ok: false, error: { code: "unknown", message: "empty body" } };
+    }
+    return { ok: true, data };
+  }
+
+  const payload = (await res.json().catch(() => ({}))) as {
+    error?: string;
+    retryAfterSec?: number;
+  };
+
+  if (res.status === 401) return { ok: false, error: { code: "unauthorized" } };
+  if (res.status === 400)
+    return {
+      ok: false,
+      error: {
+        code: "validation",
+        message: typeof payload.error === "string" ? payload.error : "invalid request",
+      },
+    };
+  if (res.status === 404) return { ok: false, error: { code: "not_found" } };
+  if (res.status === 410) return { ok: false, error: { code: "gone" } };
+  if (res.status === 429)
+    return {
+      ok: false,
+      error: { code: "rate_limited", retryAfterSec: payload.retryAfterSec },
+    };
+  if (res.status === 403 && payload.error === "not_message_author")
+    return { ok: false, error: { code: "not_message_author" } };
   if (res.status === 403)
     return {
       ok: false,

@@ -13,6 +13,7 @@ function msg(seq: number): MessagePayload {
     seq: String(seq),
     replyToId: null,
     editedAt: null,
+    deletedAt: null,
     createdAt: new Date().toISOString(),
   };
 }
