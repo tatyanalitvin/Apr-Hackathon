@@ -12,6 +12,7 @@ function msg(seq: number): MessagePayload {
     body: `msg ${seq}`,
     seq: String(seq),
     replyToId: null,
+    replyTo: null,
     editedAt: null,
     deletedAt: null,
     createdAt: new Date().toISOString(),

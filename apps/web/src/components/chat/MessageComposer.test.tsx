@@ -14,7 +14,9 @@ describe("MessageComposer (REQ-046, R5)", () => {
     render(<MessageComposer userId="u1" roomId="general" onSend={onSend} />);
     const ta = screen.getByLabelText("Message");
     await user.type(ta, "hello{Enter}");
-    expect(onSend).toHaveBeenCalledWith("hello");
+    // REQ-133 R12: `onSend` is (body, attachmentIds?, replyToId?).
+    // Non-reply + no-attachment send passes both trailing args as undefined.
+    expect(onSend).toHaveBeenCalledWith("hello", undefined, undefined);
     expect(ta).toHaveValue("");
   });
 
@@ -131,7 +133,9 @@ describe("MessageComposer attachments (S2)", () => {
     const send = screen.getByRole("button", { name: /send/i });
     await waitFor(() => expect(send).not.toBeDisabled());
     await user.click(send);
-    await waitFor(() => expect(onSend).toHaveBeenCalledWith("look!", ["att-1"]));
+    await waitFor(() =>
+      expect(onSend).toHaveBeenCalledWith("look!", ["att-1"], undefined),
+    );
   });
 
   it("rejects a >20MB file before upload", async () => {
@@ -181,5 +185,108 @@ describe("MessageComposer attachments (S2)", () => {
       fireEvent.paste(ta, { clipboardData: { files: [file], types: ["Files"] } });
     });
     await waitFor(() => expect(onUpload).toHaveBeenCalledWith(file));
+  });
+});
+
+describe("MessageComposer reply chip (REQ-133 R12)", () => {
+  it("renders the Replying-to chip when replyTo prop is set", () => {
+    render(
+      <MessageComposer
+        userId="u1"
+        roomId="general"
+        onSend={() => {}}
+        replyTo={{ messageId: "p1", authorUsername: "alice" }}
+        onClearReply={() => {}}
+      />,
+    );
+    const chip = screen.getByTestId("reply-chip");
+    expect(chip).toHaveTextContent(/replying to/i);
+    expect(chip).toHaveTextContent("alice");
+  });
+
+  it("omits the chip when replyTo is null/undefined", () => {
+    const { rerender } = render(
+      <MessageComposer userId="u1" roomId="general" onSend={() => {}} replyTo={null} />,
+    );
+    expect(screen.queryByTestId("reply-chip")).toBeNull();
+
+    rerender(<MessageComposer userId="u1" roomId="general" onSend={() => {}} />);
+    expect(screen.queryByTestId("reply-chip")).toBeNull();
+  });
+
+  it("fires onClearReply when the chip × is clicked", async () => {
+    const onClearReply = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <MessageComposer
+        userId="u1"
+        roomId="general"
+        onSend={() => {}}
+        replyTo={{ messageId: "p1", authorUsername: "alice" }}
+        onClearReply={onClearReply}
+      />,
+    );
+    await user.click(screen.getByTestId("reply-chip-clear"));
+    expect(onClearReply).toHaveBeenCalledTimes(1);
+  });
+
+  it("Enter-submit passes replyToId as the 3rd positional arg and clears the chip", async () => {
+    const onSend = vi.fn().mockResolvedValue(undefined);
+    const onClearReply = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <MessageComposer
+        userId="u1"
+        roomId="general"
+        onSend={onSend}
+        replyTo={{ messageId: "parent-id-123", authorUsername: "alice" }}
+        onClearReply={onClearReply}
+      />,
+    );
+    const ta = screen.getByLabelText("Message");
+    await user.type(ta, "ack{Enter}");
+    // body, attachmentIds (undefined — no attachments), replyToId.
+    expect(onSend).toHaveBeenCalledWith("ack", undefined, "parent-id-123");
+    // Parent is asked to drop the chip after a successful send.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(onClearReply).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves chip + replyToId when onSend rejects (user can retry)", async () => {
+    const onSend = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("network"))
+      .mockResolvedValue(undefined);
+    const onClearReply = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <MessageComposer
+        userId="u1"
+        roomId="general"
+        onSend={onSend}
+        replyTo={{ messageId: "p1", authorUsername: "alice" }}
+        onClearReply={onClearReply}
+      />,
+    );
+    const ta = screen.getByLabelText("Message");
+    await user.type(ta, "retry-me{Enter}");
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    // Draft persisted, chip still there, onClearReply NOT called yet.
+    expect(ta).toHaveValue("retry-me");
+    expect(screen.getByTestId("reply-chip")).toBeInTheDocument();
+    expect(onClearReply).not.toHaveBeenCalled();
+
+    // Retry succeeds.
+    const send = screen.getByRole("button", { name: /send/i });
+    await user.click(send);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(onSend).toHaveBeenNthCalledWith(2, "retry-me", undefined, "p1");
+    expect(onClearReply).toHaveBeenCalledTimes(1);
   });
 });
