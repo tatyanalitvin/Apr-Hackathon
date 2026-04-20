@@ -39,23 +39,39 @@ export function RoomList({
           <CreateRoomDialog onCreated={onRoomCreated} />
         </summary>
         <div className="space-y-1">
-          {rooms.map((room) => {
-            const active = room.id === currentRoomId;
-            return (
+          {rooms.length === 0 ? (
+            // Empty-state copy sits inside the accordion body so the
+            // "+ New room" trigger in the summary stays visible and the
+            // user has an obvious next step (either create one here or
+            // hop over to /rooms/browse to join a public catalog entry).
+            <div className="px-3 py-2 text-sm text-muted-foreground">
+              You&apos;re not in any rooms yet.{" "}
               <Link
-                key={room.id}
-                href={`/rooms/${room.id}`}
-                className={`flex items-center justify-between gap-2 rounded px-3 py-1.5 text-sm hover:bg-accent ${active ? "bg-accent font-medium" : ""}`}
+                href="/rooms/browse"
+                className="underline underline-offset-2 hover:text-foreground"
               >
-                <span className="truncate">#{room.name}</span>
-                <UnreadBadge
-                  count={room.unreadCount ?? 0}
-                  muted={room.muted}
-                  current={active}
-                />
+                Browse the catalog.
               </Link>
-            );
-          })}
+            </div>
+          ) : (
+            rooms.map((room) => {
+              const active = room.id === currentRoomId;
+              return (
+                <Link
+                  key={room.id}
+                  href={`/rooms/${room.id}`}
+                  className={`flex items-center justify-between gap-2 rounded px-3 py-1.5 text-sm hover:bg-accent ${active ? "bg-accent font-medium" : ""}`}
+                >
+                  <span className="truncate">#{room.name}</span>
+                  <UnreadBadge
+                    count={room.unreadCount ?? 0}
+                    muted={room.muted}
+                    current={active}
+                  />
+                </Link>
+              );
+            })
+          )}
         </div>
       </details>
       <DmList currentRoomId={currentRoomId} />
