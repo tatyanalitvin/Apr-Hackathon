@@ -133,7 +133,7 @@ export const banListResponse = z.object({ bans: z.array(banListItem) });
 
 v3.docx §4.5 mandates modal confirmation for administrative actions. Reuse shadcn `AlertDialog` (already in the project). Three modals:
 
-- Kick confirm: "Remove {username} from #{roomName}? They will be banned and cannot rejoin until unbanned."
+- Kick confirm: "Remove {username} from #{roomName}? They will be removed but can rejoin."
 - Ban confirm (with reason textarea): "Ban {username} from #{roomName}? Optional reason (≤ 500 chars, shown to other admins)."
 - Demote confirm: "Remove admin rights from {username}?"
 - Unban confirm: "Unban {username}? They will be able to rejoin #{roomName}."
