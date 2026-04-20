@@ -189,6 +189,11 @@ export function MembersTab({ roomId, roomName, viewerRole }: MembersTabProps) {
                           onClick={() => void handleKick(m)}
                           disabled={busyRow}
                           data-testid={`kick-${m.username}`}
+                          // UX(ui-pass P0-4) — dark-theme destructive token
+                          // loses saturation on the lavender glass card and
+                          // reads "disabled". Hold full --destructive fill at
+                          // rest + disabled so the exile action is legible.
+                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:bg-destructive/70 disabled:text-destructive-foreground disabled:opacity-100"
                         >
                           Remove from room
                         </Button>
@@ -250,7 +255,13 @@ function BanReasonDialog({
           <Button variant="ghost" onClick={onCancel}>
             Cancel
           </Button>
-          <Button variant="destructive" onClick={() => void onSubmit(reason)}>
+          <Button
+            variant="destructive"
+            onClick={() => void onSubmit(reason)}
+            // UX(ui-pass P0-4) — keep destructive fill legible on the dark
+            // dialog surface; matches the Remove-from-room row button above.
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:bg-destructive/70 disabled:text-destructive-foreground disabled:opacity-100"
+          >
             Ban user
           </Button>
         </DialogFooter>

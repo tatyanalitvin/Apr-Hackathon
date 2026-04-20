@@ -95,6 +95,10 @@ function AccountContent() {
                   setDeleteError(null);
                   setDeleteOpen(true);
                 }}
+                // UX(ui-pass P0-4) — dark-theme destructive fill desaturates
+                // over the lavender glass card and reads "disabled". Hold
+                // full --destructive + light foreground at rest and disabled.
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:bg-destructive/70 disabled:text-destructive-foreground disabled:opacity-100"
               >
                 Delete my account…
               </Button>
@@ -144,6 +148,9 @@ function AccountContent() {
               variant="destructive"
               onClick={onDelete}
               disabled={deleting || deletePassword.length === 0}
+              // UX(ui-pass P0-4) — mirror the page-level Delete button; keep
+              // the primary confirm readable while disabled (empty password).
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:bg-destructive/70 disabled:text-destructive-foreground disabled:opacity-100"
             >
               {deleting ? "Deleting…" : "Delete account"}
             </Button>
