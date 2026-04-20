@@ -134,6 +134,21 @@ export async function attachmentsRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(403).send({ error: "forbidden" });
       }
 
+      // Mirror the download path's gate: reject if a ban row exists for this
+      // (room, user), even with membership present. Ban-apply in rooms.ts
+      // deletes membership in the same tx so in practice the !membership
+      // branch catches bans today — this is defense-in-depth for any future
+      // ban flow that defers membership GC.
+      const [ban] = await db
+        .select({ id: roomBan.id })
+        .from(roomBan)
+        .where(and(eq(roomBan.roomId, roomId), eq(roomBan.userId, userId)))
+        .limit(1);
+      if (ban) {
+        drain(data.file);
+        return reply.status(403).send({ error: "forbidden" });
+      }
+
       const commentField = fields.comment?.value;
       let comment: string | null = null;
       if (typeof commentField === "string" && commentField.length > 0) {
