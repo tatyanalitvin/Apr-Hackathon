@@ -126,7 +126,14 @@ export function InvitationsTab({ roomId }: InvitationsTabProps) {
             disabled={sending}
             maxLength={64}
           />
-          <Button type="submit" disabled={sending}>
+          <Button
+            type="submit"
+            disabled={sending}
+            // UX(ui-pass P1-8) — primary submit ghosts out via opacity-50
+            // while the POST is in flight; pin the primary fill at a softer
+            // tint with full light text so the action stays visible.
+            className="disabled:bg-primary/70 disabled:text-primary-foreground disabled:opacity-100"
+          >
             {sending ? "Sending…" : "Send invite"}
           </Button>
         </div>
