@@ -20,6 +20,7 @@ import { ManageRoomModal } from "@/components/chat/manage-room/ManageRoomModal";
 import { MemberList, type MemberListItem } from "@/components/chat/MemberList";
 import { MessageList } from "@/components/chat/MessageList";
 import { MessageComposer } from "@/components/chat/MessageComposer";
+import { ChatComposer } from "@/components/chat/ChatComposer";
 import { useSession } from "@/lib/auth-client";
 import {
   attachPresenceBus,
@@ -620,14 +621,17 @@ function RoomContent({ roomId }: { roomId: string }) {
             onDeleteMessage={handleDeleteMessage}
             onReply={handleReply}
           />
-          <MessageComposer
-            userId={userId}
-            roomId={roomId}
-            onSend={handleSend}
-            onUpload={handleUpload}
-            replyTo={replyTo}
-            onClearReply={handleClearReply}
-          />
+          <ChatComposer>
+            <MessageComposer
+              userId={userId}
+              roomId={roomId}
+              roomName={currentRoom?.name ?? roomId}
+              onSend={handleSend}
+              onUpload={handleUpload}
+              replyTo={replyTo}
+              onClearReply={handleClearReply}
+            />
+          </ChatComposer>
         </section>
         <aside className="hidden min-[1100px]:flex min-[1100px]:flex-col w-[240px] shrink-0 glass-panel m-3 p-4 overflow-y-auto" style={{ color: "var(--text-lo)" }}>
           <MemberList members={displayedMembers} />
