@@ -137,6 +137,7 @@ export function AdminsTab({ roomId, viewerRole }: AdminsTabProps) {
       </table>
       <DemoteConfirmDialog
         target={demoteTarget}
+        submitting={demoteTarget !== null && busy === demoteTarget.userId}
         onCancel={() => setDemoteTarget(null)}
         onConfirm={submitDemote}
       />
@@ -146,10 +147,12 @@ export function AdminsTab({ roomId, viewerRole }: AdminsTabProps) {
 
 function DemoteConfirmDialog({
   target,
+  submitting,
   onCancel,
   onConfirm,
 }: {
   target: DemoteTarget;
+  submitting: boolean;
   onCancel: () => void;
   onConfirm: () => void | Promise<void>;
 }) {
@@ -169,6 +172,7 @@ function DemoteConfirmDialog({
           <Button
             variant="destructive"
             onClick={() => void onConfirm()}
+            disabled={submitting}
             // UX — demote is a reversible privilege removal but still a
             // deliberate moderation action; keep the filled destructive
             // treatment used by the other confirm dialogs for consistency.
