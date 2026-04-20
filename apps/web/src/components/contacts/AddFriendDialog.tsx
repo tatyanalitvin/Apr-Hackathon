@@ -1,121 +1,188 @@
-// REQ-051 — "+ Add friend" dialog. Username-only input; routes through the
-// toUsername branch of sendFriendRequestSchema. Sentinel success (REQ-053) is
-// invisible by design: a 201 always shows the same "Request sent" toast.
+// REQ-051 — "+ Add friend" dialog. Mirrors the NewDmDialog search pattern
+// (docs/specs/s3-user-search.md §5) so users pick a friend from a live
+// directory typeahead instead of having to know the exact username. The
+// previous blind-username input lost every hit on typos and was confusing
+// relative to the DM flow the user already saw on the sidebar.
+//
+// Row-action switch (no DM start here — this dialog is scoped to adding):
+//   none              → Send friend request
+//   request_outgoing  → "Request sent" (disabled)
+//   request_incoming  → Accept inline, row flips to "Already friends"
+//   friend            → "Already friends" (disabled)
 
 "use client";
 
-import { useState } from "react";
-import { UserPlus, Loader2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { UserPlus } from "lucide-react";
 import { toast } from "sonner";
+import type { UserSearchHit } from "@ai-herders/shared/protocol";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { sendFriendRequest } from "@/lib/friendship-api";
-import { useSession } from "@/lib/auth-client";
+import { searchUsers } from "@/lib/dms-api";
+import {
+  acceptFriendRequest,
+  listIncomingRequests,
+  sendFriendRequest,
+} from "@/lib/friendship-api";
 import { toastForSendError } from "./AddFriendButton";
 
-const USERNAME_RE = /^[a-zA-Z0-9_]+$/;
+const DEBOUNCE_MS = 300;
+const MIN_QUERY = 2;
+
+type RowStatus = "idle" | "sending" | "sent" | "accepting";
 
 export function AddFriendDialog({ onSent }: { onSent?: () => void }) {
   const [open, setOpen] = useState(false);
-  const [username, setUsername] = useState("");
-  const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [query, setQuery] = useState("");
+  const [hits, setHits] = useState<UserSearchHit[] | null>(null);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Self-request guard — server rejects with `self_request` but we can catch
-  // the obvious case client-side to avoid a wasted RTT. The session shape
-  // doesn't type `username` strictly, so narrow the same way Header/RoomClient
-  // do. Missing username (older session) falls through to server validation.
-  const { data: sessionData } = useSession();
-  const selfUsername =
-    sessionData?.user && "username" in sessionData.user
-      ? (sessionData.user as { username: string }).username
-      : undefined;
+  const [rowStatus, setRowStatus] = useState<Record<string, RowStatus>>({});
+  // Guard against stale 300ms timers stomping newer results.
+  const inFlightRef = useRef<string>("");
+  // Inline-accept needs to re-read the directory so the accepted row flips
+  // from request_incoming → friend without closing the dialog.
+  const refreshRef = useRef<() => Promise<void>>(async () => {});
 
-  const reset = () => {
-    setUsername("");
-    setMessage("");
-    setError(null);
-  };
-
-  const validate = (value: string): string | null => {
-    if (value.length < 3 || value.length > 32) {
-      return "Username must be 3–32 characters.";
-    }
-    if (!USERNAME_RE.test(value)) {
-      return "Letters, digits, and underscore only.";
-    }
-    return null;
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmed = username.trim();
-    const validationError = validate(trimmed);
-    if (validationError) {
-      setError(validationError);
+  useEffect(() => {
+    const trimmed = query.trim();
+    if (trimmed.length < MIN_QUERY) {
+      setHits(null);
+      setLoading(false);
+      setError(null);
       return;
     }
-    // Client-side self-request guard — skips the server round-trip for the
-    // obvious case. Case-insensitive since usernames are stored lowercase.
-    if (
-      selfUsername &&
-      trimmed.toLowerCase() === selfUsername.toLowerCase()
-    ) {
-      setError("You can't send a friend request to yourself.");
-      return;
+    const runSearch = async () => {
+      inFlightRef.current = trimmed;
+      setLoading(true);
+      setError(null);
+      const r = await searchUsers(trimmed);
+      if (inFlightRef.current !== trimmed) return;
+      setLoading(false);
+      if (r.ok) {
+        setHits(r.data);
+      } else {
+        setHits(null);
+        setError("Search failed — try again in a moment.");
+      }
+    };
+    refreshRef.current = runSearch;
+    const handle = setTimeout(() => {
+      void runSearch();
+    }, DEBOUNCE_MS);
+    return () => clearTimeout(handle);
+  }, [query]);
+
+  useEffect(() => {
+    if (!open) {
+      setQuery("");
+      setHits(null);
+      setLoading(false);
+      setError(null);
+      setRowStatus({});
     }
-    setBusy(true);
-    const r = await sendFriendRequest({
-      toUsername: trimmed,
-      ...(message.trim() ? { message: message.trim() } : {}),
-    });
-    setBusy(false);
+  }, [open]);
+
+  async function onSendFriendRequest(hit: UserSearchHit) {
+    setRowStatus((s) => ({ ...s, [hit.userId]: "sending" }));
+    const r = await sendFriendRequest({ toUserId: hit.userId });
     if (r.ok) {
-      // REQ-053: identical toast for real-insert and sentinel branches.
-      toast.success(`Friend request sent to @${trimmed}`);
+      setRowStatus((s) => ({ ...s, [hit.userId]: "sent" }));
+      toast.success(`Friend request sent to @${hit.username}`);
       onSent?.();
-      setOpen(false);
-      reset();
       return;
     }
+    setRowStatus((s) => ({ ...s, [hit.userId]: "idle" }));
     toastForSendError(r.error);
-    // Keep the dialog open on validation errors so the user can correct; close
-    // on 404/duplicate branches because re-submitting won't help. For
-    // rate_limited we keep the dialog OPEN and preserve the draft so the user
-    // can retry once the cooldown lifts.
-    if (r.error.code === "validation" || r.error.code === "user_not_found") {
-      setError(
-        r.error.code === "user_not_found"
-          ? "No user with that username."
-          : "Check the username format.",
-      );
-    } else if (r.error.code === "rate_limited") {
-      // Intentional no-op — leave dialog open, username + message intact.
-    } else {
-      setOpen(false);
-      reset();
-    }
-  };
+  }
 
+  async function onAcceptInline(hit: UserSearchHit) {
+    setRowStatus((s) => ({ ...s, [hit.userId]: "accepting" }));
+    const incoming = await listIncomingRequests();
+    if (!incoming.ok) {
+      setRowStatus((s) => ({ ...s, [hit.userId]: "idle" }));
+      toast.error("Couldn't accept — try again.");
+      return;
+    }
+    const match = incoming.data.find((req) => req.from.userId === hit.userId);
+    if (!match) {
+      setRowStatus((s) => ({ ...s, [hit.userId]: "idle" }));
+      toast.info("This request is no longer available — refreshing.");
+      await refreshRef.current();
+      return;
+    }
+    const r = await acceptFriendRequest(match.id);
+    if (r.ok) {
+      toast.success(`You and @${hit.username} are now friends`);
+      onSent?.();
+      await refreshRef.current();
+      setRowStatus((s) => ({ ...s, [hit.userId]: "idle" }));
+      return;
+    }
+    setRowStatus((s) => ({ ...s, [hit.userId]: "idle" }));
+    if (r.error.code === "already_friends") {
+      toast.info("Already friends — refreshing.");
+      await refreshRef.current();
+    } else if (r.error.code === "request_declined" || r.error.code === "not_found") {
+      toast.info("This request is no longer available.");
+      await refreshRef.current();
+    } else if (r.error.code === "rate_limited") {
+      toast.error("Too many requests — try again in a moment.");
+    } else {
+      toast.error("Couldn't accept — try again.");
+    }
+  }
+
+  function renderAction(hit: UserSearchHit) {
+    const status = rowStatus[hit.userId] ?? "idle";
+    if (hit.relationship === "friend") {
+      return (
+        <Button size="sm" variant="secondary" disabled>
+          Already friends
+        </Button>
+      );
+    }
+    if (hit.relationship === "request_outgoing" || status === "sent") {
+      return (
+        <Button size="sm" variant="secondary" disabled>
+          Request sent
+        </Button>
+      );
+    }
+    if (hit.relationship === "request_incoming") {
+      return (
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={status === "accepting"}
+          onClick={() => onAcceptInline(hit)}
+        >
+          Accept
+        </Button>
+      );
+    }
+    return (
+      <Button
+        size="sm"
+        disabled={status === "sending"}
+        onClick={() => onSendFriendRequest(hit)}
+      >
+        Send request
+      </Button>
+    );
+  }
+
+  const trimmed = query.trim();
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (!next) reset();
-      }}
-    >
+    <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button size="sm" variant="default">
           <UserPlus /> Add friend
@@ -125,69 +192,53 @@ export function AddFriendDialog({ onSent }: { onSent?: () => void }) {
         <DialogHeader>
           <DialogTitle>Add a friend</DialogTitle>
           <DialogDescription>
-            Send a friend request by username. They&apos;ll see it in their Incoming tab.
+            Search by name or username — send a request with one click.
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="af-username">Username</Label>
-            <Input
-              id="af-username"
-              placeholder="e.g. bob"
-              value={username}
-              onChange={(e) => {
-                setUsername(e.target.value);
-                if (error) setError(null);
-              }}
-              autoFocus
-              autoComplete="off"
-              aria-invalid={Boolean(error) || undefined}
-              aria-describedby={error ? "af-username-err" : undefined}
-              disabled={busy}
-            />
-            {error ? (
-              <p id="af-username-err" className="text-xs text-destructive">
-                {error}
-              </p>
-            ) : null}
+        <div className="space-y-3">
+          <Input
+            type="search"
+            role="searchbox"
+            aria-label="Search users"
+            autoFocus
+            placeholder="Search by name or username"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            autoComplete="off"
+          />
+          <div className="min-h-[8rem] space-y-1">
+            {trimmed.length < MIN_QUERY ? (
+              <div className="px-1 py-2 text-xs text-muted-foreground">
+                Type at least 2 characters.
+              </div>
+            ) : loading ? (
+              <>
+                <div className="h-10 animate-pulse rounded bg-muted/40" />
+                <div className="h-10 animate-pulse rounded bg-muted/40" />
+                <div className="h-10 animate-pulse rounded bg-muted/40" />
+              </>
+            ) : error ? (
+              <div className="px-1 py-2 text-xs text-destructive">{error}</div>
+            ) : hits && hits.length === 0 ? (
+              <div className="px-1 py-2 text-xs text-muted-foreground">
+                No users match &quot;{trimmed}&quot;
+              </div>
+            ) : (
+              hits?.map((hit) => (
+                <div
+                  key={hit.userId}
+                  className="flex items-center justify-between rounded px-2 py-1.5 hover:bg-accent"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium">@{hit.username}</div>
+                    <div className="truncate text-xs text-muted-foreground">{hit.name}</div>
+                  </div>
+                  {renderAction(hit)}
+                </div>
+              ))
+            )}
           </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="af-message" className="flex items-center justify-between">
-              <span>Message</span>
-              <span className="text-xs text-muted-foreground">optional · max 500</span>
-            </Label>
-            <Textarea
-              id="af-message"
-              placeholder="Hey, we worked together on the herders jam"
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              maxLength={500}
-              rows={3}
-              disabled={busy}
-            />
-          </div>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => {
-                setOpen(false);
-                reset();
-              }}
-              disabled={busy}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              disabled={busy || username.trim().length === 0}
-              className="disabled:bg-primary/70 disabled:text-primary-foreground disabled:opacity-100"
-            >
-              {busy ? <Loader2 className="animate-spin" /> : null}
-              Send request
-            </Button>
-          </DialogFooter>
-        </form>
+        </div>
       </DialogContent>
     </Dialog>
   );
