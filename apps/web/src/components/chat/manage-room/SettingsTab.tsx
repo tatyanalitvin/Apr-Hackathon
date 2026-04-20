@@ -228,7 +228,16 @@ export function SettingsTab({
           </fieldset>
 
           <div className="flex justify-end">
-            <Button type="submit" size="sm" disabled={submitting !== null}>
+            <Button
+              type="submit"
+              size="sm"
+              disabled={submitting !== null}
+              // UX(ui-pass P1-8) — primary submit ghosts out via opacity-50
+              // while the PATCH is in flight, so users think the button has
+              // vanished. Hold the primary fill + light text at a softened
+              // tint instead to keep the action visible.
+              className="disabled:bg-primary/70 disabled:text-primary-foreground disabled:opacity-100"
+            >
               {submitting === "save" ? "Saving…" : "Save"}
             </Button>
           </div>
