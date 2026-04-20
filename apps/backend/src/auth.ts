@@ -113,8 +113,13 @@ export const auth = betterAuth({
     storage: "secondary-storage",
     customRules: {
       "/sign-in/email": { window: 60, max: 5 },
-      // REQ-009 — 5 registrations per IP per hour. The /24 subnet rule in v4
-      // is deferred to FOLLOWUPS #6 (requires custom keyGenerator + CIDR).
+      // REQ-009 — per-/32 belt-and-suspenders: 5 registrations/hour from a
+      // single IP. The v4 /24 subnet rule is enforced one layer up in the
+      // Fastify preHandler (src/app.ts registerRateLimitGuard →
+      // src/lib/register-rate-limit.ts), because better-auth 1.6.5 has no
+      // per-route keyGenerator hook. This per-IP rule still fires first for
+      // a lone noisy IP, which keeps the "one bad actor, one bucket" error
+      // message identical to the behaviour S1 tests pin.
       "/sign-up/email": { window: 3600, max: 5 },
     },
   },

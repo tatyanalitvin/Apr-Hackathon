@@ -15,6 +15,7 @@ import { env } from "./env";
 import { auth, SESSION_COOKIE_PREFIX } from "./auth";
 import { db } from "./db";
 import { toFetchHeaders } from "./lib/fetch-headers";
+import { checkRegisterRateLimit } from "./lib/register-rate-limit";
 import { sessionsRoutes } from "./routes/sessions";
 import { messagesRoutes } from "./routes/messages";
 import { friendshipRoutes } from "./routes/friendship";
@@ -192,7 +193,14 @@ export async function buildApp(): Promise<FastifyInstance> {
   // catch-all below so Fastify's router dispatches to them first.
   app.post(
     "/api/auth/sign-up/email",
-    { preHandler: zodBodyGuard(registerSchema) },
+    {
+      // REQ-009 — /24 subnet rate-limit runs BEFORE zod so a hot /24 can't
+      // burn parser CPU. zodBodyGuard still validates shape for the calls
+      // that make it past the bucket. better-auth's own per-/32 rule in
+      // auth.ts stays as a belt-and-suspenders cap; see lib/register-rate-
+      // limit.ts for the CIDR rationale.
+      preHandler: [registerRateLimitGuard, zodBodyGuard(registerSchema)],
+    },
     proxyToBetterAuth,
   );
   app.post(
@@ -304,6 +312,26 @@ async function deletedAccountGuard(
     return reply
       .status(401)
       .send({ code: "INVALID_EMAIL_OR_PASSWORD", message: "Invalid email or password" });
+  }
+}
+
+// ─── REQ-009 /24 subnet register rate-limit guard ──────────────────────────
+// Fastify sits in front of better-auth with trustProxy=true, so `request.ip`
+// already honours X-Forwarded-For (set by the reverse proxy in prod, by
+// supertest in tests). We route the IP through subnetBucket() → Redis INCR
+// and short-circuit with a 429 when the /24 bucket is full. The shape of
+// the 429 mirrors @fastify/rate-limit's (retryAfterSec seconds) so the
+// existing client-side handler in apps/web/src/lib/backend.ts doesn't need
+// a special case.
+async function registerRateLimitGuard(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const outcome = await checkRegisterRateLimit(request.ip);
+  if (!outcome.allowed) {
+    return reply
+      .status(429)
+      .send({ error: "rate_limited", retryAfterSec: outcome.retryAfterSec });
   }
 }
 

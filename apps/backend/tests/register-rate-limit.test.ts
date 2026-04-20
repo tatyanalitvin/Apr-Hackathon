@@ -2,9 +2,10 @@
 //
 // Contract (pinned in apps/backend/src/auth.ts):
 //   rateLimit.customRules["/sign-up/email"] = { window: 3600, max: 5 }
-// v4 REQ-009 also specifies a /24 subnet rule (20/hour across an IP block);
-// that requires a custom keyGenerator + CIDR math and is deferred to S3
-// (FOLLOWUPS.md #6). This test fences only the per-IP rule.
+// v4 REQ-009's /24 subnet rule is enforced one layer up by the Fastify
+// preHandler (src/lib/register-rate-limit.ts) and pinned by
+// src/lib/register-rate-limit.test.ts; this test file keeps fencing the
+// per-/32 better-auth rule so the two layers stay independently covered.
 //
 // Runs in its own file so tests/setup.ts flushRedis() wipes the counter at
 // the start. Six distinct signups (different emails/usernames) from the same
