@@ -25,11 +25,21 @@ export const messageBodySchema = z.string().min(1).max(3072);
 // are preserved with an optional field + superRefine). When the browser form
 // submits both fields they must match; zod-issue path lands on
 // `passwordConfirm` with code "custom" + message prefix "password_mismatch".
+// REQ-006 password shape — the universal (browser-previewable) half of
+// the policy. Length is enforced here; common-password blocklist lookup
+// is a backend-only preHandler because the 100 KB asset should not
+// ship to the client bundle. Error messages deliberately start with a
+// stable token (`password_too_short: ...`, `password_too_long: ...`)
+// so tests / client handlers can regex-match on the prefix (matches
+// the REQ-007 `password_mismatch: ...` convention).
 export const registerSchema = z
   .object({
     email: z.email(),
     username: usernameSchema,
-    password: z.string().min(8).max(256),
+    password: z
+      .string()
+      .min(12, "password_too_short: password must be at least 12 characters")
+      .max(128, "password_too_long: password must be at most 128 characters"),
     passwordConfirm: z.string().optional(),
     name: z.string().min(1).max(64),
   })
