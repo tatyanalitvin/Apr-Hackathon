@@ -174,7 +174,11 @@ export function CreateRoomDialog({ onCreated }: CreateRoomDialogProps) {
           </fieldset>
 
           <DialogFooter>
-            <Button type="submit" disabled={submitting}>
+            <Button
+              type="submit"
+              disabled={submitting}
+              className="disabled:bg-primary/70 disabled:text-primary-foreground disabled:opacity-100"
+            >
               {submitting ? "Creating…" : "Create room"}
             </Button>
           </DialogFooter>
