@@ -6,11 +6,12 @@ RUN corepack enable
 WORKDIR /app
 
 FROM base AS deps
-COPY package.json pnpm-workspace.yaml ./
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY apps/backend/package.json apps/backend/
 COPY apps/web/package.json apps/web/
 COPY packages/shared/package.json packages/shared/
-RUN pnpm install --prod=false --no-frozen-lockfile
+# Frozen lockfile = reproducible prod image (same resolve as dev/test).
+RUN pnpm install --prod=false --frozen-lockfile
 
 FROM base AS runner
 ENV NODE_ENV=production
