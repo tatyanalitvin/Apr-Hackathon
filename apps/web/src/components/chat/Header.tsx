@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Users } from "lucide-react";
+import { Hash, Users } from "lucide-react";
 import { signOut, useSession } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
 import { PendingBadge } from "@/components/contacts/PendingBadge";
@@ -58,15 +58,32 @@ export function Header({
   };
 
   const onContactsRoute = pathname?.startsWith("/contacts") ?? false;
+  const onRoomsRoute = pathname?.startsWith("/rooms") ?? false;
 
   return (
     <header
-      className={`flex items-center justify-between border-b px-4 py-2 ${className ?? ""}`}
+      className={`flex flex-wrap items-center justify-between gap-y-2 border-b px-4 py-2 ${className ?? ""}`}
     >
       <div className="flex items-center gap-4">
-        <div className="font-semibold">AI Herders Chat</div>
+        <Link
+          href={data ? "/rooms" : "/login"}
+          className="font-semibold hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+        >
+          AI Herders Chat
+        </Link>
         {data ? (
           <nav className="flex items-center gap-1" aria-label="Primary">
+            <Button
+              asChild
+              size="sm"
+              variant={onRoomsRoute ? "secondary" : "ghost"}
+              className="gap-2"
+            >
+              <Link href="/rooms">
+                <Hash className="h-4 w-4" aria-hidden />
+                Rooms
+              </Link>
+            </Button>
             <Button
               asChild
               size="sm"
@@ -83,15 +100,20 @@ export function Header({
         ) : null}
       </div>
       {data && (
-        <div className="flex items-center gap-3 text-sm">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
           <div
             className="flex items-baseline gap-1.5 leading-tight"
             title={username ? `@${username}` : undefined}
           >
             {data.user?.id ? (
+              // UX-03 — our own pill must never read "offline" while we're
+              // actively on the page. RoomClient passes a live idle-state;
+              // elsewhere, default to "online" (we rendered, therefore the
+              // socket layer will tick a heartbeat in the next few hundred
+              // ms) rather than showing the presence-store fallback.
               <PresencePill
                 userId={data.user.id}
-                state={selfPresence}
+                state={selfPresence ?? "online"}
                 className="self-center"
               />
             ) : null}
