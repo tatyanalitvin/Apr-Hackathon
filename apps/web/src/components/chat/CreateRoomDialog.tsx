@@ -183,7 +183,7 @@ export function CreateRoomDialog({ onCreated }: CreateRoomDialogProps) {
           <DialogFooter>
             <Button
               type="submit"
-              disabled={submitting}
+              disabled={submitting || name.trim().length === 0}
               className="disabled:bg-primary/70 disabled:text-primary-foreground disabled:opacity-100"
             >
               {submitting ? "Creating…" : "Create room"}
