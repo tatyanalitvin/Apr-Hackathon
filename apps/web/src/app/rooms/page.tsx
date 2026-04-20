@@ -3,6 +3,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { Hash } from "lucide-react";
 import { RequireSession } from "@/components/chat/RequireSession";
 import { Header } from "@/components/chat/Header";
 import { Button } from "@/components/ui/button";
@@ -67,10 +68,34 @@ function RoomsContent() {
         </aside>
         <section className="flex-1 flex flex-col min-w-0 relative">
           <h1 className="sr-only">Your rooms</h1>
-          <div className="flex h-full items-center justify-center">
-            <p className="font-display italic text-2xl" style={{ color: "var(--text-lo)" }}>
-              Pick a room to start reading.
-            </p>
+          <div className="flex h-full items-center justify-center p-6">
+            <div className="flex flex-col items-center text-center max-w-md">
+              <div
+                aria-hidden="true"
+                className="mb-6 flex h-16 w-16 items-center justify-center rounded-full glass-panel"
+                style={{ color: "var(--text-lo)" }}
+              >
+                <Hash className="!size-8" />
+              </div>
+              <h2 className="font-display text-3xl md:text-4xl mb-3 text-foreground">
+                Pick a room to start reading.
+              </h2>
+              <p className="text-muted-foreground mb-6">
+                Browse public rooms to join the conversation, or send a direct
+                message to get started.
+              </p>
+              <div className="flex flex-col sm:flex-row items-center gap-3">
+                <Link href="/rooms/browse">
+                  <Button size="lg">Browse rooms →</Button>
+                </Link>
+                <Link
+                  href="/contacts"
+                  className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
+                >
+                  or send a DM
+                </Link>
+              </div>
+            </div>
           </div>
         </section>
         <aside className="hidden min-[1100px]:flex min-[1100px]:flex-col w-[240px] shrink-0 glass-panel m-3 p-4 overflow-y-auto" style={{ color: "var(--text-lo)" }}>
