@@ -80,7 +80,7 @@ function BrowseContent() {
   return (
     <div className="flex min-h-dvh flex-col">
       <Header />
-      <main className="flex-1 p-6">
+      <main id="main" className="flex-1 p-6">
         <div className="flex items-center justify-between mb-4 max-w-2xl">
           <h1 className="text-2xl font-semibold">Browse rooms</h1>
           <Link href="/rooms">

@@ -135,7 +135,7 @@ export function ContactsClient() {
   return (
     <div className="flex min-h-dvh flex-col">
       <Header />
-      <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4 py-6">
+      <main id="main" className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4 py-6">
         <div className="flex items-center justify-between gap-4">
           <div className="flex flex-col gap-1">
             <h1 className="text-xl font-semibold leading-tight">Contacts</h1>

@@ -114,7 +114,7 @@ function SessionsContent() {
   return (
     <div className="flex min-h-dvh flex-col">
       <Header />
-      <main className="flex-1 p-6 space-y-6">
+      <main id="main" className="flex-1 p-6 space-y-6">
         <Card className="w-full max-w-3xl">
           <CardHeader>
             <CardTitle>Active sessions</CardTitle>

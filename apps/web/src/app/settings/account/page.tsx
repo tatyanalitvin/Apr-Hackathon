@@ -62,7 +62,7 @@ function AccountContent() {
   return (
     <div className="flex min-h-dvh flex-col">
       <Header />
-      <main className="flex-1 p-6 space-y-6">
+      <main id="main" className="flex-1 p-6 space-y-6">
         <Card className="w-full max-w-md">
           <CardHeader>
             <CardTitle>Export account data</CardTitle>

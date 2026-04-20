@@ -66,21 +66,26 @@ export async function a11ySnapshot(page: Page) {
       text: el.textContent?.trim().slice(0, 80) ?? "",
     }));
 
-    const inputs = Array.from(document.querySelectorAll("input,textarea,select")).map((el) => {
-      const id = el.getAttribute("id");
-      const label = id ? document.querySelector(`label[for="${id}"]`) : null;
-      return {
-        tag: el.tagName,
-        type: el.getAttribute("type"),
-        id,
-        name: el.getAttribute("name"),
-        ariaLabel: el.getAttribute("aria-label"),
-        hasLabel: Boolean(label),
-        ariaInvalid: el.getAttribute("aria-invalid"),
-        ariaDescribedBy: el.getAttribute("aria-describedby"),
-        placeholder: (el as HTMLInputElement).placeholder ?? null,
-      };
-    });
+    const inputs = Array.from(document.querySelectorAll("input,textarea,select"))
+      // POLISH-03 — react-textarea-autosize mounts a measurement twin in
+      // <body> with aria-hidden + tabindex=-1. Assistive tech correctly
+      // ignores it, so our label audit should too.
+      .filter((el) => el.getAttribute("aria-hidden") !== "true" && el.getAttribute("tabindex") !== "-1")
+      .map((el) => {
+        const id = el.getAttribute("id");
+        const label = id ? document.querySelector(`label[for="${id}"]`) : null;
+        return {
+          tag: el.tagName,
+          type: el.getAttribute("type"),
+          id,
+          name: el.getAttribute("name"),
+          ariaLabel: el.getAttribute("aria-label"),
+          hasLabel: Boolean(label),
+          ariaInvalid: el.getAttribute("aria-invalid"),
+          ariaDescribedBy: el.getAttribute("aria-describedby"),
+          placeholder: (el as HTMLInputElement).placeholder ?? null,
+        };
+      });
 
     const liveRegions = Array.from(document.querySelectorAll("[role=log],[role=status],[role=alert],[aria-live]")).map((el) => ({
       role: el.getAttribute("role"),
