@@ -114,7 +114,7 @@ export function NewDmDialog() {
 
   function onAccept() {
     setOpen(false);
-    router.push("/friends");
+    router.push("/contacts");
   }
 
   function renderAction(hit: UserSearchHit) {

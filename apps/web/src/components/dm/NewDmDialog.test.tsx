@@ -162,7 +162,7 @@ describe("REQ-UserSearch §2.4 NewDmDialog R23 — outgoing row", () => {
 });
 
 describe("REQ-UserSearch §2.4 NewDmDialog R24 — incoming row", () => {
-  it("request_incoming → 'Accept' button routes to /friends", async () => {
+  it("request_incoming → 'Accept' button routes to /contacts", async () => {
     searchUsersMock.mockResolvedValue({
       ok: true,
       data: [hit({ relationship: "request_incoming" })],
@@ -173,7 +173,7 @@ describe("REQ-UserSearch §2.4 NewDmDialog R24 — incoming row", () => {
     const accept = await screen.findByRole("button", { name: /accept/i });
     await user.click(accept);
     expect(pushMock).toHaveBeenCalledWith(
-      expect.stringMatching(/\/friends/),
+      expect.stringMatching(/\/contacts/),
     );
   });
 });

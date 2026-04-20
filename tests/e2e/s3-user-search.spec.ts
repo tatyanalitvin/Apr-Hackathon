@@ -61,7 +61,7 @@ test.describe("REQ-UserSearch §2.4 R25 — user-search DM happy path", () => {
 
       // Alice sends a friend request to Bob via the UI (friend-requests page
       // expects exact username — unchanged by this feature).
-      await aliceP.goto("/friends");
+      await aliceP.goto("/contacts");
       await aliceP.getByLabel(/username/i).fill(bob.username);
       await aliceP.getByRole("button", { name: /send request/i }).click();
       await expect(aliceP.getByText(/request.*sent|pending/i)).toBeVisible({
@@ -69,7 +69,7 @@ test.describe("REQ-UserSearch §2.4 R25 — user-search DM happy path", () => {
       });
 
       // Bob accepts.
-      await bobP.goto("/friends");
+      await bobP.goto("/contacts");
       await bobP.getByRole("button", { name: /accept/i }).first().click();
       await expect(bobP.getByText(alice.username)).toBeVisible({ timeout: 10_000 });
 
