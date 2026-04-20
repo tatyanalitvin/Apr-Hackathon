@@ -87,6 +87,7 @@ function ResetPasswordForm() {
               id="password"
               type="password"
               autoComplete="new-password"
+              className="dark:border-[rgba(196,181,253,0.22)]"
               {...form.register("password")}
             />
             {form.formState.errors.password && (
@@ -104,6 +105,7 @@ function ResetPasswordForm() {
               id="passwordConfirm"
               type="password"
               autoComplete="new-password"
+              className="dark:border-[rgba(196,181,253,0.22)]"
               {...form.register("passwordConfirm")}
             />
             {form.formState.errors.passwordConfirm && (

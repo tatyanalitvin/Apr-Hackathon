@@ -58,6 +58,7 @@ function LoginForm() {
             autoComplete="email"
             aria-invalid={Boolean(form.formState.errors.email)}
             aria-describedby={form.formState.errors.email ? "email-error" : undefined}
+            className="dark:border-[rgba(196,181,253,0.22)]"
             {...form.register("email")}
           />
           {form.formState.errors.email && (
@@ -72,6 +73,7 @@ function LoginForm() {
             autoComplete="current-password"
             aria-invalid={Boolean(form.formState.errors.password)}
             aria-describedby={form.formState.errors.password ? "password-error" : undefined}
+            className="dark:border-[rgba(196,181,253,0.22)]"
             {...form.register("password")}
           />
           {form.formState.errors.password && (
