@@ -556,9 +556,12 @@ function RoomContent({ roomId }: { roomId: string }) {
   const displayedMembers: MemberListItem[] =
     roomMembers ?? (selfEntry ? [selfEntry] : []);
 
-  const displayMessages = process.env.NEXT_PUBLIC_AI_FIXTURES === "1"
-    ? [...messages, ...makeAiFixtures(roomId, messages.length)]
-    : messages;
+  const displayMessages = (() => {
+    if (process.env.NEXT_PUBLIC_AI_FIXTURES !== "1") return messages;
+    const last = messages[messages.length - 1];
+    const base = last ? Number(last.seq) : 0;
+    return [...messages, ...makeAiFixtures(roomId, base)];
+  })();
 
   return (
     <div className="flex flex-col h-dvh">

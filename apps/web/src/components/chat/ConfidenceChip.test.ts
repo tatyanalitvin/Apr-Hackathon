@@ -19,4 +19,10 @@ describe("tierForConfidence", () => {
   it("returns null for undefined", () => {
     expect(tierForConfidence(undefined)).toBeNull();
   });
+  it("returns null for non-finite, negative, or > 1", () => {
+    expect(tierForConfidence(Number.NaN)).toBeNull();
+    expect(tierForConfidence(-0.1)).toBeNull();
+    expect(tierForConfidence(1.5)).toBeNull();
+    expect(tierForConfidence(Number.POSITIVE_INFINITY)).toBeNull();
+  });
 });

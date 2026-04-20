@@ -4,6 +4,7 @@ export function tierForConfidence(
   confidence: number | undefined,
 ): { label: "High" | "Med" | "Low"; tier: ConfidenceTier } | null {
   if (confidence === undefined) return null;
+  if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) return null;
   if (confidence >= 0.8) return { label: "High", tier: "high" };
   if (confidence >= 0.5) return { label: "Med", tier: "med" };
   return { label: "Low", tier: "low" };
@@ -27,6 +28,8 @@ export function ConfidenceChip({ confidence }: Props) {
     <span
       className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums"
       style={{ background: style.bg, color: style.text }}
+      title={`Confidence: ${result.label}`}
+      aria-label={`Confidence: ${result.label}`}
     >
       {result.label}
     </span>
