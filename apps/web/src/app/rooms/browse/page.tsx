@@ -5,6 +5,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { LogIn, MessageSquare } from "lucide-react";
 import { RequireSession } from "@/components/chat/RequireSession";
 import { Header } from "@/components/chat/Header";
 import { Button } from "@/components/ui/button";
@@ -134,14 +135,19 @@ function BrowseContent() {
                 </p>
                 {room.isMember ? (
                   <Link href={`/rooms/${room.id}`}>
-                    <Button size="sm" variant="outline">Open</Button>
+                    <Button size="sm" variant="outline">
+                      <MessageSquare aria-hidden />
+                      Open
+                    </Button>
                   </Link>
                 ) : (
                   <Button
                     size="sm"
+                    variant="outline"
                     onClick={() => void onJoin(room.id)}
                     disabled={joining === room.id}
                   >
+                    <LogIn aria-hidden />
                     {joining === room.id ? "Joining…" : "Join"}
                   </Button>
                 )}
