@@ -99,7 +99,7 @@
 
   @media (prefers-reduced-motion: reduce) {
     .sakura-drift { animation: none !important; opacity: 0.5 !important; }
-    .shimmer-sweep { animation: none !important; }
+    .shimmer-sweep { animation: none !important; background: var(--accent) !important; }
   }
 }
 
