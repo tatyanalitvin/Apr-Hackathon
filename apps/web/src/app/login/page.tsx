@@ -6,7 +6,6 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { toast } from "sonner";
 import { loginSchema, type LoginInput } from "@ai-herders/shared/dto";
 import { signIn } from "@/lib/auth-client";
 import { safeNextOr } from "@/lib/safe-next";
@@ -38,9 +37,11 @@ function LoginForm() {
       rememberMe: values.rememberMe ?? false,
     });
     if (res.error) {
-      const msg = describeAuthError(res.error.status);
-      toast.error(msg);
-      form.setError("root", { message: msg });
+      // Inline-only — a form-level <p> and a toast with identical copy
+      // within 50px of each other is noise, and Playwright strict-mode
+      // matchers can't tell them apart either (blocks
+      // exploratory/auth: wrong-password copy).
+      form.setError("root", { message: describeAuthError(res.error.status) });
       return;
     }
     router.replace(nextTarget);

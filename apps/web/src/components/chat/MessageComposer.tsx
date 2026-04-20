@@ -88,6 +88,13 @@ export function MessageComposer({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sendingRef = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Rapid Enter presses while a previous send is in flight get queued here
+  // and drained serially in send()'s finally. Without this, the
+  // `sendingRef` guard silently dropped back-to-back messages — see
+  // FINDINGS.md EDGE/ rapid burst finding.
+  const queueRef = useRef<
+    Array<{ body: string; attachmentIds: string[]; replyToId: string | undefined }>
+  >([]);
   // REQ-213 — v3 §2.6.2 explicit attach affordance. Hidden native input is
   // trampolined by the visible Paperclip button; selected files route through
   // the existing uploadFiles() path (same as drop / paste) so no new upload
@@ -182,7 +189,29 @@ export function MessageComposer({
   );
 
   const send = useCallback(async () => {
-    if (sendingRef.current) return;
+    // If a previous send is still in flight, snapshot THIS message onto
+    // the queue and clear the composer so the user can keep typing. The
+    // in-flight send's finally drains the queue serially.
+    if (sendingRef.current) {
+      if (!canSend) return;
+      const attachmentIds = readyAttachmentIds;
+      const body = (trimmed.length === 0 && attachmentIds.length > 0
+        ? "📎"
+        : trimmed
+      ).normalize("NFC");
+      queueRef.current.push({
+        body,
+        attachmentIds,
+        replyToId: replyTo?.messageId,
+      });
+      setValue("");
+      setPending([]);
+      setComment("");
+      setUploadError(null);
+      clearDraft(userId, roomId);
+      if (replyTo && onClearReply) onClearReply();
+      return;
+    }
     if (!canSend) return;
     sendingRef.current = true;
     setSending(true);
@@ -218,6 +247,23 @@ export function MessageComposer({
       // legacy composer callers don't supply reply props at all.
       if (replyTo && onClearReply) onClearReply();
     } finally {
+      // Drain any messages that the user queued by pressing Enter while
+      // this send was in flight. If any one fails, RoomClient's existing
+      // catch surfaces a toast (429 etc.) — we swallow here so one bad
+      // message doesn't block the rest of the queue.
+      while (queueRef.current.length > 0) {
+        const next = queueRef.current.shift();
+        if (!next) break;
+        try {
+          if (next.attachmentIds.length > 0) {
+            await onSend(next.body, next.attachmentIds, next.replyToId);
+          } else {
+            await onSend(next.body, undefined, next.replyToId);
+          }
+        } catch {
+          /* surfaced by parent via toast */
+        }
+      }
       sendingRef.current = false;
       setSending(false);
     }

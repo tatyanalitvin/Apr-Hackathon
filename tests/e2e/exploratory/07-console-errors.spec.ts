@@ -32,6 +32,12 @@ function attach(page: Page): { obs: Observation; detach: () => void } {
     if (m.type() !== "error") return;
     const text = m.text();
     if (/favicon\.ico/.test(text)) return;
+    // Benign on Playwright's fast navigation: Next.js prefetches the RSC
+    // payload for links in the viewport, and if we `page.goto` before the
+    // prefetch settles it aborts and logs this line. The framework's
+    // "Falling back to browser navigation" handles it — no user-visible
+    // effect. Ignore so real errors aren't drowned out.
+    if (/Failed to fetch RSC payload/i.test(text)) return;
     obs.consoleErrors.push(text);
   };
   const onResponse = (r: import("@playwright/test").Response) => {
