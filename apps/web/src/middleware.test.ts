@@ -27,6 +27,38 @@ describe("REQ-149 CSP + REQ-150 HSTS middleware", () => {
     expect(csp).not.toContain("unsafe-eval");
   });
 
+  it("img-src includes the backend sidecar origin so attachment thumbnails load (REQ-213)", () => {
+    // AttachmentImage / AttachmentChip render <img src="{BACKEND_URL}{download}">.
+    // Without the backend origin in img-src, `'self' data: blob:` blocks every
+    // /attachments/* image fetch — breaking inline previews post-login.
+    const res = middleware(buildRequest("http://localhost:3000/rooms/general"));
+    const csp = res.headers.get("content-security-policy") ?? "";
+    const imgDirective = csp
+      .split(";")
+      .map((d) => d.trim())
+      .find((d) => d.startsWith("img-src"));
+    expect(imgDirective).toBeDefined();
+    expect(imgDirective).toContain("'self'");
+    expect(imgDirective).toContain("http://localhost:4000");
+  });
+
+  it("connect-src includes the backend sidecar origin so auth + REST XHR reach :4000", () => {
+    // The web app runs on :3000 and talks to the Fastify sidecar on a
+    // different origin (:4000 under docker compose, see docker-compose.yml
+    // and apps/web/src/lib/backend.ts). `'self'` only covers :3000, so
+    // NEXT_PUBLIC_BACKEND_URL's origin must be listed explicitly or every
+    // /api/auth/* fetch (and every REST mutation) is CSP-blocked.
+    const res = middleware(buildRequest("http://localhost:3000/register"));
+    const csp = res.headers.get("content-security-policy") ?? "";
+    const connectDirective = csp
+      .split(";")
+      .map((d) => d.trim())
+      .find((d) => d.startsWith("connect-src"));
+    expect(connectDirective).toBeDefined();
+    expect(connectDirective).toContain("'self'");
+    expect(connectDirective).toContain("http://localhost:4000");
+  });
+
   it("sets nosniff / X-Frame-Options / Referrer-Policy on every response", () => {
     const res = middleware(buildRequest("http://localhost:3000/any/path"));
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");

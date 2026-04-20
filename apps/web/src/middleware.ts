@@ -16,10 +16,17 @@
 //     and not worth the hackathon hour. Do NOT add 'unsafe-eval'.
 //   - `style-src 'self' 'unsafe-inline'` — Tailwind + radix-ui compose inline
 //     styles (radix measures popover/scroll content).
-//   - `img-src 'self' data: blob:` — drag-drop previews rely on blob URLs;
-//     emoji-picker-react renders inline data: sprites.
-//   - `connect-src 'self' ws: wss:` — Socket.IO over the same origin; ws/wss
-//     covers both local compose (ws://localhost:4000) and future TLS proxy.
+//   - `img-src 'self' <backend-origin> data: blob:` — backend origin covers
+//     `${BACKEND_URL}/attachments/<id>` thumbnails rendered by
+//     AttachmentImage / AttachmentChip; `data:` covers emoji-picker-react
+//     sprites; `blob:` covers drag-drop previews.
+//   - `connect-src 'self' <backend-origin> ws: wss:` — the Fastify sidecar
+//     lives on a *different* origin from the Next.js app (localhost:4000 vs
+//     localhost:3000 under docker compose), so `'self'` alone would block
+//     every /api/auth/* and REST XHR. We read NEXT_PUBLIC_BACKEND_URL at
+//     module load and splice its origin in. `ws: wss:` remains scheme-wide
+//     to cover Socket.IO in both compose (ws://localhost:4000) and a future
+//     TLS proxy — that's a conscious looseness documented in ADR-0008.
 //   - `frame-ancestors 'none'` + `X-Frame-Options: DENY` — doubled up so
 //     clickjacking defense works on both modern (CSP-aware) and legacy
 //     browsers. CSP wins where both are set, which is fine.
@@ -28,12 +35,23 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 
+// Mirror the fallback in apps/web/src/lib/backend.ts so the two agree when
+// NEXT_PUBLIC_BACKEND_URL is absent (e.g. `pnpm --filter web dev` without a
+// .env.local). `URL#origin` strips any stray path and normalises the host
+// so CSP gets a clean `scheme://host[:port]` token.
+function resolveBackendOrigin(): string {
+  const raw = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:4000";
+  return new URL(raw).origin;
+}
+
+const BACKEND_ORIGIN = resolveBackendOrigin();
+
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
-  "connect-src 'self' ws: wss:",
+  `img-src 'self' ${BACKEND_ORIGIN} data: blob:`,
+  `connect-src 'self' ${BACKEND_ORIGIN} ws: wss:`,
   "font-src 'self' data:",
   "object-src 'none'",
   "base-uri 'self'",
