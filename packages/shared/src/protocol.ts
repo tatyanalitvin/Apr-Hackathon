@@ -477,3 +477,20 @@ export interface UserDataExport {
     userAgent?: string;
   }>;
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// User directory search (§2.4 / REQ-UserSearch) — docs/specs/s3-user-search.md
+// ──────────────────────────────────────────────────────────────────────────
+
+export type UserRelationship =
+  | "friend"
+  | "request_outgoing"
+  | "request_incoming"
+  | "none";
+
+export interface UserSearchHit {
+  userId: string;
+  username: string;
+  name: string;
+  relationship: UserRelationship;
+}

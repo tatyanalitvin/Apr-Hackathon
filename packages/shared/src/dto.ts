@@ -294,3 +294,14 @@ export const banListResponseSchema = z.object({
   bans: z.array(banListItemSchema),
 });
 export type BanListResponse = z.infer<typeof banListResponseSchema>;
+
+// ──────────────────────────────────────────────────────────────────────────
+// User directory search (§2.4 / REQ-UserSearch) — docs/specs/s3-user-search.md
+// ──────────────────────────────────────────────────────────────────────────
+
+// Min 2 chars makes whole-table enumeration impossible by API shape.
+// Max 64 matches the rooms-catalog `q` ceiling (roomCatalogQuerySchema).
+export const userSearchQuerySchema = z.object({
+  q: z.string().min(2).max(64),
+});
+export type UserSearchQuery = z.infer<typeof userSearchQuerySchema>;
