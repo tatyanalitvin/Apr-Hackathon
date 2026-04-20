@@ -8,7 +8,7 @@
 import { useState } from "react";
 import { Check, X, Ban, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar } from "@/components/avatar/Avatar";
 import { Button } from "@/components/ui/button";
 import {
   acceptFriendRequest,
@@ -16,6 +16,7 @@ import {
   declineFriendRequest,
   type IncomingFriendRequest,
 } from "@/lib/friendship-api";
+import { BlossomEmptyState } from "@/components/empty/BlossomEmptyState";
 
 interface IncomingTabProps {
   requests: IncomingFriendRequest[];
@@ -28,11 +29,7 @@ export function IncomingRequestsTab({ requests, loading, onMutate }: IncomingTab
     return <div className="py-8 text-sm text-muted-foreground">Loading requests…</div>;
   }
   if (requests.length === 0) {
-    return (
-      <div className="py-8 text-sm text-muted-foreground">
-        No incoming requests.
-      </div>
-    );
+    return <BlossomEmptyState tagline="No incoming requests." />;
   }
   return (
     <ul className="flex flex-col gap-2" aria-label="Incoming friend requests">
@@ -89,9 +86,7 @@ function IncomingRow({
   return (
     <li className="flex flex-col gap-2 rounded-md border border-border/60 p-3">
       <div className="flex items-center gap-3">
-        <Avatar className="h-9 w-9">
-          <AvatarFallback>{request.from.name.slice(0, 1).toUpperCase()}</AvatarFallback>
-        </Avatar>
+        <Avatar userId={request.from.userId} name={request.from.name} size={40} />
         <div className="min-w-0 flex-1 leading-tight">
           <div className="truncate text-sm font-medium">{request.from.name}</div>
           <div className="truncate text-xs text-muted-foreground">

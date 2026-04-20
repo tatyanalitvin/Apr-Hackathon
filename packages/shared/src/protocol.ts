@@ -75,6 +75,10 @@ export interface MessagePayload {
   createdAt: string;
   // Optional for back-compat: messages without attachments omit the field.
   attachments?: AttachmentPayload[];
+  // Frontend-only fields (optional; backend does not populate these yet):
+  authorType?: "user" | "ai";
+  status?: "streaming" | "final";
+  confidence?: number;
 }
 
 export interface MessageNewEvent {

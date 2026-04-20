@@ -9,7 +9,6 @@ import { RequireSession } from "@/components/chat/RequireSession";
 import { Header } from "@/components/chat/Header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -114,104 +113,103 @@ function SessionsContent() {
   return (
     <div className="flex min-h-dvh flex-col">
       <Header />
-      <main id="main" className="flex-1 p-6 space-y-6">
-        <Card className="w-full max-w-3xl">
-          <CardHeader>
-            <CardTitle>Active sessions</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
+      <main id="main" className="mx-auto w-full max-w-[880px] px-6 py-10 space-y-6">
+        <h1 className="font-display text-4xl" style={{ color: "var(--text-hi)" }}>Active sessions</h1>
+        <div
+          className="rounded-[var(--radius)] p-6 space-y-4"
+          style={{ background: "var(--bg-elevated)", boxShadow: "inset 0 1px 0 var(--glass-border)" }}
+        >
+          <p className="text-sm text-muted-foreground">
+            Each row is a browser currently signed in to your account. Sign
+            out any you don&apos;t recognise. Signing out this browser sends
+            you back to the login page.
+          </p>
+
+          {rows === null && loadError === null && (
+            <div className="space-y-2" aria-live="polite" aria-busy="true">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+            </div>
+          )}
+
+          {loadError !== null && (
+            <div className="flex flex-col gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
+              <p className="text-destructive">{loadError}</p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setRows(null);
+                  void refetch();
+                }}
+              >
+                Try again
+              </Button>
+            </div>
+          )}
+
+          {rows !== null && rows.length === 0 && (
             <p className="text-sm text-muted-foreground">
-              Each row is a browser currently signed in to your account. Sign
-              out any you don&apos;t recognise. Signing out this browser sends
-              you back to the login page.
+              No other active sessions.
             </p>
+          )}
 
-            {rows === null && loadError === null && (
-              <div className="space-y-2" aria-live="polite" aria-busy="true">
-                <Skeleton className="h-10 w-full" />
-                <Skeleton className="h-10 w-full" />
-                <Skeleton className="h-10 w-full" />
-              </div>
-            )}
-
-            {loadError !== null && (
-              <div className="flex flex-col gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
-                <p className="text-destructive">{loadError}</p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setRows(null);
-                    void refetch();
-                  }}
-                >
-                  Try again
-                </Button>
-              </div>
-            )}
-
-            {rows !== null && rows.length === 0 && (
-              <p className="text-sm text-muted-foreground">
-                No other active sessions.
-              </p>
-            )}
-
-            {rows !== null && rows.length > 0 && (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Browser</TableHead>
-                    <TableHead>IP</TableHead>
-                    <TableHead>Last active</TableHead>
-                    <TableHead>Created</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Action</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.map((row) => {
-                    const busy = revoking === row.id;
-                    return (
-                      <TableRow key={row.id}>
-                        <TableCell className="font-medium">
-                          {uaLabel(row.userAgent)}
-                        </TableCell>
-                        <TableCell className="font-mono text-xs text-muted-foreground">
-                          {row.ipAddress ?? "Unknown"}
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {formatDateTime(row.updatedAt)}
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {formatDateTime(row.createdAt)}
-                        </TableCell>
-                        <TableCell>
-                          {row.current && (
-                            <Badge variant="secondary">This browser</Badge>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Button
-                            variant={row.current ? "outline" : "ghost"}
-                            size="sm"
-                            disabled={busy || revoking !== null}
-                            onClick={() => void onRevoke(row)}
-                          >
-                            {busy
-                              ? "Signing out…"
-                              : row.current
-                                ? "Sign out this browser"
-                                : "Sign out"}
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
+          {rows !== null && rows.length > 0 && (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Browser</TableHead>
+                  <TableHead>IP</TableHead>
+                  <TableHead>Last active</TableHead>
+                  <TableHead>Created</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((row) => {
+                  const busy = revoking === row.id;
+                  return (
+                    <TableRow key={row.id}>
+                      <TableCell className="font-medium">
+                        {uaLabel(row.userAgent)}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs text-muted-foreground">
+                        {row.ipAddress ?? "Unknown"}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {formatDateTime(row.updatedAt)}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {formatDateTime(row.createdAt)}
+                      </TableCell>
+                      <TableCell>
+                        {row.current && (
+                          <Badge variant="secondary">This browser</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant={row.current ? "outline" : "ghost"}
+                          size="sm"
+                          disabled={busy || revoking !== null}
+                          onClick={() => void onRevoke(row)}
+                        >
+                          {busy
+                            ? "Signing out…"
+                            : row.current
+                              ? "Sign out this browser"
+                              : "Sign out"}
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </div>
       </main>
     </div>
   );

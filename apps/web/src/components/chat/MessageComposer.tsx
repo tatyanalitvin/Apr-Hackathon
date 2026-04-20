@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import TextareaAutosize from "react-textarea-autosize";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { EmojiPickerButton } from "@/components/emoji/EmojiPickerButton";
 import { readDraft, writeDraft, clearDraft } from "@/lib/composer-draft";
@@ -46,6 +46,7 @@ interface PendingAttachment {
 export interface MessageComposerProps {
   userId: string;
   roomId: string;
+  roomName?: string;
   onSend: (
     body: string,
     attachmentIds?: string[],
@@ -71,6 +72,7 @@ export interface MessageComposerProps {
 export function MessageComposer({
   userId,
   roomId,
+  roomName,
   onSend,
   onUpload,
   disabled,
@@ -114,6 +116,16 @@ export function MessageComposer({
     latestValueRef.current = draft;
     setValue(draft);
   }, [userId, roomId]);
+
+  // Resize the textarea whenever value changes programmatically (draft
+  // hydration, insertAtCaret, setValue("") on send). Covers insertAtCaret too
+  // so a separate post-RAF resize is not needed.
+  useLayoutEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 144)}px`;
+  }, [value]);
 
   // Pending uploads are scoped to the current room — swap rooms, drop state.
   useEffect(() => {
@@ -351,7 +363,7 @@ export function MessageComposer({
   }, []);
 
   const onDrop = useCallback(
-    (e: React.DragEvent<HTMLDivElement>) => {
+    (e: React.DragEvent<HTMLFormElement>) => {
       e.preventDefault();
       setDragging(false);
       if (disabled || !onUpload) return;
@@ -362,7 +374,7 @@ export function MessageComposer({
   );
 
   const onDragOver = useCallback(
-    (e: React.DragEvent<HTMLDivElement>) => {
+    (e: React.DragEvent<HTMLFormElement>) => {
       if (disabled || !onUpload) return;
       // Only treat drag events that actually carry files — ignore text selections etc.
       if (e.dataTransfer?.types?.includes("Files")) {
@@ -373,7 +385,7 @@ export function MessageComposer({
     [disabled, onUpload],
   );
 
-  const onDragLeave = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+  const onDragLeave = useCallback((e: React.DragEvent<HTMLFormElement>) => {
     // Only clear when leaving the root element (not a child).
     if (e.currentTarget === e.target) setDragging(false);
   }, []);
@@ -391,8 +403,10 @@ export function MessageComposer({
   );
 
   return (
-    <div
-      className={`border-t p-3 space-y-1 relative ${dragging ? "bg-accent/40" : ""}`}
+    <form
+      aria-label="Message composer"
+      className={`space-y-1 relative ${dragging ? "bg-accent/40 rounded-md" : ""}`}
+      onSubmit={(e) => { e.preventDefault(); void send(); }}
       onDrop={onDrop}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
@@ -486,13 +500,12 @@ export function MessageComposer({
         </div>
       ) : null}
 
-      <TextareaAutosize
+      <Textarea
         ref={textareaRef}
         aria-label="Message"
-        className="w-full resize-none rounded-md border bg-background px-3 py-2 text-sm outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring"
-        placeholder={`Message #${roomId}`}
-        minRows={1}
-        maxRows={6}
+        placeholder={`Write to #${roomName || roomId}…`}
+        rows={1}
+        className="font-display italic resize-none max-h-[9rem] overflow-y-auto min-h-0"
         value={value}
         // UX-02 — don't flip `disabled` on `sending`. The browser blurs
         // disabled form controls, which broke "focus stays on the composer
@@ -502,6 +515,11 @@ export function MessageComposer({
         onChange={(e) => {
           latestValueRef.current = e.target.value;
           setValue(e.target.value);
+        }}
+        onInput={(e) => {
+          const el = e.currentTarget;
+          el.style.height = "auto";
+          el.style.height = `${Math.min(el.scrollHeight, 144)}px`;
         }}
         onPaste={onPaste}
         onKeyDown={(e) => {
@@ -554,10 +572,10 @@ export function MessageComposer({
             disabled={disabled || sending}
           />
         </div>
-        <Button size="sm" onClick={() => void send()} disabled={!canSend}>
+        <Button type="submit" size="sm" disabled={!canSend}>
           {sending ? "Sending…" : anyUploading ? "Uploading…" : "Send"}
         </Button>
       </div>
-    </div>
+    </form>
   );
 }

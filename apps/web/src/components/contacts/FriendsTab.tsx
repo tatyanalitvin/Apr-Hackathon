@@ -5,13 +5,14 @@
 import { useState } from "react";
 import { UserMinus, Ban, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar } from "@/components/avatar/Avatar";
 import { Button } from "@/components/ui/button";
 import {
   blockUser,
   removeFriend,
   type FriendSummary,
 } from "@/lib/friendship-api";
+import { BlossomEmptyState } from "@/components/empty/BlossomEmptyState";
 
 interface FriendsTabProps {
   friends: FriendSummary[];
@@ -25,9 +26,11 @@ export function FriendsTab({ friends, loading, onMutate }: FriendsTabProps) {
   }
   if (friends.length === 0) {
     return (
-      <div className="py-8 text-sm text-muted-foreground">
-        No friends yet. Use <span className="font-medium text-foreground">+ Add friend</span> to send your first request.
-      </div>
+      <BlossomEmptyState tagline="No friends yet. Send an invitation to start.">
+        <p className="text-xs" style={{ color: "var(--text-lo)" }}>
+          Use the <span className="font-medium" style={{ color: "var(--text-hi)" }}>+ Add friend</span> button above.
+        </p>
+      </BlossomEmptyState>
     );
   }
   return (
@@ -74,9 +77,7 @@ function FriendRow({
 
   return (
     <li className="flex items-center gap-3 rounded-md border border-border/60 px-3 py-2 transition-colors hover:bg-accent/40">
-      <Avatar className="h-9 w-9">
-        <AvatarFallback>{friend.name.slice(0, 1).toUpperCase()}</AvatarFallback>
-      </Avatar>
+      <Avatar userId={friend.userId} name={friend.name} size={40} />
       <div className="min-w-0 flex-1 leading-tight">
         <div className="truncate text-sm font-medium">{friend.name}</div>
         <div className="truncate text-xs text-muted-foreground">@{friend.username}</div>

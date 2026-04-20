@@ -11,10 +11,10 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
 import { confirmPasswordReset, PasswordResetError } from "@/lib/auth-api";
+import { AuthSplitLayout } from "@/components/auth/AuthSplitLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const schema = z
   .object({
@@ -67,14 +67,55 @@ function ResetPasswordForm() {
   const tokenMissing = !token;
 
   return (
-    <div className="flex min-h-dvh items-center justify-center p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader><CardTitle>Set a new password</CardTitle></CardHeader>
-        <CardContent>
-          {tokenMissing ? (
-            <div className="space-y-4">
+    <AuthSplitLayout headline="Set a new key.">
+      {tokenMissing ? (
+        <div className="space-y-4">
+          <p className="text-sm text-destructive">
+            This reset link is missing its token.
+          </p>
+          <p className="text-sm">
+            <a className="underline" href="/forgot-password">
+              Request a new reset link
+            </a>
+          </p>
+        </div>
+      ) : (
+        <form onSubmit={onSubmit} className="space-y-4" noValidate>
+          <div className="space-y-2">
+            <Label htmlFor="password">New password</Label>
+            <Input
+              id="password"
+              type="password"
+              autoComplete="new-password"
+              {...form.register("password")}
+            />
+            {form.formState.errors.password && (
               <p className="text-sm text-destructive">
-                This reset link is missing its token.
+                {form.formState.errors.password.message}
+              </p>
+            )}
+            <p className="text-xs text-muted-foreground">
+              At least 8 characters.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="passwordConfirm">Confirm new password</Label>
+            <Input
+              id="passwordConfirm"
+              type="password"
+              autoComplete="new-password"
+              {...form.register("passwordConfirm")}
+            />
+            {form.formState.errors.passwordConfirm && (
+              <p className="text-sm text-destructive">
+                {form.formState.errors.passwordConfirm.message}
+              </p>
+            )}
+          </div>
+          {form.formState.errors.root && (
+            <div className="space-y-2">
+              <p className="text-sm text-destructive">
+                {form.formState.errors.root.message}
               </p>
               <p className="text-sm">
                 <a className="underline" href="/forgot-password">
@@ -82,63 +123,17 @@ function ResetPasswordForm() {
                 </a>
               </p>
             </div>
-          ) : (
-            <form onSubmit={onSubmit} className="space-y-4" noValidate>
-              <div className="space-y-2">
-                <Label htmlFor="password">New password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  autoComplete="new-password"
-                  {...form.register("password")}
-                />
-                {form.formState.errors.password && (
-                  <p className="text-sm text-destructive">
-                    {form.formState.errors.password.message}
-                  </p>
-                )}
-                <p className="text-xs text-muted-foreground">
-                  At least 8 characters.
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="passwordConfirm">Confirm new password</Label>
-                <Input
-                  id="passwordConfirm"
-                  type="password"
-                  autoComplete="new-password"
-                  {...form.register("passwordConfirm")}
-                />
-                {form.formState.errors.passwordConfirm && (
-                  <p className="text-sm text-destructive">
-                    {form.formState.errors.passwordConfirm.message}
-                  </p>
-                )}
-              </div>
-              {form.formState.errors.root && (
-                <div className="space-y-2">
-                  <p className="text-sm text-destructive">
-                    {form.formState.errors.root.message}
-                  </p>
-                  <p className="text-sm">
-                    <a className="underline" href="/forgot-password">
-                      Request a new reset link
-                    </a>
-                  </p>
-                </div>
-              )}
-              <Button
-                type="submit"
-                className="w-full"
-                disabled={form.formState.isSubmitting}
-              >
-                {form.formState.isSubmitting ? "Updating…" : "Update password"}
-              </Button>
-            </form>
           )}
-        </CardContent>
-      </Card>
-    </div>
+          <Button
+            type="submit"
+            className="w-full"
+            disabled={form.formState.isSubmitting}
+          >
+            {form.formState.isSubmitting ? "Updating…" : "Update password"}
+          </Button>
+        </form>
+      )}
+    </AuthSplitLayout>
   );
 }
 

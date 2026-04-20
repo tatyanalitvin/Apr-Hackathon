@@ -157,7 +157,7 @@ describe("MessageComposer attachments (S2)", () => {
     );
 
     const file = new File([new Uint8Array([1, 2, 3])], "pic.png", { type: "image/png" });
-    const dropZone = container.querySelector(".border-t") as HTMLElement;
+    const dropZone = container.querySelector("form") as HTMLElement;
     await act(async () => {
       fireEvent.drop(dropZone, { dataTransfer: { files: [file], types: ["Files"] } });
     });
@@ -181,7 +181,7 @@ describe("MessageComposer attachments (S2)", () => {
     const huge = new File([new Uint8Array(1)], "big.bin", { type: "application/octet-stream" });
     Object.defineProperty(huge, "size", { value: 25 * 1024 * 1024 });
 
-    const dropZone = container.querySelector(".border-t") as HTMLElement;
+    const dropZone = container.querySelector("form") as HTMLElement;
     await act(async () => {
       fireEvent.drop(dropZone, { dataTransfer: { files: [huge], types: ["Files"] } });
     });
@@ -199,7 +199,7 @@ describe("MessageComposer attachments (S2)", () => {
     const bigImage = new File([new Uint8Array(1)], "big.png", { type: "image/png" });
     Object.defineProperty(bigImage, "size", { value: 4 * 1024 * 1024 });
 
-    const dropZone = container.querySelector(".border-t") as HTMLElement;
+    const dropZone = container.querySelector("form") as HTMLElement;
     await act(async () => {
       fireEvent.drop(dropZone, { dataTransfer: { files: [bigImage], types: ["Files"] } });
     });

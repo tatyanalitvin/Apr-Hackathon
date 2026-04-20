@@ -14,6 +14,9 @@ import { AttachmentImage } from "@/components/chat/AttachmentImage";
 import { AttachmentChip } from "@/components/chat/AttachmentChip";
 import { MessageActions } from "@/components/chat/MessageActions";
 import { EditMessageForm } from "@/components/chat/EditMessageForm";
+import { Avatar } from "@/components/avatar/Avatar";
+import { AiMessageBubble } from "./AiMessageBubble";
+import { BlossomEmptyState } from "@/components/empty/BlossomEmptyState";
 
 const IMAGE_MIME_RE = /^image\/(png|jpe?g|gif|webp)$/i;
 
@@ -104,44 +107,55 @@ export function MessageList({
   );
 
   return (
-    <div
-      className="relative flex-1 min-h-0"
-      role="log"
-      aria-live="polite"
-      aria-relevant="additions text"
-      aria-label="Room messages"
-    >
-      <Virtuoso
-        ref={ref}
-        data={messages}
-        firstItemIndex={firstItemIndex}
-        initialTopMostItemIndex={messages.length - 1}
-        followOutput={(atBottom) => (atBottom ? "smooth" : false)}
-        atBottomStateChange={handleAtBottomStateChange}
-        atBottomThreshold={100}
-        startReached={handleStartReached}
-        itemContent={(_index, message) => (
-          <MessageRow
-            message={message}
-            currentUserId={currentUserId}
-            currentUserRole={currentUserRole}
-            roomKind={roomKind}
-            isEditing={editingId === message.id}
-            onStartEdit={() => setEditingId(message.id)}
-            onCancelEdit={() => setEditingId(null)}
-            onSaveEdit={(body) => handleEditSave(message.id, body)}
-            onDelete={onDeleteMessage ? () => onDeleteMessage(message.id) : undefined}
-            onReply={
-              onReply
-                ? () => onReply(message.id, message.authorUsername)
-                : undefined
+    <div className="relative flex-1 min-h-0">
+      {messages.length === 0 ? (
+        <BlossomEmptyState tagline="No messages yet. Say hello to start the room." />
+      ) : (
+        <div
+          className="h-full"
+          role="log"
+          aria-live="polite"
+          aria-relevant="additions text"
+          aria-label="Room messages"
+        >
+          <Virtuoso
+            ref={ref}
+            data={messages}
+            firstItemIndex={firstItemIndex}
+            initialTopMostItemIndex={messages.length - 1}
+            followOutput={(atBottom) => (atBottom ? "smooth" : false)}
+            atBottomStateChange={handleAtBottomStateChange}
+            atBottomThreshold={100}
+            startReached={handleStartReached}
+            itemContent={(_index, message) =>
+              message.authorType === "ai" ? (
+                <AiMessageBubble key={message.id} message={message} />
+              ) : (
+                <MessageRow
+                  key={message.id}
+                  message={message}
+                  currentUserId={currentUserId}
+                  currentUserRole={currentUserRole}
+                  roomKind={roomKind}
+                  isEditing={editingId === message.id}
+                  onStartEdit={() => setEditingId(message.id)}
+                  onCancelEdit={() => setEditingId(null)}
+                  onSaveEdit={(body) => handleEditSave(message.id, body)}
+                  onDelete={onDeleteMessage ? () => onDeleteMessage(message.id) : undefined}
+                  onReply={
+                    onReply
+                      ? () => onReply(message.id, message.authorUsername)
+                      : undefined
+                  }
+                />
+              )
             }
+            components={{
+              Header: () => hasMoreOlder ? <div className="p-4 text-center text-xs text-muted-foreground">Loading older…</div> : null,
+            }}
           />
-        )}
-        components={{
-          Header: () => hasMoreOlder ? <div className="p-4 text-center text-xs text-muted-foreground">Loading older…</div> : null,
-        }}
-      />
+        </div>
+      )}
       {unreadCount > 0 && !isAtBottom && (
         <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
           <Button size="sm" onClick={scrollToBottom} className="pointer-events-auto shadow">
@@ -210,13 +224,18 @@ function MessageRow({
         role="listitem"
         data-message-id={message.id}
       >
-        <div className="flex items-baseline gap-2">
-          <span className="font-semibold text-sm">{message.authorName}</span>
-          <span className="text-xs text-muted-foreground">@{message.authorUsername}</span>
-          <span className="text-xs text-muted-foreground">{ts}</span>
-        </div>
-        <div className="italic text-sm text-muted-foreground" data-testid="message-tombstone">
-          [message deleted]
+        <div className="flex gap-3">
+          <Avatar userId={message.authorId} name={message.authorName} size={32} />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-baseline gap-2">
+              <span className="font-semibold text-sm">{message.authorName}</span>
+              <span className="text-xs text-muted-foreground">@{message.authorUsername}</span>
+              <span className="text-xs text-muted-foreground">{ts}</span>
+            </div>
+            <div className="italic text-sm text-muted-foreground" data-testid="message-tombstone">
+              [message deleted]
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -228,69 +247,74 @@ function MessageRow({
       role="listitem"
       data-message-id={message.id}
     >
-      <div className="flex items-baseline gap-2">
-        <span className="font-semibold text-sm">{message.authorName}</span>
-        <span className="text-xs text-muted-foreground">@{message.authorUsername}</span>
-        <span className="text-xs text-muted-foreground">{ts}</span>
-        {/* REQ-111 — indicator that survives reloads (editedAt persists server-side). */}
-        {message.editedAt ? (
-          <span
-            className="text-xs text-muted-foreground"
-            title={`Edited ${new Date(message.editedAt).toLocaleString()}`}
-            data-testid="message-edited-indicator"
-          >
-            (edited)
-          </span>
-        ) : null}
-        {showActions ? (
-          <div className="ml-auto">
-            <MessageActions
-              onEdit={showOwnerActions ? onStartEdit : undefined}
-              onDelete={
-                showOwnerActions || showAdminDelete
-                  ? () => void onDelete?.()
-                  : undefined
-              }
-              onReply={showReply ? onReply : undefined}
-            />
+      <div className="flex gap-3">
+        <Avatar userId={message.authorId} name={message.authorName} size={32} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-baseline gap-2">
+            <span className="font-semibold text-sm">{message.authorName}</span>
+            <span className="text-xs text-muted-foreground">@{message.authorUsername}</span>
+            <span className="text-xs text-muted-foreground">{ts}</span>
+            {/* REQ-111 — indicator that survives reloads (editedAt persists server-side). */}
+            {message.editedAt ? (
+              <span
+                className="text-xs text-muted-foreground"
+                title={`Edited ${new Date(message.editedAt).toLocaleString()}`}
+                data-testid="message-edited-indicator"
+              >
+                (edited)
+              </span>
+            ) : null}
+            {showActions ? (
+              <div className="ml-auto">
+                <MessageActions
+                  onEdit={showOwnerActions ? onStartEdit : undefined}
+                  onDelete={
+                    showOwnerActions || showAdminDelete
+                      ? () => void onDelete?.()
+                      : undefined
+                  }
+                  onReply={showReply ? onReply : undefined}
+                />
+              </div>
+            ) : null}
           </div>
-        ) : null}
+          {reply ? (
+            <div
+              data-testid="reply-quoted-block"
+              className="mt-0.5 border-l-2 border-muted-foreground/30 pl-2 text-xs italic opacity-80"
+            >
+              {parentDeleted ? (
+                <span className="text-muted-foreground">[deleted]</span>
+              ) : (
+                <span className="line-clamp-1">
+                  <span className="font-medium">{reply.authorUsername}</span>:{" "}
+                  {reply.text}
+                </span>
+              )}
+            </div>
+          ) : null}
+          {isEditing ? (
+            <EditMessageForm
+              initialBody={message.body}
+              onSave={onSaveEdit}
+              onCancel={onCancelEdit}
+            />
+          ) : message.body ? (
+            <div className="whitespace-pre-wrap break-words text-sm">{message.body}</div>
+          ) : null}
+          {!isEditing && attachments.length > 0 ? (
+            <div className="mt-1 flex flex-col gap-2">
+              {attachments.map((att) =>
+                isImage(att) ? (
+                  <AttachmentImage key={att.id} attachment={att} />
+                ) : (
+                  <AttachmentChip key={att.id} attachment={att} />
+                ),
+              )}
+            </div>
+          ) : null}
+        </div>
       </div>
-      {reply ? (
-        <div
-          data-testid="reply-quoted-block"
-          className="mt-0.5 border-l-2 border-muted-foreground/30 pl-2 text-xs italic opacity-80"
-        >
-          {parentDeleted ? (
-            <span className="text-muted-foreground">[deleted]</span>
-          ) : (
-            <span className="line-clamp-1">
-              <span className="font-medium">{reply.authorUsername}</span>:{" "}
-              {reply.text}
-            </span>
-          )}
-        </div>
-      ) : null}
-      {isEditing ? (
-        <EditMessageForm
-          initialBody={message.body}
-          onSave={onSaveEdit}
-          onCancel={onCancelEdit}
-        />
-      ) : message.body ? (
-        <div className="whitespace-pre-wrap break-words text-sm">{message.body}</div>
-      ) : null}
-      {!isEditing && attachments.length > 0 ? (
-        <div className="mt-1 flex flex-col gap-2">
-          {attachments.map((att) =>
-            isImage(att) ? (
-              <AttachmentImage key={att.id} attachment={att} />
-            ) : (
-              <AttachmentChip key={att.id} attachment={att} />
-            ),
-          )}
-        </div>
-      ) : null}
     </div>
   );
 }

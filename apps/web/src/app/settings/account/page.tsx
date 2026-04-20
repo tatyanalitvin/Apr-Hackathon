@@ -12,7 +12,6 @@ import { Header } from "@/components/chat/Header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -62,44 +61,46 @@ function AccountContent() {
   return (
     <div className="flex min-h-dvh flex-col">
       <Header />
-      <main id="main" className="flex-1 p-6 space-y-6">
-        <Card className="w-full max-w-md">
-          <CardHeader>
-            <CardTitle>Export account data</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Download a JSON file containing your profile, rooms, messages,
-              DMs, friendships, and sessions.
-            </p>
-            <Button onClick={onExport} disabled={exporting}>
-              {exporting ? "Preparing…" : "Download export"}
-            </Button>
-          </CardContent>
-        </Card>
+      <main id="main" className="mx-auto w-full max-w-[880px] px-6 py-10 space-y-6">
+        <h1 className="font-display text-4xl" style={{ color: "var(--text-hi)" }}>Account</h1>
+        <div
+          className="rounded-[var(--radius)] p-6 space-y-6"
+          style={{ background: "var(--bg-elevated)", boxShadow: "inset 0 1px 0 var(--glass-border)" }}
+        >
+          <section className="max-w-md">
+            <h2 className="font-semibold text-lg" style={{ color: "var(--text-hi)" }}>Export account data</h2>
+            <div className="mt-4 space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Download a JSON file containing your profile, rooms, messages,
+                DMs, friendships, and sessions.
+              </p>
+              <Button onClick={onExport} disabled={exporting}>
+                {exporting ? "Preparing…" : "Download export"}
+              </Button>
+            </div>
+          </section>
 
-        <Card className="w-full max-w-md border-destructive/40">
-          <CardHeader>
-            <CardTitle className="text-destructive">Delete account</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Removes your profile and sign-in access. Messages you sent stay
-              in rooms but show as &quot;[deleted user]&quot;. This cannot be
-              undone.
-            </p>
-            <Button
-              variant="destructive"
-              onClick={() => {
-                setDeletePassword("");
-                setDeleteError(null);
-                setDeleteOpen(true);
-              }}
-            >
-              Delete my account…
-            </Button>
-          </CardContent>
-        </Card>
+          <section className="max-w-md">
+            <h2 className="font-semibold text-lg text-destructive">Delete account</h2>
+            <div className="mt-4 space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Removes your profile and sign-in access. Messages you sent stay
+                in rooms but show as &quot;[deleted user]&quot;. This cannot be
+                undone.
+              </p>
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  setDeletePassword("");
+                  setDeleteError(null);
+                  setDeleteOpen(true);
+                }}
+              >
+                Delete my account…
+              </Button>
+            </div>
+          </section>
+        </div>
       </main>
 
       <Dialog

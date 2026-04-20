@@ -20,6 +20,7 @@ import { ManageRoomModal } from "@/components/chat/manage-room/ManageRoomModal";
 import { MemberList, type MemberListItem } from "@/components/chat/MemberList";
 import { MessageList } from "@/components/chat/MessageList";
 import { MessageComposer } from "@/components/chat/MessageComposer";
+import { ChatComposer } from "@/components/chat/ChatComposer";
 import { useSession } from "@/lib/auth-client";
 import {
   attachPresenceBus,
@@ -39,6 +40,7 @@ import { MuteToggle } from "@/components/chat/MuteToggle";
 import { computeUnreadList } from "@/lib/unread";
 import { useMarkRead } from "@/lib/use-mark-read";
 import { useUnreadNotifications } from "@/lib/use-unread-notifications";
+import { makeAiFixtures } from "@/lib/chat/ai-fixtures";
 
 const INITIAL_FIRST_INDEX = 1_000_000;
 const HISTORY_PAGE_SIZE = 50;
@@ -554,80 +556,97 @@ function RoomContent({ roomId }: { roomId: string }) {
   const displayedMembers: MemberListItem[] =
     roomMembers ?? (selfEntry ? [selfEntry] : []);
 
-  return (
-    <div className="h-dvh grid grid-cols-1 grid-rows-[auto_1fr_auto] lg:grid-cols-[16rem_1fr_18rem] lg:grid-rows-[auto_1fr]">
-      <Header className="lg:col-span-3" selfPresence={selfPresence} />
-      <nav className="hidden lg:flex lg:flex-col border-r min-h-0 overflow-y-auto">
-        <InboxList onAccepted={() => refreshMyRooms()} />
-        <RoomList rooms={displayedRooms} currentRoomId={roomId} onRoomCreated={refreshMyRooms} />
-      </nav>
-      <main id="main" className="flex flex-col min-h-0 overflow-hidden">
-        <div className="flex items-center justify-between border-b px-4 py-2 text-sm font-semibold">
-          <div className="min-w-0">
-            <h2 className="text-sm font-semibold">#{currentRoom?.name ?? roomId}</h2>
-            {currentRoom?.description ? (
-              <div
-                className="text-xs font-normal text-muted-foreground truncate"
-                data-testid="room-description"
-              >
-                {currentRoom.description}
-              </div>
-            ) : null}
-          </div>
-          <div className="flex items-center gap-1">
-            {/* REQ-123 — bell toggle. Optimistically flip mutedUntil so the
-                icon and RoomList pill change instantly; the /rooms/me poll
-                reconciles authoritative server state. */}
-            <MuteToggle
-              roomId={roomId}
-              mutedUntil={currentRoom?.mutedUntil ?? null}
-              onChanged={(next) =>
-                setMyRooms((prev) =>
-                  prev
-                    ? prev.map((r) =>
-                        r.id === roomId ? { ...r, mutedUntil: next } : r,
-                      )
-                    : prev,
-                )
-              }
-            />
-            {settingsRole !== null ? (
-              <ManageRoomModal
-                roomId={roomId}
-                roomName={currentRoom?.name ?? roomId}
-                role={settingsRole}
-                onRenamed={refreshMyRooms}
-                onLeftOrDeleted={refreshMyRooms}
-              />
-            ) : null}
-          </div>
-        </div>
-        <MessageList
-          messages={messages}
-          hasMoreOlder={hasMoreOlder}
-          onLoadOlder={loadOlder}
-          firstItemIndex={firstItemIndex}
-          onAtBottomChange={setAtBottom}
-          currentUserId={data?.user?.id}
-          currentUserRole={settingsRole ?? undefined}
-          roomKind={currentRoom?.kind}
-          onEditMessage={handleEditMessage}
-          onDeleteMessage={handleDeleteMessage}
-          onReply={handleReply}
-        />
-        <MessageComposer
-          userId={userId}
-          roomId={roomId}
-          onSend={handleSend}
-          onUpload={handleUpload}
-          replyTo={replyTo}
-          onClearReply={handleClearReply}
-        />
-      </main>
-      <aside className="hidden lg:block border-l min-h-0">
-        <MemberList members={displayedMembers} />
-      </aside>
+  const displayMessages = (() => {
+    if (process.env.NEXT_PUBLIC_AI_FIXTURES !== "1") return messages;
+    const last = messages[messages.length - 1];
+    const base = last ? Number(last.seq) : 0;
+    return [...messages, ...makeAiFixtures(roomId, base)];
+  })();
 
+  return (
+    <div className="flex flex-col h-dvh">
+      <Header selfPresence={selfPresence} />
+      <main id="main" className="flex flex-1 min-h-0">
+        <aside className="hidden lg:flex lg:flex-col w-[256px] shrink-0 glass-panel m-3 p-4 overflow-y-auto">
+          <InboxList onAccepted={() => refreshMyRooms()} />
+          <RoomList rooms={displayedRooms} currentRoomId={roomId} onRoomCreated={refreshMyRooms} />
+        </aside>
+        <section className="flex-1 flex flex-col min-w-0 relative">
+          <div className="flex items-center justify-between border-b px-4 py-2">
+            <div className="min-w-0">
+              <h2>
+                <span className="font-display text-[28px] leading-tight" style={{ letterSpacing: "-0.01em" }}>
+                  #{currentRoom?.name ?? roomId}
+                </span>
+              </h2>
+              {currentRoom?.description ? (
+                <div
+                  className="text-xs font-normal text-muted-foreground truncate"
+                  data-testid="room-description"
+                >
+                  {currentRoom.description}
+                </div>
+              ) : null}
+            </div>
+            <div className="flex items-center gap-1">
+              {/* REQ-123 — bell toggle. Optimistically flip mutedUntil so the
+                  icon and RoomList pill change instantly; the /rooms/me poll
+                  reconciles authoritative server state. */}
+              <MuteToggle
+                roomId={roomId}
+                mutedUntil={currentRoom?.mutedUntil ?? null}
+                onChanged={(next) =>
+                  setMyRooms((prev) =>
+                    prev
+                      ? prev.map((r) =>
+                          r.id === roomId ? { ...r, mutedUntil: next } : r,
+                        )
+                      : prev,
+                  )
+                }
+              />
+              {settingsRole !== null ? (
+                <ManageRoomModal
+                  roomId={roomId}
+                  roomName={currentRoom?.name ?? roomId}
+                  role={settingsRole}
+                  onRenamed={refreshMyRooms}
+                  onLeftOrDeleted={refreshMyRooms}
+                />
+              ) : null}
+            </div>
+          </div>
+          <MessageList
+            messages={displayMessages}
+            hasMoreOlder={hasMoreOlder}
+            onLoadOlder={loadOlder}
+            firstItemIndex={firstItemIndex}
+            onAtBottomChange={setAtBottom}
+            currentUserId={data?.user?.id}
+            currentUserRole={settingsRole ?? undefined}
+            roomKind={currentRoom?.kind}
+            onEditMessage={handleEditMessage}
+            onDeleteMessage={handleDeleteMessage}
+            onReply={handleReply}
+          />
+          <ChatComposer>
+            <MessageComposer
+              userId={userId}
+              roomId={roomId}
+              roomName={currentRoom?.name ?? roomId}
+              onSend={handleSend}
+              onUpload={handleUpload}
+              replyTo={replyTo}
+              onClearReply={handleClearReply}
+            />
+          </ChatComposer>
+        </section>
+        <aside className="hidden min-[1100px]:flex min-[1100px]:flex-col w-[240px] shrink-0 glass-panel m-3 p-4 overflow-y-auto" style={{ color: "var(--text-lo)" }}>
+          <MemberList members={displayedMembers} />
+        </aside>
+      </main>
+
+      {/* Mobile accordion fallback — shown below 1024px */}
       <div className="lg:hidden contents">
         <details className="border-t">
           <summary className="px-4 py-2 text-sm font-medium cursor-pointer">Rooms</summary>

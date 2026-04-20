@@ -18,7 +18,6 @@ import { BACKEND_URL } from "@/lib/backend";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const changePasswordSchema = z
   .object({
@@ -87,83 +86,82 @@ function PasswordContent() {
   return (
     <div className="flex min-h-dvh flex-col">
       <Header />
-      <main id="main" className="flex-1 p-6">
-        <Card className="w-full max-w-md">
-          <CardHeader>
-            <CardTitle>Change password</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={onSubmit} className="space-y-4" noValidate>
-              <div className="space-y-2">
-                <Label htmlFor="currentPassword">Current password</Label>
-                <Input
-                  id="currentPassword"
-                  type="password"
-                  autoComplete="current-password"
-                  aria-invalid={Boolean(form.formState.errors.currentPassword)}
-                  aria-describedby={form.formState.errors.currentPassword ? "currentPassword-error" : undefined}
-                  {...form.register("currentPassword")}
-                />
-                {form.formState.errors.currentPassword && (
-                  <p id="currentPassword-error" className="text-sm text-destructive">
-                    {form.formState.errors.currentPassword.message}
-                  </p>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="newPassword">New password</Label>
-                <Input
-                  id="newPassword"
-                  type="password"
-                  autoComplete="new-password"
-                  aria-invalid={Boolean(form.formState.errors.newPassword)}
-                  aria-describedby={form.formState.errors.newPassword ? "newPassword-error" : undefined}
-                  {...form.register("newPassword")}
-                />
-                {form.formState.errors.newPassword && (
-                  <p id="newPassword-error" className="text-sm text-destructive">
-                    {form.formState.errors.newPassword.message}
-                  </p>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="newPasswordConfirm">Confirm new password</Label>
-                <Input
-                  id="newPasswordConfirm"
-                  type="password"
-                  autoComplete="new-password"
-                  aria-invalid={Boolean(form.formState.errors.newPasswordConfirm)}
-                  aria-describedby={form.formState.errors.newPasswordConfirm ? "newPasswordConfirm-error" : undefined}
-                  {...form.register("newPasswordConfirm")}
-                />
-                {form.formState.errors.newPasswordConfirm && (
-                  <p id="newPasswordConfirm-error" className="text-sm text-destructive">
-                    {form.formState.errors.newPasswordConfirm.message}
-                  </p>
-                )}
-              </div>
-              <div className="flex items-center gap-2 text-sm">
-                <input
-                  id="revokeOtherSessions"
-                  type="checkbox"
-                  className="h-4 w-4"
-                  {...form.register("revokeOtherSessions")}
-                />
-                <Label htmlFor="revokeOtherSessions" className="font-normal">
-                  Sign out other sessions (recommended)
-                </Label>
-              </div>
-              {form.formState.errors.root && (
-                <p className="text-sm text-destructive">
-                  {form.formState.errors.root.message}
+      <main id="main" className="mx-auto w-full max-w-[880px] px-6 py-10 space-y-6">
+        <h1 className="font-display text-4xl" style={{ color: "var(--text-hi)" }}>Password</h1>
+        <div
+          className="rounded-[var(--radius)] p-6"
+          style={{ background: "var(--bg-elevated)", boxShadow: "inset 0 1px 0 var(--glass-border)" }}
+        >
+          <form onSubmit={onSubmit} className="space-y-4 max-w-md" noValidate>
+            <div className="space-y-2">
+              <Label htmlFor="currentPassword">Current password</Label>
+              <Input
+                id="currentPassword"
+                type="password"
+                autoComplete="current-password"
+                aria-invalid={Boolean(form.formState.errors.currentPassword)}
+                aria-describedby={form.formState.errors.currentPassword ? "currentPassword-error" : undefined}
+                {...form.register("currentPassword")}
+              />
+              {form.formState.errors.currentPassword && (
+                <p id="currentPassword-error" className="text-sm text-destructive">
+                  {form.formState.errors.currentPassword.message}
                 </p>
               )}
-              <Button type="submit" className="w-full" disabled={submitting}>
-                {submitting ? "Updating…" : "Update password"}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="newPassword">New password</Label>
+              <Input
+                id="newPassword"
+                type="password"
+                autoComplete="new-password"
+                aria-invalid={Boolean(form.formState.errors.newPassword)}
+                aria-describedby={form.formState.errors.newPassword ? "newPassword-error" : undefined}
+                {...form.register("newPassword")}
+              />
+              {form.formState.errors.newPassword && (
+                <p id="newPassword-error" className="text-sm text-destructive">
+                  {form.formState.errors.newPassword.message}
+                </p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="newPasswordConfirm">Confirm new password</Label>
+              <Input
+                id="newPasswordConfirm"
+                type="password"
+                autoComplete="new-password"
+                aria-invalid={Boolean(form.formState.errors.newPasswordConfirm)}
+                aria-describedby={form.formState.errors.newPasswordConfirm ? "newPasswordConfirm-error" : undefined}
+                {...form.register("newPasswordConfirm")}
+              />
+              {form.formState.errors.newPasswordConfirm && (
+                <p id="newPasswordConfirm-error" className="text-sm text-destructive">
+                  {form.formState.errors.newPasswordConfirm.message}
+                </p>
+              )}
+            </div>
+            <div className="flex items-center gap-2 text-sm">
+              <input
+                id="revokeOtherSessions"
+                type="checkbox"
+                className="h-4 w-4"
+                {...form.register("revokeOtherSessions")}
+              />
+              <Label htmlFor="revokeOtherSessions" className="font-normal">
+                Sign out other sessions (recommended)
+              </Label>
+            </div>
+            {form.formState.errors.root && (
+              <p className="text-sm text-destructive">
+                {form.formState.errors.root.message}
+              </p>
+            )}
+            <Button type="submit" className="w-full" disabled={submitting}>
+              {submitting ? "Updating…" : "Update password"}
+            </Button>
+          </form>
+        </div>
       </main>
     </div>
   );

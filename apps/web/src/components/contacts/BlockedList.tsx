@@ -7,9 +7,10 @@
 import { useState } from "react";
 import { Ban, Loader2, Undo2 } from "lucide-react";
 import { toast } from "sonner";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar } from "@/components/avatar/Avatar";
 import { Button } from "@/components/ui/button";
 import { unblockUser, type BlockedUser } from "@/lib/friendship-api";
+import { BlossomEmptyState } from "@/components/empty/BlossomEmptyState";
 
 interface BlockedListProps {
   blocked: BlockedUser[];
@@ -22,12 +23,7 @@ export function BlockedList({ blocked, loading, onMutate }: BlockedListProps) {
     return <div className="py-8 text-sm text-muted-foreground">Loading blocked users…</div>;
   }
   if (blocked.length === 0) {
-    return (
-      <div className="py-8 text-sm text-muted-foreground">
-        <Ban className="inline-block h-4 w-4 align-text-bottom" aria-hidden />{" "}
-        You haven&apos;t blocked anyone.
-      </div>
-    );
+    return <BlossomEmptyState tagline="No one blocked." />;
   }
   return (
     <ul className="flex flex-col gap-1" aria-label="Blocked users">
@@ -57,9 +53,7 @@ function BlockedRow({ user, onMutate }: { user: BlockedUser; onMutate: () => voi
 
   return (
     <li className="flex items-center gap-3 rounded-md border border-border/60 px-3 py-2">
-      <Avatar className="h-9 w-9">
-        <AvatarFallback>{user.name.slice(0, 1).toUpperCase()}</AvatarFallback>
-      </Avatar>
+      <Avatar userId={user.userId} name={user.name} size={40} />
       <div className="min-w-0 flex-1 leading-tight">
         <div className="truncate text-sm font-medium">{user.name}</div>
         <div className="truncate text-xs text-muted-foreground">@{user.username}</div>
