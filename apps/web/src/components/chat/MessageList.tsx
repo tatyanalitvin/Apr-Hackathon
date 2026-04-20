@@ -189,7 +189,7 @@ export function MessageList({
       )}
       {unreadCount > 0 && !isAtBottom && (
         <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
-          <Button size="sm" onClick={scrollToBottom} className="pointer-events-auto shadow">
+          <Button size="sm" onClick={scrollToBottom} className="unread-pop send-btn pointer-events-auto shadow">
             ↓ {unreadCount} new message{unreadCount > 1 ? "s" : ""}
           </Button>
         </div>
@@ -284,7 +284,7 @@ function MessageRow({
   // wrote each grouped line.
   return (
     <div
-      className={`group px-4 ${isGroupContinuation ? "py-0.5" : "py-2"}`}
+      className={`msg-enter group px-4 ${isGroupContinuation ? "py-0.5" : "py-2"}`}
       role="listitem"
       data-message-id={message.id}
       data-group-continuation={isGroupContinuation ? "true" : undefined}

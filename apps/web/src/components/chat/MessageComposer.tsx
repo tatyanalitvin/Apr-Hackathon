@@ -429,7 +429,7 @@ export function MessageComposer({
   return (
     <form
       aria-label="Message composer"
-      className={`space-y-1 relative ${dragging ? "bg-accent/40 rounded-md" : ""}`}
+      className={`composer-shell space-y-1 relative ${dragging ? "bg-accent/40 rounded-md" : ""}`}
       onSubmit={(e) => { e.preventDefault(); void send(); }}
       onDrop={onDrop}
       onDragOver={onDragOver}
@@ -618,7 +618,7 @@ export function MessageComposer({
           // judges see "no send button" when the input is empty. Hold full
           // opacity and desaturate the primary fill instead, keeping the CTA
           // locatable without implying it's clickable.
-          className="disabled:bg-primary/70 disabled:text-primary-foreground disabled:opacity-100"
+          className="send-btn disabled:bg-primary/70 disabled:text-primary-foreground disabled:opacity-100"
         >
           {sending ? "Sending…" : anyUploading ? "Uploading…" : "Send"}
         </Button>

@@ -38,7 +38,7 @@ export function RoomList({
           </span>
           <CreateRoomDialog onCreated={onRoomCreated} />
         </summary>
-        <div className="space-y-1">
+        <div className="space-y-1 room-list-stagger">
           {rooms.length === 0 ? (
             // Empty-state copy sits inside the accordion body so the
             // "+ New room" trigger in the summary stays visible and the
@@ -60,7 +60,7 @@ export function RoomList({
                 <Link
                   key={room.id}
                   href={`/rooms/${room.id}`}
-                  className={`flex items-center justify-between gap-2 rounded px-3 py-1.5 text-sm hover:bg-accent ${active ? "bg-accent font-medium" : ""}`}
+                  className={`room-item flex items-center justify-between gap-2 rounded px-3 py-1.5 text-sm hover:bg-accent ${active ? "is-active font-medium" : ""}`}
                 >
                   <span className="truncate">#{room.name}</span>
                   <UnreadBadge
