@@ -8,6 +8,7 @@ import { signOut, useSession } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
 import { PendingBadge } from "@/components/contacts/PendingBadge";
 import { PresencePill } from "@/components/chat/PresencePill";
+import { ThemeToggle } from "@/components/theme-toggle";
 import type { UserPresenceState } from "@ai-herders/shared/protocol";
 import { listIncomingRequests } from "@/lib/friendship-api";
 
@@ -131,6 +132,7 @@ export function Header({
           <Button asChild size="sm" variant="ghost">
             <Link href="/settings/account">Account</Link>
           </Button>
+          <ThemeToggle />
           <Button size="sm" variant="outline" onClick={handleSignOut}>
             Sign out
           </Button>

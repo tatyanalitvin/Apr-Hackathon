@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { SakuraPetals } from "./SakuraPetals";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 interface AuthSplitLayoutProps {
   headline: string;
@@ -22,6 +23,9 @@ export function AuthSplitLayout({ headline, tagline, children }: AuthSplitLayout
           {tagline ? (
             <p className="mt-6 text-sm" style={{ color: "var(--text-lo)" }}>{tagline}</p>
           ) : null}
+        </div>
+        <div className="absolute bottom-6 left-6 z-10">
+          <ThemeToggle />
         </div>
       </section>
       <section className="flex flex-1 items-center justify-center px-6 py-12 md:py-0">
