@@ -86,13 +86,13 @@ function PasswordContent() {
   return (
     <div className="flex min-h-dvh flex-col">
       <Header />
-      <main id="main" className="mx-auto w-full max-w-[880px] px-6 py-10 space-y-6">
+      <main id="main" className="mx-auto w-full max-w-md px-6 py-10 space-y-6">
         <h1 className="font-display text-4xl" style={{ color: "var(--text-hi)" }}>Password</h1>
         <div
           className="rounded-[var(--radius)] p-6"
           style={{ background: "var(--bg-elevated)", boxShadow: "inset 0 1px 0 var(--glass-border)" }}
         >
-          <form onSubmit={onSubmit} className="space-y-4 max-w-md" noValidate>
+          <form onSubmit={onSubmit} className="space-y-4" noValidate>
             <div className="space-y-2">
               <Label htmlFor="currentPassword">Current password</Label>
               <Input

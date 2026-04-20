@@ -58,6 +58,7 @@ function RegisterForm() {
             autoComplete="email"
             aria-invalid={Boolean(form.formState.errors.email)}
             aria-describedby={form.formState.errors.email ? "email-error" : undefined}
+            className="dark:border-[rgba(196,181,253,0.22)]"
             {...form.register("email")}
           />
           {form.formState.errors.email && (
@@ -71,6 +72,7 @@ function RegisterForm() {
             autoComplete="username"
             aria-invalid={Boolean(form.formState.errors.username)}
             aria-describedby={form.formState.errors.username ? "username-error" : undefined}
+            className="dark:border-[rgba(196,181,253,0.22)]"
             {...form.register("username")}
           />
           {form.formState.errors.username && (
@@ -83,6 +85,7 @@ function RegisterForm() {
             id="name"
             aria-invalid={Boolean(form.formState.errors.name)}
             aria-describedby={form.formState.errors.name ? "name-error" : undefined}
+            className="dark:border-[rgba(196,181,253,0.22)]"
             {...form.register("name")}
           />
           {form.formState.errors.name && (
@@ -97,6 +100,7 @@ function RegisterForm() {
             autoComplete="new-password"
             aria-invalid={Boolean(form.formState.errors.password)}
             aria-describedby={form.formState.errors.password ? "password-error" : undefined}
+            className="dark:border-[rgba(196,181,253,0.22)]"
             {...form.register("password")}
           />
           {form.formState.errors.password && (
@@ -111,6 +115,7 @@ function RegisterForm() {
             autoComplete="new-password"
             aria-invalid={Boolean(form.formState.errors.passwordConfirm)}
             aria-describedby={form.formState.errors.passwordConfirm ? "passwordConfirm-error" : undefined}
+            className="dark:border-[rgba(196,181,253,0.22)]"
             {...form.register("passwordConfirm")}
           />
           {form.formState.errors.passwordConfirm && (

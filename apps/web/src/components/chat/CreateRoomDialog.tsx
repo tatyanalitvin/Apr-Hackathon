@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
 import { createChatApi } from "@/lib/socket";
 
@@ -139,42 +140,52 @@ export function CreateRoomDialog({ onCreated }: CreateRoomDialogProps) {
             disabled={submitting}
           >
             <legend className="text-sm font-medium">Visibility</legend>
-            <label className="flex items-start gap-2 text-sm">
-              <input
-                type="radio"
-                name="visibility"
-                value="public"
-                checked={visibility === "public"}
-                onChange={() => setVisibility("public")}
-                className="mt-1"
-              />
-              <span>
-                <span className="font-medium">Public</span>
-                <span className="block text-xs text-muted-foreground">
-                  Anyone can browse and join.
+            <RadioGroup
+              value={visibility}
+              onValueChange={(v) => setVisibility(v as Visibility)}
+              aria-label="Room visibility"
+            >
+              <label
+                htmlFor="create-room-visibility-public"
+                className="flex items-start gap-2 text-sm"
+              >
+                <RadioGroupItem
+                  id="create-room-visibility-public"
+                  value="public"
+                  className="mt-1"
+                />
+                <span>
+                  <span className="font-medium">Public</span>
+                  <span className="block text-xs text-muted-foreground">
+                    Anyone can browse and join.
+                  </span>
                 </span>
-              </span>
-            </label>
-            <label className="flex items-start gap-2 text-sm">
-              <input
-                type="radio"
-                name="visibility"
-                value="private"
-                checked={visibility === "private"}
-                onChange={() => setVisibility("private")}
-                className="mt-1"
-              />
-              <span>
-                <span className="font-medium">Private</span>
-                <span className="block text-xs text-muted-foreground">
-                  Invite-only. Owners and admins can send invitations.
+              </label>
+              <label
+                htmlFor="create-room-visibility-private"
+                className="flex items-start gap-2 text-sm"
+              >
+                <RadioGroupItem
+                  id="create-room-visibility-private"
+                  value="private"
+                  className="mt-1"
+                />
+                <span>
+                  <span className="font-medium">Private</span>
+                  <span className="block text-xs text-muted-foreground">
+                    Invite-only. Owners and admins can send invitations.
+                  </span>
                 </span>
-              </span>
-            </label>
+              </label>
+            </RadioGroup>
           </fieldset>
 
           <DialogFooter>
-            <Button type="submit" disabled={submitting}>
+            <Button
+              type="submit"
+              disabled={submitting}
+              className="disabled:bg-primary/70 disabled:text-primary-foreground disabled:opacity-100"
+            >
               {submitting ? "Creating…" : "Create room"}
             </Button>
           </DialogFooter>

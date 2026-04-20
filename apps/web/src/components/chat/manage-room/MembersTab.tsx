@@ -178,6 +178,13 @@ export function MembersTab({ roomId, roomName, viewerRole }: MembersTabProps) {
                           }
                           disabled={busyRow}
                           data-testid={`ban-${m.username}`}
+                          // UX(ui-pass P2-8) — Ban and Make admin rendered as
+                          // identical secondary outline buttons; Ban is exile,
+                          // Make admin is benign. Flag Ban with a destructive-
+                          // outline treatment (red text + border at rest, red
+                          // fill on hover) so the severity is obvious at a
+                          // glance. Make admin stays default outline.
+                          className="border-destructive text-destructive hover:bg-destructive hover:text-destructive-foreground"
                         >
                           Ban
                         </Button>
@@ -189,6 +196,11 @@ export function MembersTab({ roomId, roomName, viewerRole }: MembersTabProps) {
                           onClick={() => void handleKick(m)}
                           disabled={busyRow}
                           data-testid={`kick-${m.username}`}
+                          // UX(ui-pass P0-4) — dark-theme destructive token
+                          // loses saturation on the lavender glass card and
+                          // reads "disabled". Hold full --destructive fill at
+                          // rest + disabled so the exile action is legible.
+                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:bg-destructive/70 disabled:text-destructive-foreground disabled:opacity-100"
                         >
                           Remove from room
                         </Button>
@@ -250,7 +262,13 @@ function BanReasonDialog({
           <Button variant="ghost" onClick={onCancel}>
             Cancel
           </Button>
-          <Button variant="destructive" onClick={() => void onSubmit(reason)}>
+          <Button
+            variant="destructive"
+            onClick={() => void onSubmit(reason)}
+            // UX(ui-pass P0-4) — keep destructive fill legible on the dark
+            // dialog surface; matches the Remove-from-room row button above.
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:bg-destructive/70 disabled:text-destructive-foreground disabled:opacity-100"
+          >
             Ban user
           </Button>
         </DialogFooter>

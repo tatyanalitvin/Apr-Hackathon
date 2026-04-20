@@ -123,13 +123,17 @@ export function Header({
               <span className="text-xs text-muted-foreground">@{username}</span>
             )}
           </div>
-          <Button asChild size="sm" variant="ghost">
+          {/* P1-2 — ghost variant has no resting affordance and read as body
+              copy next to the outlined Sign out, inverting hierarchy. Add a
+              faint border at rest so they register as actions; ghost still
+              drives the hover swap. */}
+          <Button asChild size="sm" variant="ghost" className="border border-border/40">
             <Link href="/settings/password">Password</Link>
           </Button>
-          <Button asChild size="sm" variant="ghost">
+          <Button asChild size="sm" variant="ghost" className="border border-border/40">
             <Link href="/settings/sessions">Sessions</Link>
           </Button>
-          <Button asChild size="sm" variant="ghost">
+          <Button asChild size="sm" variant="ghost" className="border border-border/40">
             <Link href="/settings/account">Account</Link>
           </Button>
           <ThemeToggle />

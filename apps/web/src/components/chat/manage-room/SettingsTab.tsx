@@ -247,6 +247,9 @@ export function SettingsTab({
             size="sm"
             onClick={() => void handleDelete()}
             disabled={submitting !== null}
+            // UX(ui-pass P0-4) — danger-zone Delete button washes out on the
+            // dark glass panel; pin saturation at rest + disabled.
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:bg-destructive/70 disabled:text-destructive-foreground disabled:opacity-100"
           >
             {submitting === "delete" ? "Deleting…" : "Delete room"}
           </Button>
@@ -263,6 +266,9 @@ export function SettingsTab({
         size="sm"
         onClick={() => void handleLeave()}
         disabled={submitting !== null}
+        // UX(ui-pass P0-4) — member/admin Leave button fades into the dark
+        // panel; hold --destructive saturation so the exit is visible.
+        className="bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:bg-destructive/70 disabled:text-destructive-foreground disabled:opacity-100"
       >
         {submitting === "leave" ? "Leaving…" : "Leave room"}
       </Button>

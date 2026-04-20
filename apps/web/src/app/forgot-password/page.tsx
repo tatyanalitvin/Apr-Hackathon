@@ -58,6 +58,7 @@ export default function ForgotPasswordPage() {
               id="email"
               type="email"
               autoComplete="email"
+              className="dark:border-[rgba(196,181,253,0.22)]"
               {...form.register("email")}
             />
             {form.formState.errors.email && (

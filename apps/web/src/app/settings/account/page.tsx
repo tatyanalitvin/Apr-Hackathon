@@ -61,13 +61,13 @@ function AccountContent() {
   return (
     <div className="flex min-h-dvh flex-col">
       <Header />
-      <main id="main" className="mx-auto w-full max-w-[880px] px-6 py-10 space-y-6">
+      <main id="main" className="mx-auto w-full max-w-2xl px-6 py-10 space-y-6">
         <h1 className="font-display text-4xl" style={{ color: "var(--text-hi)" }}>Account</h1>
         <div
           className="rounded-[var(--radius)] p-6 space-y-6"
           style={{ background: "var(--bg-elevated)", boxShadow: "inset 0 1px 0 var(--glass-border)" }}
         >
-          <section className="max-w-md">
+          <section>
             <h2 className="font-semibold text-lg" style={{ color: "var(--text-hi)" }}>Export account data</h2>
             <div className="mt-4 space-y-4">
               <p className="text-sm text-muted-foreground">
@@ -80,7 +80,7 @@ function AccountContent() {
             </div>
           </section>
 
-          <section className="max-w-md">
+          <section>
             <h2 className="font-semibold text-lg text-destructive">Delete account</h2>
             <div className="mt-4 space-y-4">
               <p className="text-sm text-muted-foreground">
@@ -95,6 +95,10 @@ function AccountContent() {
                   setDeleteError(null);
                   setDeleteOpen(true);
                 }}
+                // UX(ui-pass P0-4) — dark-theme destructive fill desaturates
+                // over the lavender glass card and reads "disabled". Hold
+                // full --destructive + light foreground at rest and disabled.
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:bg-destructive/70 disabled:text-destructive-foreground disabled:opacity-100"
               >
                 Delete my account…
               </Button>
@@ -144,6 +148,9 @@ function AccountContent() {
               variant="destructive"
               onClick={onDelete}
               disabled={deleting || deletePassword.length === 0}
+              // UX(ui-pass P0-4) — mirror the page-level Delete button; keep
+              // the primary confirm readable while disabled (empty password).
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:bg-destructive/70 disabled:text-destructive-foreground disabled:opacity-100"
             >
               {deleting ? "Deleting…" : "Delete account"}
             </Button>

@@ -99,6 +99,10 @@ function FriendRow({
           onClick={handleBlock}
           disabled={busy !== null}
           aria-label={`Block ${friend.username}`}
+          // UX(ui-pass P0-4) — Block CTA desaturates on the dark contacts
+          // list; pin full --destructive fill at rest + disabled so the
+          // action stays legible next to the neutral Remove button.
+          className="bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:bg-destructive/70 disabled:text-destructive-foreground disabled:opacity-100"
         >
           {busy === "block" ? <Loader2 className="animate-spin" /> : <Ban />}
           Block

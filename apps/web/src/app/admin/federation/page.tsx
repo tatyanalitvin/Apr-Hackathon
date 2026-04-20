@@ -147,15 +147,15 @@ export default function FederationAdminPage() {
             <dl className="grid grid-cols-3 gap-4 text-sm">
               <div>
                 <dt className="text-muted-foreground">Inbound s2s</dt>
-                <dd className="mt-1 text-2xl font-semibold">0</dd>
+                <dd className="mt-1 text-2xl font-semibold text-foreground">0</dd>
               </div>
               <div>
                 <dt className="text-muted-foreground">Outbound s2s</dt>
-                <dd className="mt-1 text-2xl font-semibold">0</dd>
+                <dd className="mt-1 text-2xl font-semibold text-foreground">0</dd>
               </div>
               <div>
                 <dt className="text-muted-foreground">Last handshake</dt>
-                <dd className="mt-1 text-2xl font-semibold">never</dd>
+                <dd className="mt-1 text-2xl font-semibold text-foreground">never</dd>
               </div>
             </dl>
             <p className="mt-3 text-xs text-muted-foreground">

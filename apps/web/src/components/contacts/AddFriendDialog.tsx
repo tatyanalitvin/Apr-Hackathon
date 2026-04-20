@@ -155,7 +155,11 @@ export function AddFriendDialog({ onSent }: { onSent?: () => void }) {
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={busy || username.trim().length === 0}>
+            <Button
+              type="submit"
+              disabled={busy || username.trim().length === 0}
+              className="disabled:bg-primary/70 disabled:text-primary-foreground disabled:opacity-100"
+            >
               {busy ? <Loader2 className="animate-spin" /> : null}
               Send request
             </Button>

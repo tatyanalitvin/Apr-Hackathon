@@ -4,16 +4,23 @@ import * as React from "react";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 
-export function ThemeToggle() {
+type ThemeToggleSize = "sm" | "default";
+
+export function ThemeToggle({ size = "sm" }: { size?: ThemeToggleSize } = {}) {
   const { resolvedTheme, setTheme } = useTheme();
   const [mounted, setMounted] = React.useState(false);
   React.useEffect(() => setMounted(true), []);
-  if (!mounted) return <div className="h-10 w-10" aria-hidden="true" />;
+  // P1-1 — icon-button size must match sibling actions in the header. `sm`
+  // (default) = h-9 w-9 to align with the other size="sm" buttons; `default`
+  // = h-10 w-10, matching the shadcn `icon` size for non-header uses.
+  const dimensions = size === "sm" ? "h-9 w-9" : "h-10 w-10";
+  if (!mounted) return <div className={dimensions} aria-hidden="true" />;
   const isDark = resolvedTheme === "dark";
   return (
     <Button
       variant="ghost-glass"
       size="icon"
+      className={dimensions}
       aria-label={isDark ? "Switch to light theme" : "Switch to dark theme"}
       onClick={() => setTheme(isDark ? "light" : "dark")}
     >
