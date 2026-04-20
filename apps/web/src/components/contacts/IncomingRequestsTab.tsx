@@ -129,6 +129,10 @@ function IncomingRow({
           onClick={() => handle("block")}
           disabled={busy !== null}
           aria-label={`Block ${request.from.username}`}
+          // UX(ui-pass P0-4) — dark-theme destructive loses saturation over
+          // the incoming-request card; pin the fill so Block is visually
+          // distinct from the neutral Decline button next to it.
+          className="bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:bg-destructive/70 disabled:text-destructive-foreground disabled:opacity-100"
         >
           {busy === "block" ? <Loader2 className="animate-spin" /> : <Ban />}
           Block
