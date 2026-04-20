@@ -79,9 +79,6 @@ function LoginForm() {
           {form.formState.errors.password && (
             <p id="password-error" className="text-sm text-destructive">{form.formState.errors.password.message}</p>
           )}
-          <p className="text-sm text-right">
-            <Link className="underline text-muted-foreground" href="/forgot-password">Forgot password?</Link>
-          </p>
         </div>
         <div className="flex items-center gap-2 text-sm">
           <input id="rememberMe" type="checkbox" {...form.register("rememberMe")} className="h-4 w-4" />
@@ -93,9 +90,10 @@ function LoginForm() {
         <Button type="submit" className="w-full" disabled={form.formState.isSubmitting}>
           {form.formState.isSubmitting ? "Signing in…" : "Sign in"}
         </Button>
-        <p className="text-sm text-center text-muted-foreground">
-          Need an account? <Link className="underline" href={`/register?next=${encodeURIComponent(nextTarget)}`}>Create one</Link>
-        </p>
+        <div className="flex items-center justify-between text-sm text-muted-foreground pt-2">
+          <Link className="hover:text-foreground" href={`/register?next=${encodeURIComponent(nextTarget)}`}>Create an account</Link>
+          <Link className="hover:text-foreground" href="/forgot-password">Forgot password?</Link>
+        </div>
       </form>
     </AuthSplitLayout>
   );
