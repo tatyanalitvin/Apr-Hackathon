@@ -551,7 +551,7 @@ function RoomContent({ roomId }: { roomId: string }) {
       <main id="main" className="flex flex-col min-h-0 overflow-hidden">
         <div className="flex items-center justify-between border-b px-4 py-2 text-sm font-semibold">
           <div className="min-w-0">
-            <div>#{currentRoom?.name ?? roomId}</div>
+            <h2 className="text-sm font-semibold">#{currentRoom?.name ?? roomId}</h2>
             {currentRoom?.description ? (
               <div
                 className="text-xs font-normal text-muted-foreground truncate"

@@ -88,6 +88,11 @@ export function MessageComposer({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sendingRef = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // UX-02 — set when send() completes so the useEffect below refocuses the
+  // textarea once React has flushed `disabled` back to false. Doing the focus
+  // inline (rAF in send's finally) races the browser's blur-on-disabled, so
+  // we defer until the next render cycle where the field is interactive again.
+  const pendingRefocusRef = useRef(false);
   // REQ-213 — v3 §2.6.2 explicit attach affordance. Hidden native input is
   // trampolined by the visible Paperclip button; selected files route through
   // the existing uploadFiles() path (same as drop / paste) so no new upload
@@ -98,6 +103,17 @@ export function MessageComposer({
   useEffect(() => {
     setValue(readDraft(userId, roomId));
   }, [userId, roomId]);
+
+  // UX-02 — refocus the textarea after send() toggles `sending` back to
+  // false. Runs after React has re-rendered `disabled` to its resting value,
+  // so the focus() call isn't immediately reverted by the browser's
+  // blur-on-disabled behavior.
+  useEffect(() => {
+    if (!sending && pendingRefocusRef.current) {
+      pendingRefocusRef.current = false;
+      textareaRef.current?.focus();
+    }
+  }, [sending]);
 
   // Pending uploads are scoped to the current room — swap rooms, drop state.
   useEffect(() => {
@@ -219,9 +235,8 @@ export function MessageComposer({
       if (replyTo && onClearReply) onClearReply();
     } finally {
       sendingRef.current = false;
+      pendingRefocusRef.current = true;
       setSending(false);
-      // UX-02 — restore caret to the composer so the user can keep typing.
-      requestAnimationFrame(() => textareaRef.current?.focus());
     }
   }, [
     canSend,
