@@ -37,10 +37,21 @@ export function CreateRoomDialog({ onCreated }: CreateRoomDialogProps) {
   const [description, setDescription] = useState("");
   const [visibility, setVisibility] = useState<Visibility>("public");
   const [submitting, setSubmitting] = useState(false);
+  // Field-level validation errors from the backend zod flatten() response.
+  // Populated when the mutation returns `{code:"validation", fieldErrors}`
+  // so we can render inline messages under the Name / Description inputs.
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [descriptionError, setDescriptionError] = useState<string | null>(null);
   const [api] = useState(() => createChatApi());
+
+  function clearFieldErrors() {
+    setNameError(null);
+    setDescriptionError(null);
+  }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    clearFieldErrors();
     const trimmed = name.trim();
     if (!trimmed) {
       toast.error("Enter a room name.");
@@ -59,14 +70,30 @@ export function CreateRoomDialog({ onCreated }: CreateRoomDialogProps) {
       setName("");
       setDescription("");
       setVisibility("public");
+      clearFieldErrors();
       onCreated?.();
       router.push(`/rooms/${r.data.id}`);
       return;
     }
     switch (r.error.code) {
-      case "validation":
-        toast.error("Name must be 3–64 chars of letters, numbers, space, _ or -.");
+      case "validation": {
+        const fe = r.error.fieldErrors;
+        const nameMsg = fe?.name?.[0];
+        const descMsg = fe?.description?.[0];
+        if (nameMsg || descMsg) {
+          if (nameMsg) {
+            setNameError(nameMsg);
+            toast.error(nameMsg);
+          }
+          if (descMsg) {
+            setDescriptionError(descMsg);
+            if (!nameMsg) toast.error(descMsg);
+          }
+        } else {
+          toast.error("Letters, numbers, spaces, _, -. 3–64 characters.");
+        }
         break;
+      }
       case "name_taken":
         toast.error("That room name is taken.");
         break;
@@ -111,12 +138,30 @@ export function CreateRoomDialog({ onCreated }: CreateRoomDialogProps) {
               id="create-room-name"
               autoFocus
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value);
+                if (nameError) setNameError(null);
+              }}
               placeholder="book-club"
               autoComplete="off"
               disabled={submitting}
               maxLength={64}
+              aria-invalid={nameError ? true : undefined}
+              aria-describedby={nameError ? "create-room-name-error" : undefined}
             />
+            {nameError ? (
+              <p
+                id="create-room-name-error"
+                className="text-sm text-destructive"
+                role="alert"
+              >
+                {nameError}
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Letters, numbers, spaces, _, -. 3–64 characters.
+              </p>
+            )}
           </div>
 
           <div className="space-y-1.5">
@@ -126,12 +171,28 @@ export function CreateRoomDialog({ onCreated }: CreateRoomDialogProps) {
             <Textarea
               id="create-room-description"
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={(e) => {
+                setDescription(e.target.value);
+                if (descriptionError) setDescriptionError(null);
+              }}
               placeholder="What's this room for?"
               rows={3}
               maxLength={500}
               disabled={submitting}
+              aria-invalid={descriptionError ? true : undefined}
+              aria-describedby={
+                descriptionError ? "create-room-description-error" : undefined
+              }
             />
+            {descriptionError ? (
+              <p
+                id="create-room-description-error"
+                className="text-sm text-destructive"
+                role="alert"
+              >
+                {descriptionError}
+              </p>
+            ) : null}
           </div>
 
           <fieldset

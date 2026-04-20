@@ -123,13 +123,20 @@ export interface UpdateRoomInput {
 }
 
 export type RoomMutationError =
-  | { code: "validation"; message: string }
+  // fieldErrors carries zod flatten().fieldErrors (e.g. {name: ["…"],
+  // description: ["…"]}) from `{error:"invalid_body", details:<flatten>}`
+  // on 400. Callers that don't read it can continue to rely on `message`.
+  | { code: "validation"; message: string; fieldErrors?: Record<string, string[]> }
   | { code: "name_taken" }
   | { code: "rate_limited"; retryAfterSec?: number }
   | { code: "not_room_owner" }
   | { code: "room_not_found" }
   // REQ-028 — 1000-member cap reached; surfaces from POST /rooms/:id/join.
   | { code: "room_full"; cap: number }
+  // REQ-026 — non-joinable room kind/visibility (private or DM).
+  | { code: "room_not_joinable" }
+  // REQ-203/204 — active ban blocks re-join.
+  | { code: "banned_from_room" }
   | { code: "forbidden"; message: string }
   | { code: "unauthorized" }
   | { code: "network"; message: string }
@@ -252,7 +259,10 @@ export type InvitationError =
   // REQ-028 — 1000-member cap reached at accept-time. Invite row stays
   // pending so the invitee can retry if members leave.
   | { code: "room_full"; cap: number }
-  | { code: "validation"; message?: string }
+  // fieldErrors carries zod flatten().fieldErrors (e.g.
+  // {inviteeUsername: ["…"]}) from `{error:"invalid_body", details:<flatten>}`
+  // on 400.
+  | { code: "validation"; message?: string; fieldErrors?: Record<string, string[]> }
   | { code: "network"; message: string }
   | { code: "unknown"; message: string };
 
@@ -616,13 +626,27 @@ async function invitationMutation<T>(
   const payload = (await res.json().catch(() => ({}))) as {
     error?: string;
     message?: string;
+    details?: unknown;
     cap?: number;
   };
   if (res.status === 401) return { ok: false, error: { code: "unauthorized" } };
   if (res.status === 400) {
+    const details = payload.details as
+      | { fieldErrors?: Record<string, string[]> }
+      | null
+      | undefined;
+    const fieldErrors =
+      details && typeof details === "object" && details.fieldErrors &&
+      typeof details.fieldErrors === "object"
+        ? details.fieldErrors
+        : undefined;
     return {
       ok: false,
-      error: { code: "validation", message: payload.message ?? payload.error },
+      error: {
+        code: "validation",
+        message: payload.message ?? payload.error,
+        ...(fieldErrors ? { fieldErrors } : {}),
+      },
     };
   }
   if (res.status === 409 && payload.error === "room_full") {
@@ -708,14 +732,28 @@ async function roomMutation<T>(
   };
 
   if (res.status === 401) return { ok: false, error: { code: "unauthorized" } };
-  if (res.status === 400)
+  if (res.status === 400) {
+    // Pull zod flatten().fieldErrors out of `details` so callers can surface
+    // per-field messages (name / description). Falls back to generic
+    // message when the backend returns a non-flatten shape.
+    const details = payload.details as
+      | { fieldErrors?: Record<string, string[]> }
+      | null
+      | undefined;
+    const fieldErrors =
+      details && typeof details === "object" && details.fieldErrors &&
+      typeof details.fieldErrors === "object"
+        ? details.fieldErrors
+        : undefined;
     return {
       ok: false,
       error: {
         code: "validation",
         message: typeof payload.error === "string" ? payload.error : "invalid request",
+        ...(fieldErrors ? { fieldErrors } : {}),
       },
     };
+  }
   if (res.status === 409 && payload.error === "name_taken")
     return { ok: false, error: { code: "name_taken" } };
   if (res.status === 409 && payload.error === "room_full") {
@@ -733,6 +771,10 @@ async function roomMutation<T>(
     return { ok: false, error: { code: "room_not_found" } };
   if (res.status === 403 && payload.error === "not_room_owner")
     return { ok: false, error: { code: "not_room_owner" } };
+  if (res.status === 403 && payload.error === "room_not_joinable")
+    return { ok: false, error: { code: "room_not_joinable" } };
+  if (res.status === 403 && payload.error === "banned_from_room")
+    return { ok: false, error: { code: "banned_from_room" } };
   if (res.status === 403)
     return {
       ok: false,
