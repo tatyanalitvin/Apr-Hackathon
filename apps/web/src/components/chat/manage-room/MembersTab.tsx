@@ -192,15 +192,17 @@ export function MembersTab({ roomId, roomName, viewerRole }: MembersTabProps) {
                       {canKick ? (
                         <Button
                           size="sm"
-                          variant="destructive"
+                          variant="outline"
                           onClick={() => void handleKick(m)}
                           disabled={busyRow}
                           data-testid={`kick-${m.username}`}
-                          // UX(ui-pass P0-4) — dark-theme destructive token
-                          // loses saturation on the lavender glass card and
-                          // reads "disabled". Hold full --destructive fill at
-                          // rest + disabled so the exile action is legible.
-                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:bg-destructive/70 disabled:text-destructive-foreground disabled:opacity-100"
+                          // UX(ui-pass remove-ban-consistency) — Ban and
+                          // Remove-from-room are adjacent destructive actions
+                          // at equal severity. Unify on destructive-outline
+                          // (red text + border at rest, red fill on hover) to
+                          // dodge the desaturated dark --destructive fill that
+                          // reads as "disabled" on the lavender glass card.
+                          className="border-destructive text-destructive hover:bg-destructive hover:text-destructive-foreground disabled:border-destructive/70 disabled:text-destructive/70 disabled:opacity-100"
                         >
                           Remove from room
                         </Button>
@@ -263,11 +265,13 @@ function BanReasonDialog({
             Cancel
           </Button>
           <Button
-            variant="destructive"
+            variant="outline"
             onClick={() => void onSubmit(reason)}
-            // UX(ui-pass P0-4) — keep destructive fill legible on the dark
-            // dialog surface; matches the Remove-from-room row button above.
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:bg-destructive/70 disabled:text-destructive-foreground disabled:opacity-100"
+            // UX(ui-pass remove-ban-consistency) — destructive-outline matches
+            // the Ban and Remove-from-room buttons in the members row above;
+            // consistent severity treatment across all destructive actions in
+            // this file.
+            className="border-destructive text-destructive hover:bg-destructive hover:text-destructive-foreground disabled:border-destructive/70 disabled:text-destructive/70 disabled:opacity-100"
           >
             Ban user
           </Button>
