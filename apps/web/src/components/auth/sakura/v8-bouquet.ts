@@ -1,27 +1,30 @@
-// v6-fullbloom — slim narrow-column silhouette with ~2× the petal density of
-// v5 AND a much bigger canopy relative to the trunk. We push canopyScale up
-// so the canopy ellipse balloons and eats into the trunk's vertical reach;
-// the result is a short trunk + a dominant bloom head, not a smaller tree.
+// v8-bouquet — very short stub trunk with a sprawling multi-lobe canopy that
+// fills most of the column. The canopyScale is cranked up even higher than v7
+// so the canopy ellipse balloons and the trunk reach (baseY - (canopyCy +
+// canopyRy * 0.25)) collapses to a stub — the composition reads as a floating
+// bouquet of blossoms rather than a tree with a visible stem.
+//
+// Different shape from v6 (tall + narrow) and v7 (dome): here the ballooned
+// canopy reaches down into the lower half of the column, creating multiple
+// bloom zones at different depths instead of one tidy dome.
 
 import {
   type Edge, type Cluster, type ThemeColors, type Point,
   mulberry32, valueNoise, drawBranchCurve, spaceColonize,
 } from "./core";
 
-export function buildFullBloomTree(
+export function buildBouquetTree(
   width: number, height: number, rng: () => number,
 ): { edges: Edge[]; tips: Point[] } {
-  // canopyScale 1.8 = canopy 1.8× the baseline radius on both axes. The
-  // trunk length is computed as baseY - (canopyCy + canopyRy*0.25) inside
-  // spaceColonize, so a bigger canopyRy automatically shortens the trunk.
-  // More attractors so the bigger canopy has enough branch tips to support
-  // dense blossom clusters throughout.
+  // canopyScale 2.2 = canopy 2.2× the baseline radius, so the canopy extends
+  // well past the midline and the remaining trunk is a short stub. More
+  // attractors + shorter segLen so the ballooned canopy is densely branched.
   return spaceColonize(width, height, rng, {
-    attractorCount: 520,
-    canopyScale: 1.8,
+    attractorCount: 560,
+    canopyScale: 2.2,
     maxIters: 220,
-    segLen: 6,
-    infDist: 40,
+    segLen: 5,
+    infDist: 36,
   });
 }
 
@@ -44,35 +47,37 @@ function drawMiniFlower(
   ctx.restore();
 }
 
-function drawFullBloomCluster(
+// Bouquet cluster: higher-contrast centre (more petalDeep) so the individual
+// bloom zones read as distinct flower bunches inside the larger bouquet.
+function drawBouquetCluster(
   ctx: CanvasRenderingContext2D, c: Cluster, colors: ThemeColors,
 ) {
   const rng = mulberry32(c.seed);
   const { x, y, radius } = c;
 
   ctx.save();
-  ctx.globalAlpha = 0.45;
-  const wash = ctx.createRadialGradient(x, y, 0, x, y, radius * 1.35);
+  ctx.globalAlpha = 0.48;
+  const wash = ctx.createRadialGradient(x, y, 0, x, y, radius * 1.3);
   wash.addColorStop(0, colors.petalLight);
-  wash.addColorStop(0.55, colors.petalMid);
+  wash.addColorStop(0.5, colors.petalMid);
   wash.addColorStop(1, "rgba(255, 210, 228, 0)");
   ctx.fillStyle = wash;
   ctx.beginPath();
-  ctx.arc(x, y, radius * 1.35, 0, Math.PI * 2);
+  ctx.arc(x, y, radius * 1.3, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
 
   const passes: [number, number, string][] = [
-    [22 + Math.floor(rng() * 10), 2.8, colors.petalDeep],
-    [36 + Math.floor(rng() * 16), 3.2, colors.petalMid],
-    [28 + Math.floor(rng() * 14), 2.4, colors.petalLight],
+    [20 + Math.floor(rng() * 10), 2.8, colors.petalDeep],
+    [32 + Math.floor(rng() * 14), 3.1, colors.petalMid],
+    [24 + Math.floor(rng() * 12), 2.3, colors.petalLight],
   ];
   let seedOffset = 0;
   for (const [count, baseSize, fill] of passes) {
     for (let i = 0; i < count; i++) {
       const theta = rng() * Math.PI * 2;
       const rn = valueNoise(Math.cos(theta) * (2 + seedOffset) + c.seed * 0.01, Math.sin(theta) * (2 + seedOffset));
-      const r = (0.12 + rn * 0.92) * radius;
+      const r = (0.12 + rn * 0.9) * radius;
       const px = x + Math.cos(theta) * r;
       const py = y + Math.sin(theta) * r * 0.92;
       drawMiniFlower(ctx, px, py, baseSize + rng() * 2, rng() * Math.PI * 2, fill);
@@ -80,21 +85,21 @@ function drawFullBloomCluster(
     seedOffset++;
   }
 
-  const sparkCount = 8 + Math.floor(rng() * 6);
+  const sparkCount = 6 + Math.floor(rng() * 4);
   for (let i = 0; i < sparkCount; i++) {
     const theta = rng() * Math.PI * 2;
-    const r = rng() * radius * 0.9;
+    const r = rng() * radius * 0.85;
     ctx.save();
-    ctx.globalAlpha = 0.85;
+    ctx.globalAlpha = 0.8;
     ctx.fillStyle = colors.highlight;
     ctx.beginPath();
-    ctx.arc(x + Math.cos(theta) * r, y + Math.sin(theta) * r, 0.9 + rng() * 0.9, 0, Math.PI * 2);
+    ctx.arc(x + Math.cos(theta) * r, y + Math.sin(theta) * r, 0.8 + rng() * 0.9, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
   }
 }
 
-export function renderV6(
+export function renderV8(
   tctx: CanvasRenderingContext2D,
   edges: Edge[], clusters: Cluster[],
   colors: ThemeColors, height: number, renderRng: () => number,
@@ -102,9 +107,9 @@ export function renderV6(
   tctx.lineCap = "round";
   tctx.lineJoin = "round";
 
-  const barkGradient = tctx.createLinearGradient(0, height + 20, 0, height * 0.35);
+  const barkGradient = tctx.createLinearGradient(0, height + 20, 0, height * 0.5);
   barkGradient.addColorStop(0, colors.barkMid);
-  barkGradient.addColorStop(0.6, colors.barkTip);
+  barkGradient.addColorStop(0.7, colors.barkTip);
   barkGradient.addColorStop(1, colors.barkTip);
   tctx.strokeStyle = barkGradient;
 
@@ -114,6 +119,6 @@ export function renderV6(
   for (const e of sorted) drawBranchCurve(tctx, e, renderRng);
   tctx.restore();
 
-  for (const c of clusters) drawFullBloomCluster(tctx, c, colors);
+  for (const c of clusters) drawBouquetCluster(tctx, c, colors);
   tctx.globalAlpha = 1;
 }
