@@ -98,16 +98,8 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .sakura-drift { animation: none !important; opacity: 0.5 !important; }
     .shimmer-sweep { animation: none !important; background: var(--accent) !important; }
   }
-}
-
-@keyframes sakura-drift {
-  0% { transform: translate3d(0, -10vh, 0) rotate(0deg); opacity: 0; }
-  10% { opacity: 0.7; }
-  90% { opacity: 0.7; }
-  100% { transform: translate3d(4vw, 110vh, 0) rotate(360deg); opacity: 0; }
 }
 
 @keyframes shimmer-sweep {

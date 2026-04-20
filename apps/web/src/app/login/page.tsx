@@ -48,7 +48,7 @@ function LoginForm() {
   });
 
   return (
-    <AuthSplitLayout headline="Welcome back.">
+    <AuthSplitLayout headline="Welcome back." variant="v2">
       <form onSubmit={onSubmit} className="space-y-4" noValidate>
         <div className="space-y-2">
           <Label htmlFor="email">Email</Label>

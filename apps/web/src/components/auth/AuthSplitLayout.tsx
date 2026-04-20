@@ -1,18 +1,19 @@
 import type { ReactNode } from "react";
-import { SakuraPetals } from "./SakuraPetals";
+import { SakuraPetals, type VariantKey } from "./SakuraPetals";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 interface AuthSplitLayoutProps {
   headline: string;
   tagline?: string;
+  variant?: VariantKey;
   children: ReactNode;
 }
 
-export function AuthSplitLayout({ headline, tagline, children }: AuthSplitLayoutProps) {
+export function AuthSplitLayout({ headline, tagline, variant, children }: AuthSplitLayoutProps) {
   return (
     <main id="main" className="min-h-dvh flex flex-col md:flex-row">
       <section className="relative flex flex-1 items-center justify-center overflow-hidden px-8 py-16 md:py-0 md:min-h-dvh">
-        <SakuraPetals />
+        <SakuraPetals variant={variant} />
         <div className="relative z-10 max-w-md">
           <h1 className="font-display text-5xl leading-[0.95] tracking-[-0.03em] md:text-7xl" style={{ color: "var(--text-hi)" }}>
             AI Herders Jam

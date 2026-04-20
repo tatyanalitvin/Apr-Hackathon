@@ -37,7 +37,7 @@ export default function ForgotPasswordPage() {
   });
 
   return (
-    <AuthSplitLayout headline="Recover your space.">
+    <AuthSplitLayout headline="Recover your space." variant="v4">
       {submitted ? (
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
