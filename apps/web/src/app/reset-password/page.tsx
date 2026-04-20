@@ -118,7 +118,7 @@ function ResetPasswordForm() {
         </div>
       ) : (
         <form onSubmit={onSubmit} className="space-y-4" noValidate>
-          <div className="space-y-2">
+          <div className="input-glow space-y-2">
             <Label htmlFor="password">New password</Label>
             <Input
               id="password"
@@ -136,7 +136,7 @@ function ResetPasswordForm() {
               At least 12 characters.
             </p>
           </div>
-          <div className="space-y-2">
+          <div className="input-glow space-y-2">
             <Label htmlFor="passwordConfirm">Confirm new password</Label>
             <Input
               id="passwordConfirm"

@@ -2,46 +2,23 @@
 
 import { useEffect, useRef } from "react";
 import {
-  type Cluster, type Edge, type Petal,
+  type Cluster, type Petal,
   mulberry32, buildClustersFromTips, drawPetal,
-  lSystemTree, readThemeColors, seedPetal, spaceColonize, stepPetal,
+  readThemeColors, seedPetal, stepPetal,
 } from "./sakura/core";
-import { renderV1 } from "./sakura/v1-layered";
-import { buildWeepingTree, renderV2 } from "./sakura/v2-weeping";
-import { buildWindsweptTree, renderV3 } from "./sakura/v3-windswept";
-import { renderV4 } from "./sakura/v4-stylized";
+import { VARIANTS, type VariantKey, isVariantKey } from "./sakura/variants";
+
+export type { VariantKey } from "./sakura/variants";
 
 const TREE_SEED = 0x5a4b5a41;
 const PETAL_COUNT = 60;
 const TARGET_FPS = 30;
 const FRAME_MS = 1000 / TARGET_FPS;
 
-export type VariantKey = "v1" | "v2" | "v3" | "v4";
-
-type Renderer = (
-  tctx: CanvasRenderingContext2D,
-  edges: Edge[], clusters: Cluster[],
-  colors: ReturnType<typeof readThemeColors>,
-  height: number, renderRng: () => number,
-) => void;
-
-type Variant = {
-  build: (width: number, height: number, rng: () => number) => { edges: Edge[]; tips: { x: number; y: number }[] };
-  render: Renderer;
-};
-
-const VARIANTS: Record<VariantKey, Variant> = {
-  v1: { build: (w, h, r) => spaceColonize(w, h, r), render: renderV1 },
-  v2: { build: buildWeepingTree, render: renderV2 },
-  v3: { build: buildWindsweptTree, render: renderV3 },
-  v4: { build: (w, h, r) => lSystemTree(w, h, r), render: renderV4 },
-};
-
 function pickVariant(fallback: VariantKey): VariantKey {
   if (typeof window === "undefined") return fallback;
   const q = new URLSearchParams(window.location.search).get("sakura");
-  if (q === "v1" || q === "v2" || q === "v3" || q === "v4") return q;
-  return fallback;
+  return isVariantKey(q) ? q : fallback;
 }
 
 export function SakuraPetals({ variant: variantProp = "v1" }: { variant?: VariantKey } = {}) {

@@ -38,8 +38,8 @@ function DmRow({ dm, active }: { dm: DmListItem; active: boolean }) {
   return (
     <Link
       href={`/rooms/${dm.roomId}`}
-      className={`block rounded px-3 py-1.5 text-sm hover:bg-accent ${
-        active ? "bg-accent font-medium" : ""
+      className={`dm-row block rounded-md px-3 py-1.5 text-sm ${
+        active ? "is-active font-medium" : ""
       }`}
     >
       <div className="flex items-center gap-2">
@@ -116,13 +116,30 @@ export function DmList({ currentRoomId }: { currentRoomId?: string }) {
         <div className="px-3 py-1.5 text-xs text-muted-foreground">Loading…</div>
       ) : null}
       {dms !== null && dms.length === 0 ? (
-        <div className="px-3 py-1.5 text-xs text-muted-foreground">
-          No DMs yet.
+        <div
+          className="mx-2 mt-1 rounded-md px-3 py-3 text-center text-xs text-muted-foreground"
+          style={{
+            background: "var(--glass-bg)",
+            boxShadow: "inset 0 0 0 1px var(--glass-border)",
+            backdropFilter: "blur(10px)",
+            WebkitBackdropFilter: "blur(10px)",
+          }}
+        >
+          <div className="mb-1 text-base leading-none" aria-hidden>
+            🌸
+          </div>
+          No DMs yet — say hi.
         </div>
       ) : null}
-      {dms?.map((dm) => (
-        <DmRow key={dm.roomId} dm={dm} active={dm.roomId === currentRoomId} />
-      ))}
+      {dms && dms.length > 0 ? (
+        <ul className="room-list-stagger space-y-0.5">
+          {dms.map((dm) => (
+            <li key={dm.roomId}>
+              <DmRow dm={dm} active={dm.roomId === currentRoomId} />
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 }

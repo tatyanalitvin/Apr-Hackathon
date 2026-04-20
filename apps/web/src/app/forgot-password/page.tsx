@@ -52,7 +52,7 @@ export default function ForgotPasswordPage() {
           <p className="text-sm text-muted-foreground">
             Enter the email for your account and we&apos;ll send a reset link.
           </p>
-          <div className="space-y-2">
+          <div className="input-glow space-y-2">
             <Label htmlFor="email">Email</Label>
             <Input
               id="email"

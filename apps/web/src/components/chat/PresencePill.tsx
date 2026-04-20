@@ -48,9 +48,14 @@ export function PresencePill({
   const storeState = usePresence(userId);
   const state = override ?? storeState;
 
+  // Online pills get a soft pulsing halo via .presence-halo::after. The
+  // ::after background uses currentColor, so we forward `text-green-500` on
+  // the same span to colour the ring without leaking into siblings.
+  const haloClass = state === "online" ? "presence-halo text-green-500" : "";
+
   return (
     <span
-      className={`inline-block h-2 w-2 rounded-full ${COLOR[state]} ${className}`}
+      className={`inline-block h-2 w-2 rounded-full ${COLOR[state]} ${haloClass} ${className}`}
       aria-label={LABEL[state]}
       title={LABEL[state]}
     />

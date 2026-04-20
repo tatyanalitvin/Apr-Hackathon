@@ -10,6 +10,7 @@ import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { RequireSession } from "@/components/chat/RequireSession";
 import { Header } from "@/components/chat/Header";
+import { SettingsNav } from "@/components/settings/SettingsNav";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -84,11 +85,13 @@ function AccountContent() {
     <div className="flex min-h-dvh flex-col">
       <Header />
       <main id="main" className="mx-auto w-full max-w-2xl px-6 py-10 space-y-6">
-        <h1 className="font-display text-4xl" style={{ color: "var(--text-hi)" }}>Account</h1>
-        <div
-          className="rounded-[var(--radius)] p-6 space-y-6"
-          style={{ background: "var(--bg-elevated)", boxShadow: "inset 0 1px 0 var(--glass-border)" }}
-        >
+        <div className="hero-stagger space-y-4">
+          <h1 className="font-display text-4xl" style={{ color: "var(--text-hi)" }}>
+            Account
+          </h1>
+          <SettingsNav />
+        </div>
+        <div className="glass-panel panel-reveal p-6 space-y-6">
           <section>
             <h2 className="font-semibold text-lg" style={{ color: "var(--text-hi)" }}>Export account data</h2>
             <div className="mt-4 space-y-4">

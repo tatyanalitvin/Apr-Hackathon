@@ -147,7 +147,7 @@ export function ContactsClient() {
           <AddFriendDialog onSent={refetchOutgoing} />
         </div>
         <Separator />
-        <Tabs value={tab} onValueChange={(v) => setTab(v as TabValue)}>
+        <Tabs value={tab} onValueChange={(v) => setTab(v as TabValue)} className="tab-bloom">
           <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="friends" className="gap-2">
               <Users className="h-4 w-4" aria-hidden /> Friends

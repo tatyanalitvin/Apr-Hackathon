@@ -14,7 +14,7 @@ export function AuthSplitLayout({ headline, tagline, variant, children }: AuthSp
     <main id="main" className="min-h-dvh flex flex-col md:flex-row">
       <section className="relative flex flex-1 items-center justify-center overflow-hidden px-8 py-16 md:py-0 md:min-h-dvh">
         <SakuraPetals variant={variant} />
-        <div className="relative z-10 max-w-md">
+        <div className="hero-stagger relative z-10 max-w-md">
           <h1 className="font-display text-5xl leading-[0.95] tracking-[-0.03em] md:text-7xl" style={{ color: "var(--text-hi)" }}>
             AI Herders Jam
           </h1>
@@ -30,7 +30,7 @@ export function AuthSplitLayout({ headline, tagline, variant, children }: AuthSp
         </div>
       </section>
       <section className="flex flex-1 items-center justify-center px-6 py-12 md:py-0">
-        <div className="glass-panel w-full max-w-[440px] p-8">
+        <div className="panel-reveal glass-panel w-full max-w-[440px] p-8">
           {children}
         </div>
       </section>

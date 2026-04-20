@@ -133,7 +133,7 @@ function BrowseContent() {
             <BlossomEmptyState tagline="No public rooms yet. Ask someone to invite you." />
           )
         ) : (
-          <div className="columns-1 gap-4 md:columns-2 xl:columns-3">
+          <div className="catalog-stagger columns-1 gap-4 md:columns-2 xl:columns-3">
             {rooms.map((room) => (
               <article
                 key={room.id}

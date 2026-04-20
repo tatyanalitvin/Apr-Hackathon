@@ -11,7 +11,7 @@ export function AiMessageBubble({ message }: Props) {
   const isStreaming = message.status === "streaming";
   return (
     <article
-      className="relative flex gap-3 glass-panel px-4 py-3"
+      className={`msg-enter relative flex gap-3 glass-panel px-4 py-3 ${isStreaming ? "ai-halo" : ""}`}
       style={{
         backgroundImage: "linear-gradient(to bottom, rgba(196, 181, 253, 0.12), transparent 40%)",
       }}

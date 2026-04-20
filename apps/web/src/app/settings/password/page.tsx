@@ -12,6 +12,7 @@ import { z } from "zod";
 import { toast } from "sonner";
 import { RequireSession } from "@/components/chat/RequireSession";
 import { Header } from "@/components/chat/Header";
+import { SettingsNav } from "@/components/settings/SettingsNav";
 import { BACKEND_URL } from "@/lib/backend";
 import { applyAuthIssues } from "@/lib/auth-api";
 import { Button } from "@/components/ui/button";
@@ -116,11 +117,13 @@ function PasswordContent() {
     <div className="flex min-h-dvh flex-col">
       <Header />
       <main id="main" className="mx-auto w-full max-w-md px-6 py-10 space-y-6">
-        <h1 className="font-display text-4xl" style={{ color: "var(--text-hi)" }}>Password</h1>
-        <div
-          className="rounded-[var(--radius)] p-6"
-          style={{ background: "var(--bg-elevated)", boxShadow: "inset 0 1px 0 var(--glass-border)" }}
-        >
+        <div className="hero-stagger space-y-4">
+          <h1 className="font-display text-4xl" style={{ color: "var(--text-hi)" }}>
+            Password
+          </h1>
+          <SettingsNav />
+        </div>
+        <div className="glass-panel panel-reveal p-6">
           <form onSubmit={onSubmit} className="space-y-4" noValidate>
             <div className="space-y-2">
               <Label htmlFor="currentPassword">Current password</Label>

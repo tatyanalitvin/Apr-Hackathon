@@ -7,6 +7,7 @@ import { Hash } from "lucide-react";
 import { RequireSession } from "@/components/chat/RequireSession";
 import { Header } from "@/components/chat/Header";
 import { Button } from "@/components/ui/button";
+import { SakuraPetals } from "@/components/auth/SakuraPetals";
 import { createChatApi } from "@/lib/socket";
 import type { MyRoomSummary } from "@/lib/chat-api";
 
@@ -67,9 +68,15 @@ function RoomsContent() {
           )}
         </aside>
         <section className="flex-1 flex flex-col min-w-0 relative">
+          <div className="petal-layer" aria-hidden="true">
+            <span className="petal" />
+            <span className="petal" />
+            <span className="petal" />
+            <span className="petal" />
+          </div>
           <h1 className="sr-only">Your rooms</h1>
-          <div className="flex h-full items-center justify-center p-6">
-            <div className="flex flex-col items-center text-center max-w-md">
+          <div className="relative z-10 flex h-full items-center justify-center p-6">
+            <div className="hero-stagger flex flex-col items-center text-center max-w-md">
               <div
                 aria-hidden="true"
                 className="mb-6 flex h-16 w-16 items-center justify-center rounded-full glass-panel"
@@ -86,7 +93,7 @@ function RoomsContent() {
               </p>
               <div className="flex flex-col sm:flex-row items-center gap-3">
                 <Link href="/rooms/browse">
-                  <Button size="lg">Browse rooms →</Button>
+                  <Button size="lg" className="send-btn">Browse rooms →</Button>
                 </Link>
                 <Link
                   href="/contacts"
@@ -98,8 +105,17 @@ function RoomsContent() {
             </div>
           </div>
         </section>
-        <aside className="hidden min-[1100px]:flex min-[1100px]:flex-col w-[240px] shrink-0 glass-panel m-3 p-4 overflow-y-auto" style={{ color: "var(--text-lo)" }}>
-          {/* members panel — empty on the rooms index */}
+        {/* Empty right aside on the rooms index — fill the dead space with the
+            sakura scene so the landing feels alive without competing for focus
+            with the centre CTA. The `v6-fullbloom` variant is tuned for the
+            ~240px column: short trunk + canopy-heavy silhouette; the centre
+            petal-layer still drifts over the main section. */}
+        <aside
+          aria-hidden="true"
+          className="hidden min-[1100px]:block relative w-[240px] shrink-0 overflow-hidden glass-panel m-3"
+          style={{ color: "var(--text-lo)" }}
+        >
+          <SakuraPetals variant="v6" />
         </aside>
       </main>
     </div>

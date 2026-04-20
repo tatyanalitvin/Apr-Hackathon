@@ -73,7 +73,7 @@ export function ManageRoomModal({
         </DialogHeader>
 
         {canModerate ? (
-          <Tabs defaultValue="members" className="mt-2">
+          <Tabs defaultValue="members" className="tab-bloom mt-2">
             <TabsList>
               <TabsTrigger value="members">Members</TabsTrigger>
               <TabsTrigger value="admins">Admins</TabsTrigger>
