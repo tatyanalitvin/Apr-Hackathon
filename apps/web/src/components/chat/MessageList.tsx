@@ -20,8 +20,32 @@ import { BlossomEmptyState } from "@/components/empty/BlossomEmptyState";
 
 const IMAGE_MIME_RE = /^image\/(png|jpe?g|gif|webp)$/i;
 
+// UX(ui-pass P2-2) — same-author bursts within this window collapse their
+// avatar/name/timestamp header so the timeline reads as a chat burst, not a
+// stack of independent posts. 5 min matches Slack / Discord convention.
+const GROUP_CONTINUATION_WINDOW_MS = 5 * 60 * 1000;
+
 function isImage(att: AttachmentPayload): boolean {
   return IMAGE_MIME_RE.test(att.mimeType);
+}
+
+function isGroupContinuation(
+  prev: MessagePayload | undefined,
+  curr: MessagePayload,
+): boolean {
+  if (!prev) return false;
+  // Tombstones break the burst so readers don't lose context around a
+  // "[message deleted]" gap.
+  if (prev.deletedAt || curr.deletedAt) return false;
+  // AI bubbles render via AiMessageBubble (different component), so never
+  // continue across an AI row; treat undefined authorType as "user".
+  const prevIsAi = prev.authorType === "ai";
+  const currIsAi = curr.authorType === "ai";
+  if (prevIsAi || currIsAi) return false;
+  if (prev.authorId !== curr.authorId) return false;
+  const gap =
+    new Date(curr.createdAt).getTime() - new Date(prev.createdAt).getTime();
+  return gap >= 0 && gap <= GROUP_CONTINUATION_WINDOW_MS;
 }
 
 export interface MessageListProps {
@@ -127,16 +151,23 @@ export function MessageList({
             atBottomStateChange={handleAtBottomStateChange}
             atBottomThreshold={100}
             startReached={handleStartReached}
-            itemContent={(_index, message) =>
-              message.authorType === "ai" ? (
-                <AiMessageBubble key={message.id} message={message} />
-              ) : (
+            itemContent={(index, message) => {
+              if (message.authorType === "ai") {
+                return <AiMessageBubble key={message.id} message={message} />;
+              }
+              // P2-2 — Virtuoso's index is firstItemIndex-offset; subtract to
+              // index back into `messages` and peek the previous row.
+              const dataIndex = index - firstItemIndex;
+              const prev = dataIndex > 0 ? messages[dataIndex - 1] : undefined;
+              const grouped = isGroupContinuation(prev, message);
+              return (
                 <MessageRow
                   key={message.id}
                   message={message}
                   currentUserId={currentUserId}
                   currentUserRole={currentUserRole}
                   roomKind={roomKind}
+                  isGroupContinuation={grouped}
                   isEditing={editingId === message.id}
                   onStartEdit={() => setEditingId(message.id)}
                   onCancelEdit={() => setEditingId(null)}
@@ -148,8 +179,8 @@ export function MessageList({
                       : undefined
                   }
                 />
-              )
-            }
+              );
+            }}
             components={{
               Header: () => hasMoreOlder ? <div className="p-4 text-center text-xs text-muted-foreground">Loading older…</div> : null,
             }}
@@ -172,6 +203,9 @@ interface MessageRowProps {
   currentUserId?: string;
   currentUserRole?: "owner" | "admin" | "member";
   roomKind?: "group" | "dm";
+  // UX(ui-pass P2-2) — when true, suppress avatar/name/timestamp header and
+  // render only the body as a continuation of the previous row's burst.
+  isGroupContinuation?: boolean;
   isEditing: boolean;
   onStartEdit: () => void;
   onCancelEdit: () => void;
@@ -185,6 +219,7 @@ function MessageRow({
   currentUserId,
   currentUserRole,
   roomKind,
+  isGroupContinuation = false,
   isEditing,
   onStartEdit,
   onCancelEdit,
@@ -241,31 +276,29 @@ function MessageRow({
     );
   }
 
+  // UX(ui-pass P2-2) — grouped rows collapse the 32px avatar column and the
+  // name/@handle/timestamp line, leaving only the body (and any reply quote /
+  // attachments). The leading `pl-11` reserves the avatar-gutter width so
+  // bodies align vertically across a burst. Accessibility: we add an
+  // aria-label containing the author so screen readers still announce who
+  // wrote each grouped line.
   return (
     <div
-      className="group px-4 py-2"
+      className={`group px-4 ${isGroupContinuation ? "py-0.5" : "py-2"}`}
       role="listitem"
       data-message-id={message.id}
+      data-group-continuation={isGroupContinuation ? "true" : undefined}
     >
       <div className="flex gap-3">
-        <Avatar userId={message.authorId} name={message.authorName} size={32} />
+        {isGroupContinuation ? (
+          <div className="w-8 shrink-0" aria-hidden />
+        ) : (
+          <Avatar userId={message.authorId} name={message.authorName} size={32} />
+        )}
         <div className="flex-1 min-w-0">
-          <div className="flex items-baseline gap-2">
-            <span className="font-semibold text-sm">{message.authorName}</span>
-            <span className="text-xs text-muted-foreground">@{message.authorUsername}</span>
-            <span className="text-xs text-muted-foreground">{ts}</span>
-            {/* REQ-111 — indicator that survives reloads (editedAt persists server-side). */}
-            {message.editedAt ? (
-              <span
-                className="text-xs text-muted-foreground"
-                title={`Edited ${new Date(message.editedAt).toLocaleString()}`}
-                data-testid="message-edited-indicator"
-              >
-                (edited)
-              </span>
-            ) : null}
-            {showActions ? (
-              <div className="ml-auto">
+          {isGroupContinuation ? (
+            showActions ? (
+              <div className="flex justify-end">
                 <MessageActions
                   onEdit={showOwnerActions ? onStartEdit : undefined}
                   onDelete={
@@ -276,8 +309,37 @@ function MessageRow({
                   onReply={showReply ? onReply : undefined}
                 />
               </div>
-            ) : null}
-          </div>
+            ) : null
+          ) : (
+            <div className="flex items-baseline gap-2">
+              <span className="font-semibold text-sm">{message.authorName}</span>
+              <span className="text-xs text-muted-foreground">@{message.authorUsername}</span>
+              <span className="text-xs text-muted-foreground">{ts}</span>
+              {/* REQ-111 — indicator that survives reloads (editedAt persists server-side). */}
+              {message.editedAt ? (
+                <span
+                  className="text-xs text-muted-foreground"
+                  title={`Edited ${new Date(message.editedAt).toLocaleString()}`}
+                  data-testid="message-edited-indicator"
+                >
+                  (edited)
+                </span>
+              ) : null}
+              {showActions ? (
+                <div className="ml-auto">
+                  <MessageActions
+                    onEdit={showOwnerActions ? onStartEdit : undefined}
+                    onDelete={
+                      showOwnerActions || showAdminDelete
+                        ? () => void onDelete?.()
+                        : undefined
+                    }
+                    onReply={showReply ? onReply : undefined}
+                  />
+                </div>
+              ) : null}
+            </div>
+          )}
           {reply ? (
             <div
               data-testid="reply-quoted-block"
@@ -300,7 +362,18 @@ function MessageRow({
               onCancel={onCancelEdit}
             />
           ) : message.body ? (
-            <div className="whitespace-pre-wrap break-words text-sm">{message.body}</div>
+            <div
+              className="whitespace-pre-wrap break-words text-sm"
+              // P2-2 a11y — grouped rows hide the visual name, so expose it
+              // to assistive tech via the body's aria-label.
+              aria-label={
+                isGroupContinuation
+                  ? `${message.authorName} ${ts}: ${message.body}`
+                  : undefined
+              }
+            >
+              {message.body}
+            </div>
           ) : null}
           {!isEditing && attachments.length > 0 ? (
             <div className="mt-1 flex flex-col gap-2">
