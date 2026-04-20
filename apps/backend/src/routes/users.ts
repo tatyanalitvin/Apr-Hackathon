@@ -7,7 +7,7 @@
 // belongs in its own file (spec §5 "Why a new file").
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { and, eq, ilike, isNull, ne, notInArray, or, sql } from "drizzle-orm";
+import { and, eq, ilike, inArray, isNull, ne, notInArray, or, sql } from "drizzle-orm";
 import { userSearchQuerySchema } from "@ai-herders/shared/dto";
 import { friendRequest, friendship, user, userBlock } from "@ai-herders/shared/schema";
 import type { UserRelationship, UserSearchHit } from "@ai-herders/shared/protocol";
@@ -43,16 +43,20 @@ async function searchUsers(
   callerId: string,
   q: string,
 ): Promise<UserSearchRow[]> {
+  // Escape ILIKE metacharacters so user-supplied `%` and `_` are literal.
+  // Postgres ILIKE uses `\` as the default escape character, so we prefix
+  // each `\`, `%`, `_` with `\`. Keep `q` unescaped for exact `=` arms.
+  const escaped = q.replace(/[\\%_]/g, "\\$&");
+
   // Ranking SQL — CASE expression drives ORDER BY. Tiebreak is username ASC.
-  // `q` flows through Drizzle's placeholder binding (sql`${q}`), so the
-  // ILIKE wildcards in user input are literal — same precedent as
-  // routes/rooms.ts:253 rooms-catalog search.
+  // Exact-match arms use `q` (no wildcards needed).
+  // Prefix/substring arms use `escaped` so metacharacters are literal.
   const rankExpr = sql<number>`CASE
     WHEN ${user.username} = ${q} THEN 0
     WHEN ${user.name}     = ${q} THEN 1
-    WHEN ${user.username} ILIKE ${q + "%"} THEN 2
-    WHEN ${user.name}     ILIKE ${q + "%"} THEN 3
-    WHEN ${user.username} ILIKE ${"%" + q + "%"} THEN 4
+    WHEN ${user.username} ILIKE ${escaped + "%"} THEN 2
+    WHEN ${user.name}     ILIKE ${escaped + "%"} THEN 3
+    WHEN ${user.username} ILIKE ${"%" + escaped + "%"} THEN 4
     ELSE 5
   END`;
 
@@ -80,8 +84,8 @@ async function searchUsers(
         isNull(user.deletedAt),
         ne(user.id, callerId),
         or(
-          ilike(user.username, `%${q}%`),
-          ilike(user.name, `%${q}%`),
+          ilike(user.username, `%${escaped}%`),
+          ilike(user.name, `%${escaped}%`),
         ),
         notInArray(user.id, blockedByCaller),
         notInArray(user.id, blockedCaller),
@@ -91,6 +95,50 @@ async function searchUsers(
     .limit(20);
 
   return rows.map(({ rank: _rank, ...rest }) => rest);
+}
+
+async function resolveRelationships(
+  callerId: string,
+  hitIds: string[],
+): Promise<Map<string, UserRelationship>> {
+  const out = new Map<string, UserRelationship>();
+  if (hitIds.length === 0) return out;
+
+  // 1. Friendships where caller is A or B and the counterpart is a hit.
+  const fships = await db
+    .select({ userA: friendship.userAId, userB: friendship.userBId })
+    .from(friendship)
+    .where(
+      or(
+        and(eq(friendship.userAId, callerId), inArray(friendship.userBId, hitIds)),
+        and(eq(friendship.userBId, callerId), inArray(friendship.userAId, hitIds)),
+      ),
+    );
+  for (const row of fships) {
+    const other = row.userA === callerId ? row.userB : row.userA;
+    out.set(other, "friend");
+  }
+
+  // 2. Pending requests in either direction — friend (already set) wins.
+  const requests = await db
+    .select({ fromId: friendRequest.fromId, toId: friendRequest.toId })
+    .from(friendRequest)
+    .where(
+      and(
+        eq(friendRequest.status, "pending"),
+        or(
+          and(eq(friendRequest.fromId, callerId), inArray(friendRequest.toId, hitIds)),
+          and(eq(friendRequest.toId, callerId), inArray(friendRequest.fromId, hitIds)),
+        ),
+      ),
+    );
+  for (const row of requests) {
+    const other = row.fromId === callerId ? row.toId : row.fromId;
+    if (out.has(other)) continue; // friend precedence (R16)
+    out.set(other, row.fromId === callerId ? "request_outgoing" : "request_incoming");
+  }
+
+  return out;
 }
 
 export async function usersRoutes(app: FastifyInstance): Promise<void> {
@@ -114,13 +162,14 @@ export async function usersRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(200).send({ users: [] });
     }
 
-    // Relationship enrichment lands in Task 5 — until then every hit is
-    // "none". Tests for R13–R16 will drive the real implementation.
+    const hitIds = rows.map((r) => r.id);
+    const relationshipByUser = await resolveRelationships(ctx.userId, hitIds);
+
     const users: UserSearchHit[] = rows.map((r) => ({
       userId: r.id,
       username: r.username,
       name: r.name,
-      relationship: "none" as UserRelationship,
+      relationship: relationshipByUser.get(r.id) ?? "none",
     }));
 
     return reply.status(200).send({ users });

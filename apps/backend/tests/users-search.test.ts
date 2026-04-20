@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import request from "supertest";
 import type { FastifyInstance } from "fastify";
 import { and, eq, inArray } from "drizzle-orm";
-import { user, userBlock } from "@ai-herders/shared/schema";
+import { friendship, friendRequest, user, userBlock } from "@ai-herders/shared/schema";
 
 import { buildApp } from "../src/app";
 import { getTestDb } from "./db-helpers";
@@ -225,5 +225,128 @@ describe("REQ-UserSearch §2.4 block symmetry", () => {
     expect(res.status).toBe(200);
     const ids = (res.body.users as Array<{ userId: string }>).map((u) => u.userId);
     expect(ids).not.toContain(blocker.userId);
+  });
+});
+
+describe("REQ-UserSearch §2.4 relationship enrichment + cap", () => {
+  let app: FastifyInstance;
+
+  beforeAll(async () => {
+    app = await buildApp();
+    await app.ready();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  test("REQ-UserSearch §2.4 R13 — friend row → relationship: 'friend'", async () => {
+    const me = await registerAgent(app, "usrch-fr13-me@example.com", "fr13_me");
+    const buddy = await registerAgent(app, "usrch-fr13-buddy@example.com", "fr13_buddy");
+    const [a, b] = me.userId < buddy.userId
+      ? [me.userId, buddy.userId]
+      : [buddy.userId, me.userId];
+    await getTestDb().insert(friendship).values({
+      id: "fs-r13",
+      userAId: a,
+      userBId: b,
+    });
+
+    const res = await me.agent.get("/api/v1/users?q=fr13_buddy");
+    expect(res.status).toBe(200);
+    const hit = (res.body.users as Array<{ userId: string; relationship: string }>)
+      .find((u) => u.userId === buddy.userId);
+    expect(hit?.relationship).toBe("friend");
+  });
+
+  test("REQ-UserSearch §2.4 R14 — pending outgoing request → 'request_outgoing'", async () => {
+    const me = await registerAgent(app, "usrch-fr14-me@example.com", "fr14_me");
+    const target = await registerAgent(app, "usrch-fr14-t@example.com", "fr14_t");
+    await getTestDb().insert(friendRequest).values({
+      id: "frq-r14",
+      fromId: me.userId,
+      toId: target.userId,
+      status: "pending",
+    });
+
+    const res = await me.agent.get("/api/v1/users?q=fr14_t");
+    const hit = (res.body.users as Array<{ userId: string; relationship: string }>)
+      .find((u) => u.userId === target.userId);
+    expect(hit?.relationship).toBe("request_outgoing");
+  });
+
+  test("REQ-UserSearch §2.4 R15 — pending incoming request → 'request_incoming'", async () => {
+    const me = await registerAgent(app, "usrch-fr15-me@example.com", "fr15_me");
+    const sender = await registerAgent(app, "usrch-fr15-s@example.com", "fr15_s");
+    await getTestDb().insert(friendRequest).values({
+      id: "frq-r15",
+      fromId: sender.userId,
+      toId: me.userId,
+      status: "pending",
+    });
+
+    const res = await me.agent.get("/api/v1/users?q=fr15_s");
+    const hit = (res.body.users as Array<{ userId: string; relationship: string }>)
+      .find((u) => u.userId === sender.userId);
+    expect(hit?.relationship).toBe("request_incoming");
+  });
+
+  test("REQ-UserSearch §2.4 R16 — no relationship → 'none'; friend beats stale request", async () => {
+    // Case A: stranger — relationship 'none'.
+    const me = await registerAgent(app, "usrch-fr16a-me@example.com", "fr16a_me");
+    const stranger = await registerAgent(
+      app,
+      "usrch-fr16a-x@example.com",
+      "fr16a_x",
+    );
+    const resA = await me.agent.get("/api/v1/users?q=fr16a_x");
+    const hitA = (resA.body.users as Array<{ userId: string; relationship: string }>)
+      .find((u) => u.userId === stranger.userId);
+    expect(hitA?.relationship).toBe("none");
+
+    // Case B: friendship + lingering accepted friend_request — friend wins.
+    const me2 = await registerAgent(app, "usrch-fr16b-me@example.com", "fr16b_me");
+    const buddy2 = await registerAgent(
+      app,
+      "usrch-fr16b-buddy@example.com",
+      "fr16b_buddy",
+    );
+    const [aa, bb] = me2.userId < buddy2.userId
+      ? [me2.userId, buddy2.userId]
+      : [buddy2.userId, me2.userId];
+    await getTestDb().insert(friendship).values({
+      id: "fs-r16b",
+      userAId: aa,
+      userBId: bb,
+    });
+    // Stale pending request in either direction — friendship still wins.
+    await getTestDb().insert(friendRequest).values({
+      id: "frq-r16b",
+      fromId: me2.userId,
+      toId: buddy2.userId,
+      status: "pending",
+    });
+    const resB = await me2.agent.get("/api/v1/users?q=fr16b_buddy");
+    const hitB = (resB.body.users as Array<{ userId: string; relationship: string }>)
+      .find((u) => u.userId === buddy2.userId);
+    expect(hitB?.relationship).toBe("friend");
+  });
+
+  test("REQ-UserSearch §2.4 R17 — hard cap 20 regardless of matches", async () => {
+    const me = await registerAgent(app, "usrch-cap-me@example.com", "cap_me");
+    // 21 candidates all matching the same query.
+    for (let i = 0; i < 21; i++) {
+      const padded = String(i).padStart(2, "0");
+      await registerAgent(
+        app,
+        `usrch-cap-${padded}@example.com`,
+        `capuser${padded}`,
+      );
+    }
+
+    const res = await me.agent.get("/api/v1/users?q=capuser");
+    expect(res.status).toBe(200);
+    const hits = res.body.users as Array<unknown>;
+    expect(hits).toHaveLength(20);
   });
 });
