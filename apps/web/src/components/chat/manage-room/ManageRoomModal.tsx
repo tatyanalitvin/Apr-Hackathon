@@ -88,7 +88,7 @@ export function ManageRoomModal({
               <AdminsTab roomId={roomId} viewerRole={role} />
             </TabsContent>
             <TabsContent value="banned" className="mt-4">
-              <BannedTab roomId={roomId} viewerRole={role} />
+              <BannedTab roomId={roomId} roomName={roomName} viewerRole={role} />
             </TabsContent>
             <TabsContent value="invitations" className="mt-4">
               <InvitationsTab roomId={roomId} />

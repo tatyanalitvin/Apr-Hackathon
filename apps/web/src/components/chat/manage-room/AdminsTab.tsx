@@ -1,13 +1,22 @@
 // REQ-210 — Admins tab. Lists owner + current admins. Owner row is fixed
 // ("Owner (cannot lose admin rights)"); admin rows show [Remove admin] to the
 // owner viewer only (admin viewer gets no buttons here — the server gate at
-// REQ-202 owner-only is authoritative). Demote uses window.confirm.
+// REQ-202 owner-only is authoritative). Demote opens a styled shadcn Dialog
+// confirm (DemoteConfirmDialog) — AlertDialog is not in this project.
 
 "use client";
 
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { createChatApi } from "@/lib/socket";
 import type {
   ChatAPI,
@@ -22,10 +31,13 @@ interface AdminsTabProps {
   viewerRole: RoomRole;
 }
 
+type DemoteTarget = { userId: string; username: string } | null;
+
 export function AdminsTab({ roomId, viewerRole }: AdminsTabProps) {
   const [api] = useState<ChatAPI>(() => createChatApi());
   const [members, setMembers] = useState<RoomMemberEntry[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [demoteTarget, setDemoteTarget] = useState<DemoteTarget>(null);
 
   async function refresh() {
     try {
@@ -42,16 +54,15 @@ export function AdminsTab({ roomId, viewerRole }: AdminsTabProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId]);
 
-  async function handleDemote(target: RoomMemberEntry) {
-    const confirmed =
-      typeof window !== "undefined" &&
-      window.confirm(`Remove admin rights from @${target.username}?`);
-    if (!confirmed) return;
-    setBusy(target.id);
-    const r = await api.demoteAdmin(roomId, target.id);
+  async function submitDemote() {
+    if (!demoteTarget) return;
+    const target = demoteTarget;
+    setBusy(target.userId);
+    const r = await api.demoteAdmin(roomId, target.userId);
     setBusy(null);
     if (r.ok) {
       toast.success(`@${target.username} is no longer an admin.`);
+      setDemoteTarget(null);
       await refresh();
       return;
     }
@@ -109,7 +120,9 @@ export function AdminsTab({ roomId, viewerRole }: AdminsTabProps) {
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => void handleDemote(m)}
+                      onClick={() =>
+                        setDemoteTarget({ userId: m.id, username: m.username })
+                      }
                       disabled={busyRow}
                       data-testid={`demote-${m.username}`}
                     >
@@ -122,7 +135,51 @@ export function AdminsTab({ roomId, viewerRole }: AdminsTabProps) {
           })}
         </tbody>
       </table>
+      <DemoteConfirmDialog
+        target={demoteTarget}
+        onCancel={() => setDemoteTarget(null)}
+        onConfirm={submitDemote}
+      />
     </div>
+  );
+}
+
+function DemoteConfirmDialog({
+  target,
+  onCancel,
+  onConfirm,
+}: {
+  target: DemoteTarget;
+  onCancel: () => void;
+  onConfirm: () => void | Promise<void>;
+}) {
+  return (
+    <Dialog open={target !== null} onOpenChange={(o) => (o ? null : onCancel())}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Remove admin rights</DialogTitle>
+          <DialogDescription>
+            Demote @{target?.username ?? ""} to member?
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={() => void onConfirm()}
+            // UX — demote is a reversible privilege removal but still a
+            // deliberate moderation action; keep the filled destructive
+            // treatment used by the other confirm dialogs for consistency.
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:bg-destructive/70 disabled:text-destructive-foreground disabled:opacity-100"
+            data-testid={`demote-confirm-${target?.username ?? ""}`}
+          >
+            Remove admin
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

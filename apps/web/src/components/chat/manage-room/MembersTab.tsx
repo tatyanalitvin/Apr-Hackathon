@@ -2,8 +2,9 @@
 // Role | Actions. Action visibility is caller-role-gated (plain member: no
 // buttons; admin: [Ban]+[Remove] on members; owner: [Make admin] on members
 // + [Ban]+[Remove] on members & admins; own row never shows buttons). Ban
-// opens a reason dialog; Remove (REQ-203) uses window.confirm to match the
-// SettingsTab pattern — shadcn AlertDialog is not in this project.
+// opens a reason dialog; Remove (REQ-203) uses a styled shadcn Dialog confirm
+// (KickConfirmDialog) that mirrors the BanReasonDialog pattern —
+// shadcn AlertDialog is not in this project.
 
 "use client";
 
@@ -38,6 +39,7 @@ interface MembersTabProps {
 }
 
 type BanTarget = { userId: string; username: string } | null;
+type KickTarget = { userId: string; username: string } | null;
 
 export function MembersTab({ roomId, roomName, viewerRole }: MembersTabProps) {
   const { data } = useSession();
@@ -46,6 +48,7 @@ export function MembersTab({ roomId, roomName, viewerRole }: MembersTabProps) {
   const [members, setMembers] = useState<RoomMemberEntry[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [banTarget, setBanTarget] = useState<BanTarget>(null);
+  const [kickTarget, setKickTarget] = useState<KickTarget>(null);
 
   async function refresh() {
     try {
@@ -74,18 +77,15 @@ export function MembersTab({ roomId, roomName, viewerRole }: MembersTabProps) {
     surfaceErr(r.error, "promote");
   }
 
-  async function handleKick(target: RoomMemberEntry) {
-    const confirmed =
-      typeof window !== "undefined" &&
-      window.confirm(
-        `Remove @${target.username} from #${roomName}? They will be banned and cannot rejoin until unbanned.`,
-      );
-    if (!confirmed) return;
-    setBusy(target.id);
-    const r = await api.kickMember(roomId, target.id);
+  async function submitKick() {
+    if (!kickTarget) return;
+    const target = kickTarget;
+    setBusy(target.userId);
+    const r = await api.kickMember(roomId, target.userId);
     setBusy(null);
     if (r.ok) {
       toast.success(`Removed @${target.username}.`);
+      setKickTarget(null);
       await refresh();
       return;
     }
@@ -193,7 +193,9 @@ export function MembersTab({ roomId, roomName, viewerRole }: MembersTabProps) {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => void handleKick(m)}
+                          onClick={() =>
+                            setKickTarget({ userId: m.id, username: m.username })
+                          }
                           disabled={busyRow}
                           data-testid={`kick-${m.username}`}
                           // UX(ui-pass remove-ban-consistency) — Ban and
@@ -221,7 +223,55 @@ export function MembersTab({ roomId, roomName, viewerRole }: MembersTabProps) {
         onCancel={() => setBanTarget(null)}
         onSubmit={submitBan}
       />
+      <KickConfirmDialog
+        target={kickTarget}
+        roomName={roomName}
+        onCancel={() => setKickTarget(null)}
+        onConfirm={submitKick}
+      />
     </>
+  );
+}
+
+function KickConfirmDialog({
+  target,
+  roomName,
+  onCancel,
+  onConfirm,
+}: {
+  target: KickTarget;
+  roomName: string;
+  onCancel: () => void;
+  onConfirm: () => void | Promise<void>;
+}) {
+  return (
+    <Dialog open={target !== null} onOpenChange={(o) => (o ? null : onCancel())}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Remove @{target?.username ?? ""}</DialogTitle>
+          <DialogDescription>
+            Remove @{target?.username ?? ""} from #{roomName}? They will be
+            banned and cannot rejoin until unbanned.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={() => void onConfirm()}
+            // UX — confirmation-dialog submit stays filled destructive to match
+            // BanReasonDialog's submit: the user has already committed by
+            // opening this dialog.
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:bg-destructive/70 disabled:text-destructive-foreground disabled:opacity-100"
+            data-testid={`kick-confirm-${target?.username ?? ""}`}
+          >
+            Remove from room
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
