@@ -51,10 +51,24 @@ function uaLabel(ua: string | null | undefined): string {
   return `${browser} on ${os}`;
 }
 
-function formatDateTime(iso: string): string {
+// Relative time for "Last active" — inline helper, no new dep (see
+// CLAUDE.md: ask before adding deps). Truncates to coarse buckets; exact
+// timestamp is available on the adjacent `Created` cell if needed.
+function relativeTime(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString();
+  const diff = (Date.now() - d.getTime()) / 1000;
+  if (diff < 60) return "just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)} min ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)} h ago`;
+  return `${Math.floor(diff / 86400)} d ago`;
+}
+
+// Absolute short date for "Created" — locale-aware via Intl, no new dep.
+function shortDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(d);
 }
 
 // Sort `current` first, then most-recently-active first. Matches the
@@ -113,7 +127,7 @@ function SessionsContent() {
   return (
     <div className="flex min-h-dvh flex-col">
       <Header />
-      <main id="main" className="mx-auto w-full max-w-[880px] px-6 py-10 space-y-6">
+      <main id="main" className="mx-auto w-full max-w-3xl px-6 py-10 space-y-6">
         <h1 className="font-display text-4xl" style={{ color: "var(--text-hi)" }}>Active sessions</h1>
         <div
           className="rounded-[var(--radius)] p-6 space-y-4"
@@ -179,10 +193,10 @@ function SessionsContent() {
                         {row.ipAddress ?? "Unknown"}
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
-                        {formatDateTime(row.updatedAt)}
+                        {relativeTime(row.updatedAt)}
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
-                        {formatDateTime(row.createdAt)}
+                        {shortDate(row.createdAt)}
                       </TableCell>
                       <TableCell>
                         {row.current && (
