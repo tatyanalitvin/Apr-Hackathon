@@ -24,6 +24,7 @@ import { room, roomMember, user } from "@ai-herders/shared/schema";
 import { buildApp } from "../src/app";
 import { ROOM_MEMBER_CAP } from "../src/routes/rooms";
 import { getTestDb } from "./db-helpers";
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 
 interface SignedUpAgent {
   agent: request.Agent;
@@ -48,7 +49,7 @@ async function registerAgent(
   const agent = request.agent(app.server);
   await agent
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   return { agent, userId: await userIdByEmail(email) };
 }
