@@ -1,10 +1,19 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import type { UserPresenceState } from "@ai-herders/shared/protocol";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
 import { AddFriendButton } from "@/components/contacts/AddFriendButton";
 import { PresencePill, usePresence } from "@/components/chat/PresencePill";
 import { useSession } from "@/lib/auth-client";
+
+// PERF-01 — seeded dev state has 2,969 members in #general, which renders
+// ~90k DOM nodes and stutters mobile scroll. Render a window and let the
+// user expand. Threshold is high enough that small/mid rooms are unaffected;
+// if we later adopt react-virtuoso for the sidebar we can drop this gate.
+const INITIAL_WINDOW = 50;
+const EXPAND_STEP = 200;
 
 export interface MemberListItem {
   id: string;
@@ -62,6 +71,12 @@ export function MemberList({ members }: { members: MemberListItem[] }) {
   // lands real ids.
   const { data } = useSession();
   const currentUserId = data?.user?.id;
+  const [windowSize, setWindowSize] = useState(INITIAL_WINDOW);
+  const visible = useMemo(
+    () => (members.length <= INITIAL_WINDOW ? members : members.slice(0, windowSize)),
+    [members, windowSize],
+  );
+  const remaining = Math.max(0, members.length - visible.length);
 
   return (
     <aside className="h-full overflow-auto p-3" aria-label="Members">
@@ -69,10 +84,23 @@ export function MemberList({ members }: { members: MemberListItem[] }) {
         Members · {members.length}
       </div>
       <ul className="space-y-1">
-        {members.map((m) => (
+        {visible.map((m) => (
           <MemberRow key={m.id} member={m} isSelf={currentUserId === m.id} />
         ))}
       </ul>
+      {remaining > 0 ? (
+        <div className="px-1 pt-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="w-full justify-center text-xs text-muted-foreground"
+            onClick={() => setWindowSize((n) => n + EXPAND_STEP)}
+          >
+            Show {Math.min(EXPAND_STEP, remaining)} more ({remaining} hidden)
+          </Button>
+        </div>
+      ) : null}
     </aside>
   );
 }

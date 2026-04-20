@@ -104,7 +104,13 @@ export function MessageList({
   );
 
   return (
-    <div className="relative flex-1 min-h-0">
+    <div
+      className="relative flex-1 min-h-0"
+      role="log"
+      aria-live="polite"
+      aria-relevant="additions text"
+      aria-label="Room messages"
+    >
       <Virtuoso
         ref={ref}
         data={messages}
@@ -199,7 +205,11 @@ function MessageRow({
   // placeholder with the author's name intact. No attachments, no actions.
   if (isDeleted) {
     return (
-      <div className="px-4 py-2 opacity-60">
+      <div
+        className="px-4 py-2 opacity-60"
+        role="listitem"
+        data-message-id={message.id}
+      >
         <div className="flex items-baseline gap-2">
           <span className="font-semibold text-sm">{message.authorName}</span>
           <span className="text-xs text-muted-foreground">@{message.authorUsername}</span>
@@ -213,7 +223,11 @@ function MessageRow({
   }
 
   return (
-    <div className="group px-4 py-2">
+    <div
+      className="group px-4 py-2"
+      role="listitem"
+      data-message-id={message.id}
+    >
       <div className="flex items-baseline gap-2">
         <span className="font-semibold text-sm">{message.authorName}</span>
         <span className="text-xs text-muted-foreground">@{message.authorUsername}</span>

@@ -327,11 +327,30 @@ function RoomContent({ roomId }: { roomId: string }) {
       // MessageComposer. Omitted entirely on non-reply sends so the POST
       // body doesn't emit a `replyToId` key server-side, keeping the wire
       // compatible with S1 callers that preceded this task.
-      await apiRef.current.sendMessage(roomId, {
-        body,
-        attachmentIds,
-        ...(replyToId ? { replyToId } : {}),
-      });
+      try {
+        await apiRef.current.sendMessage(roomId, {
+          body,
+          attachmentIds,
+          ...(replyToId ? { replyToId } : {}),
+        });
+      } catch (err) {
+        // UX-08 — surface rate-limit / transport failures. sendMessage
+        // throws `HTTP <status>: …` from fetchJson; translate the two
+        // cases the user can act on (429 throttle, 413 too large) and
+        // fall back to a generic send failure otherwise. Re-throw so the
+        // composer keeps the draft for retry.
+        const msg = err instanceof Error ? err.message : String(err);
+        const m = /^HTTP\s+(\d+):/.exec(msg);
+        const status = m ? Number(m[1]) : 0;
+        if (status === 429) {
+          toast.error("Slow down — message rate limit reached. Try again in a few seconds.");
+        } else if (status === 413) {
+          toast.error("Message too large to send.");
+        } else {
+          toast.error("Couldn't send message. Check your connection and try again.");
+        }
+        throw err;
+      }
     },
     [roomId],
   );
@@ -529,7 +548,7 @@ function RoomContent({ roomId }: { roomId: string }) {
         <InboxList onAccepted={() => refreshMyRooms()} />
         <RoomList rooms={displayedRooms} currentRoomId={roomId} onRoomCreated={refreshMyRooms} />
       </nav>
-      <main className="flex flex-col min-h-0 overflow-hidden">
+      <main id="main" className="flex flex-col min-h-0 overflow-hidden">
         <div className="flex items-center justify-between border-b px-4 py-2 text-sm font-semibold">
           <div className="min-w-0">
             <div>#{currentRoom?.name ?? roomId}</div>

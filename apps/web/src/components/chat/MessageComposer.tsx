@@ -220,6 +220,8 @@ export function MessageComposer({
     } finally {
       sendingRef.current = false;
       setSending(false);
+      // UX-02 — restore caret to the composer so the user can keep typing.
+      requestAnimationFrame(() => textareaRef.current?.focus());
     }
   }, [
     canSend,
@@ -360,6 +362,12 @@ export function MessageComposer({
       {uploadError ? (
         <div role="alert" className="text-xs text-destructive pb-1">
           {uploadError}
+        </div>
+      ) : null}
+
+      {overLimit ? (
+        <div role="alert" className="text-xs text-destructive pb-1">
+          Message too long — max {MAX_BYTES.toLocaleString()} bytes.
         </div>
       ) : null}
 
