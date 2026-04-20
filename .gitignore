@@ -40,3 +40,6 @@ infra/uploads/*
 # now points UPLOAD_DIR at os.tmpdir(), but a stray tsx/dev process or a
 # misconfigured fixture could still land bytes here.
 apps/backend/infra/uploads/
+
+.claude/
+.human/
