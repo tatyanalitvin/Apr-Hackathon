@@ -178,6 +178,13 @@ export function MembersTab({ roomId, roomName, viewerRole }: MembersTabProps) {
                           }
                           disabled={busyRow}
                           data-testid={`ban-${m.username}`}
+                          // UX(ui-pass P2-8) — Ban and Make admin rendered as
+                          // identical secondary outline buttons; Ban is exile,
+                          // Make admin is benign. Flag Ban with a destructive-
+                          // outline treatment (red text + border at rest, red
+                          // fill on hover) so the severity is obvious at a
+                          // glance. Make admin stays default outline.
+                          className="border-destructive text-destructive hover:bg-destructive hover:text-destructive-foreground"
                         >
                           Ban
                         </Button>
