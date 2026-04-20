@@ -21,6 +21,7 @@ import { IncomingRequestsTab } from "@/components/contacts/IncomingRequestsTab";
 import { OutgoingRequestsTab } from "@/components/contacts/OutgoingRequestsTab";
 import { BlockedList } from "@/components/contacts/BlockedList";
 import { AddFriendDialog } from "@/components/contacts/AddFriendDialog";
+import { PendingBadge } from "@/components/contacts/PendingBadge";
 import {
   listBlockedUsers,
   listFriends,
@@ -158,11 +159,7 @@ export function ContactsClient() {
             </TabsTrigger>
             <TabsTrigger value="incoming" className="gap-2">
               <Inbox className="h-4 w-4" aria-hidden /> Incoming
-              {incomingCount > 0 ? (
-                <Badge variant="destructive" className="ml-1 h-5 px-1.5 text-xs tabular-nums">
-                  {incomingCount}
-                </Badge>
-              ) : null}
+              <PendingBadge count={incomingCount} />
             </TabsTrigger>
             <TabsTrigger value="outgoing" className="gap-2">
               <Send className="h-4 w-4" aria-hidden /> Sent
