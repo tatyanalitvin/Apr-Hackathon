@@ -142,7 +142,32 @@ async function resolveRelationships(
 }
 
 export async function usersRoutes(app: FastifyInstance): Promise<void> {
-  app.get("/users", async (request, reply) => {
+  app.get(
+    "/users",
+    {
+      config: {
+        rateLimit: {
+          max: 60,
+          timeWindow: "1 minute",
+          // Key on authenticated userId so shared NATs don't punish
+          // legitimate users. Unauthenticated callers still hit this
+          // keyGenerator before requireUserSearchAuth runs (preHandlers
+          // fire after the limiter); fall back to IP so 401s can't be
+          // weaponised to burn a user's bucket from a stolen cookie.
+          keyGenerator: async (request) => {
+            try {
+              const headers = toFetchHeaders(request);
+              const session = await auth.api.getSession({ headers });
+              if (session?.user?.id) return `us:${session.user.id}`;
+            } catch {
+              // fall through to IP
+            }
+            return `us-ip:${request.ip}`;
+          },
+        },
+      },
+    },
+    async (request, reply) => {
     const ctx = await requireUserSearchAuth(request, reply);
     if (!ctx) return;
 
@@ -175,3 +200,4 @@ export async function usersRoutes(app: FastifyInstance): Promise<void> {
     return reply.status(200).send({ users });
   });
 }
+

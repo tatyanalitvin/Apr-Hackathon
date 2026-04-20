@@ -350,3 +350,30 @@ describe("REQ-UserSearch §2.4 relationship enrichment + cap", () => {
     expect(hits).toHaveLength(20);
   });
 });
+
+describe("REQ-UserSearch §2.4 rate limit", () => {
+  let app: FastifyInstance;
+
+  beforeAll(async () => {
+    app = await buildApp();
+    await app.ready();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  test("REQ-UserSearch §2.4 R18 — 61st request in 60s → 429 rate_limited", async () => {
+    const alice = await registerAgent(app, "usrch-rl@example.com", "usrch_rl");
+
+    // Fire 60 sequential requests — all should succeed (200).
+    for (let i = 0; i < 60; i++) {
+      const res = await alice.agent.get("/api/v1/users?q=nobody_matches_this");
+      expect(res.status).toBe(200);
+    }
+    // The 61st should trip the bucket.
+    const res = await alice.agent.get("/api/v1/users?q=nobody_matches_this");
+    expect(res.status).toBe(429);
+    expect(res.body).toMatchObject({ error: "rate_limited" });
+  }, 30_000);
+});
