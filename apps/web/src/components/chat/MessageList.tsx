@@ -107,52 +107,54 @@ export function MessageList({
   );
 
   return (
-    <div
-      className="relative flex-1 min-h-0"
-      role="log"
-      aria-live="polite"
-      aria-relevant="additions text"
-      aria-label="Room messages"
-    >
+    <div className="relative flex-1 min-h-0">
       {messages.length === 0 ? (
         <BlossomEmptyState tagline="No messages yet. Say hello to start the room." />
       ) : (
-      <Virtuoso
-        ref={ref}
-        data={messages}
-        firstItemIndex={firstItemIndex}
-        initialTopMostItemIndex={messages.length - 1}
-        followOutput={(atBottom) => (atBottom ? "smooth" : false)}
-        atBottomStateChange={handleAtBottomStateChange}
-        atBottomThreshold={100}
-        startReached={handleStartReached}
-        itemContent={(_index, message) =>
-          message.authorType === "ai" ? (
-            <AiMessageBubble key={message.id} message={message} />
-          ) : (
-            <MessageRow
-              key={message.id}
-              message={message}
-              currentUserId={currentUserId}
-              currentUserRole={currentUserRole}
-              roomKind={roomKind}
-              isEditing={editingId === message.id}
-              onStartEdit={() => setEditingId(message.id)}
-              onCancelEdit={() => setEditingId(null)}
-              onSaveEdit={(body) => handleEditSave(message.id, body)}
-              onDelete={onDeleteMessage ? () => onDeleteMessage(message.id) : undefined}
-              onReply={
-                onReply
-                  ? () => onReply(message.id, message.authorUsername)
-                  : undefined
-              }
-            />
-          )
-        }
-        components={{
-          Header: () => hasMoreOlder ? <div className="p-4 text-center text-xs text-muted-foreground">Loading older…</div> : null,
-        }}
-      />
+        <div
+          className="h-full"
+          role="log"
+          aria-live="polite"
+          aria-relevant="additions text"
+          aria-label="Room messages"
+        >
+          <Virtuoso
+            ref={ref}
+            data={messages}
+            firstItemIndex={firstItemIndex}
+            initialTopMostItemIndex={messages.length - 1}
+            followOutput={(atBottom) => (atBottom ? "smooth" : false)}
+            atBottomStateChange={handleAtBottomStateChange}
+            atBottomThreshold={100}
+            startReached={handleStartReached}
+            itemContent={(_index, message) =>
+              message.authorType === "ai" ? (
+                <AiMessageBubble key={message.id} message={message} />
+              ) : (
+                <MessageRow
+                  key={message.id}
+                  message={message}
+                  currentUserId={currentUserId}
+                  currentUserRole={currentUserRole}
+                  roomKind={roomKind}
+                  isEditing={editingId === message.id}
+                  onStartEdit={() => setEditingId(message.id)}
+                  onCancelEdit={() => setEditingId(null)}
+                  onSaveEdit={(body) => handleEditSave(message.id, body)}
+                  onDelete={onDeleteMessage ? () => onDeleteMessage(message.id) : undefined}
+                  onReply={
+                    onReply
+                      ? () => onReply(message.id, message.authorUsername)
+                      : undefined
+                  }
+                />
+              )
+            }
+            components={{
+              Header: () => hasMoreOlder ? <div className="p-4 text-center text-xs text-muted-foreground">Loading older…</div> : null,
+            }}
+          />
+        </div>
       )}
       {unreadCount > 0 && !isAtBottom && (
         <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">

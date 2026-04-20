@@ -25,7 +25,13 @@ export function FriendsTab({ friends, loading, onMutate }: FriendsTabProps) {
     return <div className="py-8 text-sm text-muted-foreground">Loading friends…</div>;
   }
   if (friends.length === 0) {
-    return <BlossomEmptyState tagline="No friends yet. Send an invitation to start." />;
+    return (
+      <BlossomEmptyState tagline="No friends yet. Send an invitation to start.">
+        <p className="text-xs" style={{ color: "var(--text-lo)" }}>
+          Use the <span className="font-medium" style={{ color: "var(--text-hi)" }}>+ Add friend</span> button above.
+        </p>
+      </BlossomEmptyState>
+    );
   }
   return (
     <ul className="flex flex-col gap-1" aria-label="Friends">
