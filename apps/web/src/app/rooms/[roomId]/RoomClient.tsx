@@ -632,20 +632,20 @@ function RoomContent({ roomId }: { roomId: string }) {
         <aside className="hidden min-[1100px]:flex min-[1100px]:flex-col w-[240px] shrink-0 glass-panel m-3 p-4 overflow-y-auto" style={{ color: "var(--text-lo)" }}>
           <MemberList members={displayedMembers} />
         </aside>
-
-        {/* Mobile accordion fallback — shown below 1024px */}
-        <div className="lg:hidden contents">
-          <details className="border-t">
-            <summary className="px-4 py-2 text-sm font-medium cursor-pointer">Rooms</summary>
-            <InboxList onAccepted={() => refreshMyRooms()} />
-            <RoomList rooms={displayedRooms} currentRoomId={roomId} onRoomCreated={refreshMyRooms} />
-          </details>
-          <details className="border-t">
-            <summary className="px-4 py-2 text-sm font-medium cursor-pointer">Members ({displayedMembers.length})</summary>
-            <MemberList members={displayedMembers} />
-          </details>
-        </div>
       </main>
+
+      {/* Mobile accordion fallback — shown below 1024px */}
+      <div className="lg:hidden contents">
+        <details className="border-t">
+          <summary className="px-4 py-2 text-sm font-medium cursor-pointer">Rooms</summary>
+          <InboxList onAccepted={() => refreshMyRooms()} />
+          <RoomList rooms={displayedRooms} currentRoomId={roomId} onRoomCreated={refreshMyRooms} />
+        </details>
+        <details className="border-t">
+          <summary className="px-4 py-2 text-sm font-medium cursor-pointer">Members ({displayedMembers.length})</summary>
+          <MemberList members={displayedMembers} />
+        </details>
+      </div>
     </div>
   );
 }

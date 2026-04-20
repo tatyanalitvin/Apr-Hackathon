@@ -66,13 +66,14 @@ function RoomsContent() {
           )}
         </aside>
         <section className="flex-1 flex flex-col min-w-0 relative">
+          <h1 className="sr-only">Your rooms</h1>
           <div className="flex h-full items-center justify-center">
             <p className="font-display italic text-2xl" style={{ color: "var(--text-lo)" }}>
               Pick a room to start reading.
             </p>
           </div>
         </section>
-        <aside className="hidden min-[1100px]:block w-[240px] shrink-0 m-3 p-4 overflow-y-auto" style={{ color: "var(--text-lo)" }}>
+        <aside className="hidden min-[1100px]:flex min-[1100px]:flex-col w-[240px] shrink-0 glass-panel m-3 p-4 overflow-y-auto" style={{ color: "var(--text-lo)" }}>
           {/* members panel — empty on the rooms index */}
         </aside>
       </main>
