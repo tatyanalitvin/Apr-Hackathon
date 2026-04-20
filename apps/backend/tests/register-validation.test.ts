@@ -99,3 +99,115 @@ describe("REQ-007 passwordConfirm mismatch rejected at zod guard", () => {
     expect(res.status).toBe(200);
   });
 });
+
+// REQ-006 — password policy: 12–128 byte length (zod shape) + top-10k
+// blocklist (backend preHandler). Length checks are satisfied by the
+// `.min(12)/.max(128)` on registerSchema; blocklist check is satisfied
+// by `passwordPolicyGuard` running AFTER `zodBodyGuard` and BEFORE
+// `proxyToBetterAuth` on the sign-up route. Error envelope matches
+// `zodBodyGuard` so clients handle all validation issues uniformly.
+describe("REQ-006 password policy", () => {
+  let app: FastifyInstance;
+
+  beforeAll(async () => {
+    app = await buildApp();
+    await app.ready();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  test("REQ-006 R1 — password shorter than 12 bytes → 400 password_too_short", async () => {
+    const res = await request(app.server)
+      .post("/api/auth/sign-up/email")
+      .send({
+        email: "req006-short@example.com",
+        username: "req006_short",
+        password: "short",
+        name: "Too Short",
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({ error: "validation" });
+    const onPw = (res.body.issues ?? []).find(
+      (i: { path: (string | number)[] }) => i.path.includes("password"),
+    );
+    expect(onPw).toBeDefined();
+    expect(onPw.message).toMatch(/password_too_short/i);
+  });
+
+  test("REQ-006 R2 — password longer than 128 bytes → 400 password_too_long", async () => {
+    const res = await request(app.server)
+      .post("/api/auth/sign-up/email")
+      .send({
+        email: "req006-long@example.com",
+        username: "req006_long",
+        password: "A1!".concat("x".repeat(200)),
+        name: "Too Long",
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({ error: "validation" });
+    const onPw = (res.body.issues ?? []).find(
+      (i: { path: (string | number)[] }) => i.path.includes("password"),
+    );
+    expect(onPw).toBeDefined();
+    expect(onPw.message).toMatch(/password_too_long/i);
+  });
+
+  test("REQ-006 R3 — blocklisted password (password1234) → 400 password_common", async () => {
+    const res = await request(app.server)
+      .post("/api/auth/sign-up/email")
+      .send({
+        email: "req006-common@example.com",
+        username: "req006_common",
+        password: "password1234",
+        name: "Common Password User",
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({ error: "validation" });
+    const onPw = (res.body.issues ?? []).find(
+      (i: { path: (string | number)[] }) => i.path.includes("password"),
+    );
+    expect(onPw).toBeDefined();
+    expect(onPw.message).toMatch(/password_common/i);
+  });
+
+  test("REQ-006 R3 (case variant) — Password1234 also → 400 password_common", async () => {
+    // Lowercase-match closes the trivial case-variant bypass. Without
+    // this the top-1 blocklist entry is undermined by a single shift
+    // key. See password-blocklist.ts for the rationale.
+    const res = await request(app.server)
+      .post("/api/auth/sign-up/email")
+      .send({
+        email: "req006-common-case@example.com",
+        username: "req006_common_case",
+        password: "Password1234",
+        name: "Common Password Case Variant",
+      });
+
+    expect(res.status).toBe(400);
+    const onPw = (res.body.issues ?? []).find(
+      (i: { path: (string | number)[] }) => i.path.includes("password"),
+    );
+    expect(onPw?.message).toMatch(/password_common/i);
+  });
+
+  test("REQ-006 R4 — cryptographically random 16-char password → 200", async () => {
+    // Literal picked for reproducibility. 16 chars, mixed
+    // alpha+digit+symbol, not on the Pwdb top-10k (verified at asset
+    // commit time in apps/backend/src/lib/password-blocklist.test.ts).
+    const res = await request(app.server)
+      .post("/api/auth/sign-up/email")
+      .send({
+        email: "req006-ok@example.com",
+        username: "req006_ok",
+        password: "p7K#vN2mQ!xLj$9W",
+        name: "Random Password User",
+      });
+
+    expect(res.status).toBe(200);
+  });
+});
