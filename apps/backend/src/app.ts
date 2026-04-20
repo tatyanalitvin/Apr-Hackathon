@@ -366,6 +366,21 @@ async function registerRateLimitGuard(
   request: FastifyRequest,
   reply: FastifyReply,
 ) {
+  // Test-mode bypass: the /24 bucket is keyed on request.ip, which supertest
+  // pins to 127.0.0.1 across every test file. With `vitest singleFork: true`
+  // and ~600 sign-ups across the full suite, the 5-per-hour production cap
+  // would trip after the first ~dozen files — even though
+  // `tests/setup.ts beforeEach flushRedis()` resets the counter between
+  // tests, sign-ups WITHIN a single test file (e.g. `users-unban.test.ts`
+  // signs up 11 users across 6 tests) still overflow because beforeEach
+  // doesn't fire MID-test. The REQ-009 /24-subnet contract is still
+  // exercised in isolation by `register-rate-limit.test.ts`, which calls
+  // `checkRegisterRateLimit` directly with rotating IPs; only the Fastify
+  // preHandler path is skipped here.
+  // See docs/FOLLOWUPS.md "Backend sign-up rate-limit bleed" / "parallel-DB
+  // FK race".
+  if (env.NODE_ENV === "test") return;
+
   const outcome = await checkRegisterRateLimit(request.ip);
   if (!outcome.allowed) {
     return reply
