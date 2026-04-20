@@ -18,6 +18,7 @@ import { applyAuthIssues } from "@/lib/auth-api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PasswordInput } from "@/components/ui/password-input";
 
 const changePasswordSchema = z
   .object({
@@ -127,9 +128,8 @@ function PasswordContent() {
           <form onSubmit={onSubmit} className="space-y-4" noValidate>
             <div className="space-y-2">
               <Label htmlFor="currentPassword">Current password</Label>
-              <Input
+              <PasswordInput
                 id="currentPassword"
-                type="password"
                 autoComplete="current-password"
                 aria-invalid={Boolean(form.formState.errors.currentPassword)}
                 aria-describedby={form.formState.errors.currentPassword ? "currentPassword-error" : undefined}
@@ -143,9 +143,8 @@ function PasswordContent() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="newPassword">New password</Label>
-              <Input
+              <PasswordInput
                 id="newPassword"
-                type="password"
                 autoComplete="new-password"
                 aria-invalid={Boolean(form.formState.errors.newPassword)}
                 aria-describedby={form.formState.errors.newPassword ? "newPassword-error" : undefined}
@@ -159,9 +158,8 @@ function PasswordContent() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="newPasswordConfirm">Confirm new password</Label>
-              <Input
+              <PasswordInput
                 id="newPasswordConfirm"
-                type="password"
                 autoComplete="new-password"
                 aria-invalid={Boolean(form.formState.errors.newPasswordConfirm)}
                 aria-describedby={form.formState.errors.newPasswordConfirm ? "newPasswordConfirm-error" : undefined}

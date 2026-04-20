@@ -13,6 +13,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { DmFrozenReason, DmListItem } from "@ai-herders/shared/protocol";
+import { Avatar } from "@/components/avatar/Avatar";
 import { Badge } from "@/components/ui/badge";
 import { UnreadBadge } from "@/components/chat/UnreadBadge";
 import { createChatSocket } from "@/lib/socket";
@@ -35,6 +36,11 @@ function frozenLabel(reason: DmFrozenReason | null): string {
 function DmRow({ dm, active }: { dm: DmListItem; active: boolean }) {
   const username = dm.other.deleted ? "(deleted user)" : `@${dm.other.username}`;
   const preview = dm.lastMessage?.body ?? "";
+  // Avatar hashes on userId; for a deleted counterpart we fall back to the
+  // roomId so the placeholder still colour-stabilises per conversation
+  // instead of flickering between renders.
+  const avatarId = dm.other.deleted ? dm.roomId : dm.other.userId;
+  const avatarName = dm.other.deleted ? "(deleted)" : dm.other.username;
   return (
     <Link
       href={`/rooms/${dm.roomId}`}
@@ -43,23 +49,29 @@ function DmRow({ dm, active }: { dm: DmListItem; active: boolean }) {
       }`}
     >
       <div className="flex items-center gap-2">
-        <span className="truncate">{username}</span>
-        {dm.frozen ? (
-          <Badge variant="secondary" className="text-[10px] font-normal">
-            {frozenLabel(dm.frozenReason)}
-          </Badge>
-        ) : null}
-        {/* REQ-214 — v3 §2.7.1/§4.4 unread badge. UnreadBadge itself returns
-            null when count <= 0, so rows at zero render no extra node. */}
-        <UnreadBadge
-          count={dm.unreadCount ?? 0}
-          current={active}
-          className="ml-auto"
-        />
+        <Avatar userId={avatarId} name={avatarName} size={28} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="truncate">{username}</span>
+            {dm.frozen ? (
+              <Badge variant="secondary" className="text-[10px] font-normal">
+                {frozenLabel(dm.frozenReason)}
+              </Badge>
+            ) : null}
+            {/* REQ-214 — v3 §2.7.1/§4.4 unread badge. UnreadBadge itself
+                returns null when count <= 0, so rows at zero render no extra
+                node. */}
+            <UnreadBadge
+              count={dm.unreadCount ?? 0}
+              current={active}
+              className="ml-auto"
+            />
+          </div>
+          {preview ? (
+            <div className="truncate text-xs text-muted-foreground">{preview}</div>
+          ) : null}
+        </div>
       </div>
-      {preview ? (
-        <div className="truncate text-xs text-muted-foreground">{preview}</div>
-      ) : null}
     </Link>
   );
 }

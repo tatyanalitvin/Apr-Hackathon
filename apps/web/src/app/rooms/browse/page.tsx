@@ -5,7 +5,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { LogIn, MessageSquare } from "lucide-react";
+import { Loader2, LogIn, MessageSquare } from "lucide-react";
 import { RequireSession } from "@/components/chat/RequireSession";
 import { Header } from "@/components/chat/Header";
 import { Button } from "@/components/ui/button";
@@ -133,11 +133,15 @@ function BrowseContent() {
             <BlossomEmptyState tagline="No public rooms yet. Ask someone to invite you." />
           )
         ) : (
-          <div className="catalog-stagger columns-1 gap-4 md:columns-2 xl:columns-3">
+          <div className="catalog-stagger grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
             {rooms.map((room) => (
               <article
                 key={room.id}
-                className="glass-panel mb-4 break-inside-avoid p-5 transition-all duration-200 hover:-translate-y-1 hover:rotate-[-0.5deg]"
+                // Flex column so the action button pins to the card bottom
+                // (mt-auto on the footer block). Without this, cards with
+                // no description had their CTA float up while cards with a
+                // description had it further down — uneven catalog rhythm.
+                className="glass-panel flex flex-col p-5 transition-all duration-200 hover:-translate-y-1 hover:rotate-[-0.5deg]"
               >
                 <h2 className="font-display text-2xl mb-1" style={{ color: "var(--text-hi)" }}>
                   #{room.name}
@@ -154,30 +158,38 @@ function BrowseContent() {
                 <p className="text-xs mb-3" style={{ color: "var(--text-lo)" }}>
                   {room.memberCount} member{room.memberCount === 1 ? "" : "s"}
                 </p>
-                {room.isMember ? (
-                  <Link href={`/rooms/${room.id}`}>
-                    <Button size="sm" variant="outline">
-                      <MessageSquare aria-hidden />
-                      Open
+                <div className="mt-auto">
+                  {room.isMember ? (
+                    <Link href={`/rooms/${room.id}`}>
+                      <Button size="sm" variant="outline">
+                        <MessageSquare aria-hidden />
+                        Open
+                      </Button>
+                    </Link>
+                  ) : (
+                    <Button
+                      size="sm"
+                      // UX — Join is the primary CTA in each row; promote to
+                      // the filled primary variant so it visually outranks
+                      // the neutral Open-on-already-joined rows elsewhere in
+                      // the catalog. P1-8 disabled treatment keeps the
+                      // button readable mid-request rather than fading to
+                      // 0.5. Spinner icon replaces the LogIn glyph during
+                      // the in-flight request so users get clearer progress.
+                      variant="default"
+                      onClick={() => void onJoin(room.id, room.name)}
+                      disabled={joining === room.id}
+                      className="disabled:bg-primary/70 disabled:opacity-100"
+                    >
+                      {joining === room.id ? (
+                        <Loader2 aria-hidden className="animate-spin" />
+                      ) : (
+                        <LogIn aria-hidden />
+                      )}
+                      {joining === room.id ? "Joining…" : "Join"}
                     </Button>
-                  </Link>
-                ) : (
-                  <Button
-                    size="sm"
-                    // UX — Join is the primary CTA in each row; promote to the
-                    // filled primary variant so it visually outranks the
-                    // neutral Open-on-already-joined rows elsewhere in the
-                    // catalog. P1-8 disabled treatment keeps the button
-                    // readable mid-request rather than fading to 0.5.
-                    variant="default"
-                    onClick={() => void onJoin(room.id, room.name)}
-                    disabled={joining === room.id}
-                    className="disabled:bg-primary/70 disabled:opacity-100"
-                  >
-                    <LogIn aria-hidden />
-                    {joining === room.id ? "Joining…" : "Join"}
-                  </Button>
-                )}
+                  )}
+                </div>
               </article>
             ))}
           </div>

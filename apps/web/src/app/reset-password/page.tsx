@@ -5,6 +5,7 @@
 "use client";
 
 import { Suspense } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -20,6 +21,7 @@ import { AuthSplitLayout } from "@/components/auth/AuthSplitLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PasswordInput } from "@/components/ui/password-input";
 
 const schema = z
   .object({
@@ -111,18 +113,17 @@ function ResetPasswordForm() {
             This reset link is missing its token.
           </p>
           <p className="text-sm">
-            <a className="underline" href="/forgot-password">
+            <Link className="underline" href="/forgot-password">
               Request a new reset link
-            </a>
+            </Link>
           </p>
         </div>
       ) : (
         <form onSubmit={onSubmit} className="space-y-4" noValidate>
           <div className="input-glow space-y-2">
             <Label htmlFor="password">New password</Label>
-            <Input
+            <PasswordInput
               id="password"
-              type="password"
               autoComplete="new-password"
               className="dark:border-[rgba(196,181,253,0.22)]"
               {...form.register("password")}
@@ -138,9 +139,8 @@ function ResetPasswordForm() {
           </div>
           <div className="input-glow space-y-2">
             <Label htmlFor="passwordConfirm">Confirm new password</Label>
-            <Input
+            <PasswordInput
               id="passwordConfirm"
-              type="password"
               autoComplete="new-password"
               className="dark:border-[rgba(196,181,253,0.22)]"
               {...form.register("passwordConfirm")}
@@ -157,9 +157,9 @@ function ResetPasswordForm() {
                 {form.formState.errors.root.message}
               </p>
               <p className="text-sm">
-                <a className="underline" href="/forgot-password">
+                <Link className="underline" href="/forgot-password">
                   Request a new reset link
-                </a>
+                </Link>
               </p>
             </div>
           )}

@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PasswordInput } from "@/components/ui/password-input";
 
 function describeAuthError(status: number | undefined): string {
   if (status === 429) return "Too many attempts, wait a minute";
@@ -102,9 +103,8 @@ function LoginForm() {
         </div>
         <div className="input-glow space-y-2">
           <Label htmlFor="password">Password</Label>
-          <Input
+          <PasswordInput
             id="password"
-            type="password"
             autoComplete="current-password"
             aria-invalid={Boolean(form.formState.errors.password)}
             aria-describedby={form.formState.errors.password ? "password-error" : undefined}

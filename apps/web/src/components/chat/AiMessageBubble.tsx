@@ -23,6 +23,16 @@ export function AiMessageBubble({ message }: Props) {
             {message.authorName}
           </span>
           <span className="text-[11px]" style={{ color: "var(--accent)" }}>✦ AI</span>
+          {isStreaming && (
+            <span
+              className="ai-thinking-pill text-[11px]"
+              role="status"
+              aria-live="polite"
+              aria-label={`${message.authorName} is thinking`}
+            >
+              thinking<span className="ai-thinking-dots" aria-hidden="true" />
+            </span>
+          )}
           <time className="ml-auto text-[11px]" style={{ color: "var(--text-lo)" }}>
             {new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
           </time>
