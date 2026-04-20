@@ -25,16 +25,33 @@ interface IncomingTabProps {
 }
 
 export function IncomingRequestsTab({ requests, loading, onMutate }: IncomingTabProps) {
+  // Optimistic-removal set. Rows whose ids are in here render dimmed + inert
+  // while the mutation is in flight. On success the row disappears when the
+  // parent refetches `requests`; on error we clear the id so the row revives.
+  const [removingIds, setRemovingIds] = useState<Set<string>>(new Set());
   if (loading && requests.length === 0) {
     return <div className="py-8 text-sm text-muted-foreground">Loading requests…</div>;
   }
   if (requests.length === 0) {
     return <BlossomEmptyState tagline="No incoming requests." />;
   }
+  const markRemoving = (id: string, flag: boolean) =>
+    setRemovingIds((prev) => {
+      const next = new Set(prev);
+      if (flag) next.add(id);
+      else next.delete(id);
+      return next;
+    });
   return (
     <ul className="flex flex-col gap-2" aria-label="Incoming friend requests">
       {requests.map((r) => (
-        <IncomingRow key={r.id} request={r} onMutate={onMutate} />
+        <IncomingRow
+          key={r.id}
+          request={r}
+          onMutate={onMutate}
+          isRemoving={removingIds.has(r.id)}
+          markRemoving={markRemoving}
+        />
       ))}
     </ul>
   );
@@ -43,9 +60,13 @@ export function IncomingRequestsTab({ requests, loading, onMutate }: IncomingTab
 function IncomingRow({
   request,
   onMutate,
+  isRemoving,
+  markRemoving,
 }: {
   request: IncomingFriendRequest;
   onMutate: () => void;
+  isRemoving: boolean;
+  markRemoving: (id: string, flag: boolean) => void;
 }) {
   const [busy, setBusy] = useState<"accept" | "decline" | "block" | null>(null);
 
@@ -53,6 +74,11 @@ function IncomingRow({
     action: "accept" | "decline" | "block",
   ): Promise<void> => {
     setBusy(action);
+    // Optimistic removal — flip the row to the "removing" state immediately
+    // so the user sees feedback before the network call returns. Parent's
+    // onMutate() refetch on success will drop the row from `requests`, so the
+    // removing set is implicitly cleared on re-render. On error we revert.
+    markRemoving(request.id, true);
     const r =
       action === "accept"
         ? await acceptFriendRequest(request.id)
@@ -79,6 +105,7 @@ function IncomingRow({
       toast.info("Request is no longer available — refreshing.");
       onMutate();
     } else {
+      markRemoving(request.id, false);
       toast.error("Couldn't complete — try again.");
     }
   };
