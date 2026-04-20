@@ -8,10 +8,18 @@
 // — the same hook that drives the PresencePill color dot.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import type { MemberListItem } from "./MemberList";
 import { MemberList } from "./MemberList";
 import { presenceStore } from "@/lib/presence-store";
+
+// Round-3 — Offline group is collapsed by default (see DEFAULT_COLLAPSED in
+// MemberList.tsx) because large rooms are dominated by offline members.
+// Tests that need offline rows rendered expand the bucket by clicking its
+// group header, which is exactly what a user does.
+function expandOfflineGroup() {
+  fireEvent.click(screen.getByRole("button", { name: /Offline/i }));
+}
 
 // useSession() → current-user id; irrelevant here beyond "not any of the
 // test ids" so Add-friend renders. Returning a stable id keeps the tree.
@@ -81,6 +89,7 @@ describe("REQ-215 MemberList presence affordance (dot + group header)", () => {
     });
 
     render(<MemberList members={MEMBERS} />);
+    expandOfflineGroup();
 
     // Previously the roster rendered "(AFK)" / "(offline)" beside the name.
     // Those are dropped in favour of the group header + pill colour dot.
@@ -107,6 +116,7 @@ describe("REQ-215 MemberList presence affordance (dot + group header)", () => {
     });
 
     render(<MemberList members={MEMBERS} />);
+    expandOfflineGroup();
 
     // Screen readers still get the presence state via the pill's aria-label.
     expect(screen.getAllByLabelText("online")).toHaveLength(1);
@@ -134,5 +144,47 @@ describe("REQ-215 MemberList presence affordance (dot + group header)", () => {
     expect(screen.getByText("Online")).toBeInTheDocument();
     expect(screen.getByText("Away")).toBeInTheDocument();
     expect(screen.getByText("Offline")).toBeInTheDocument();
+  });
+
+  it("Round-3: Offline group is collapsed by default; clicking toggles rows", () => {
+    presenceStore.apply({
+      type: "presence.changed",
+      userId: "u-online",
+      state: "online",
+      updatedAt: new Date().toISOString(),
+    });
+
+    render(<MemberList members={MEMBERS} />);
+
+    const offlineHeader = screen.getByRole("button", { name: /Offline/i });
+
+    // Default: Offline is collapsed → aria-expanded=false, no offline row rendered.
+    expect(offlineHeader).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("Offline User")).not.toBeInTheDocument();
+
+    // Click to expand → row now renders; header flips to expanded.
+    fireEvent.click(offlineHeader);
+    expect(offlineHeader).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("Offline User")).toBeInTheDocument();
+
+    // Click again to collapse → row removed again.
+    fireEvent.click(offlineHeader);
+    expect(offlineHeader).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("Offline User")).not.toBeInTheDocument();
+  });
+
+  it("Round-3: Online group is expanded by default", () => {
+    presenceStore.apply({
+      type: "presence.changed",
+      userId: "u-online",
+      state: "online",
+      updatedAt: new Date().toISOString(),
+    });
+
+    render(<MemberList members={MEMBERS} />);
+
+    const onlineHeader = screen.getByRole("button", { name: /Online/i });
+    expect(onlineHeader).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("Online User")).toBeInTheDocument();
   });
 });

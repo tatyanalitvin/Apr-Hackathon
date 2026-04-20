@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { ChevronRight } from "lucide-react";
 import type { UserPresenceState } from "@ai-herders/shared/protocol";
 import { Avatar } from "@/components/avatar/Avatar";
 import { Button } from "@/components/ui/button";
@@ -35,6 +36,17 @@ const PRESENCE_DOT: Record<UserPresenceState, string> = {
   online: "bg-green-500",
   away: "bg-amber-400",
   offline: "bg-muted-foreground/40",
+};
+
+// Default collapsed state — Offline often dominates large rooms (e.g. 2,834
+// of 2,969 in seeded #general). Collapsing it by default keeps the roster
+// focused on the people the user can actually message now, and the header
+// still surfaces the count so the hidden pool is discoverable. Online/Away
+// default expanded because their membership is the point of looking here.
+const DEFAULT_COLLAPSED: Record<UserPresenceState, boolean> = {
+  online: false,
+  away: false,
+  offline: true,
 };
 
 export interface MemberListItem {
@@ -140,17 +152,35 @@ function MemberRow({
 function GroupHeader({
   state,
   count,
+  collapsed,
+  onToggle,
+  panelId,
 }: {
   state: UserPresenceState;
   count: number;
+  collapsed: boolean;
+  onToggle: () => void;
+  panelId: string;
 }) {
   return (
-    <li aria-hidden className="list-none">
-      <div className="member-group-header" role="presentation">
+    <li className="list-none">
+      <button
+        type="button"
+        className="member-group-header"
+        aria-expanded={!collapsed}
+        aria-controls={panelId}
+        onClick={onToggle}
+      >
+        <ChevronRight
+          className={`chevron h-3 w-3 transition-transform duration-200 ${
+            collapsed ? "" : "rotate-90"
+          }`}
+          aria-hidden
+        />
         <span className={`dot ${PRESENCE_DOT[state]}`} />
         <span>{PRESENCE_LABEL[state]}</span>
         <span className="count">· {count}</span>
-      </div>
+      </button>
     </li>
   );
 }
@@ -176,6 +206,11 @@ export function MemberList({
   const { data } = useSession();
   const currentUserId = data?.user?.id;
   const [windowSize, setWindowSize] = useState(INITIAL_WINDOW);
+  const [collapsed, setCollapsed] =
+    useState<Record<UserPresenceState, boolean>>(DEFAULT_COLLAPSED);
+
+  const toggleGroup = (s: UserPresenceState) =>
+    setCollapsed((prev) => ({ ...prev, [s]: !prev[s] }));
 
   // Subscribe to presence for every id in the roster. PERF-01 concern
   // notwithstanding, subscriptions are cheap maps — the render of rows is
@@ -183,27 +218,6 @@ export function MemberList({
   // so online members rise to the top of the displayed window.
   const allIds = useMemo(() => members.map((m) => m.id), [members]);
   const presenceMap = useVisiblePresenceMap(allIds);
-
-  // Sort by presence priority, keeping ties stable by original order.
-  const sorted = useMemo(() => {
-    const effectiveState = (m: MemberListItem): UserPresenceState => {
-      if (currentUserId === m.id && selfPresence) return selfPresence;
-      return presenceMap[m.id] ?? "offline";
-    };
-    return [...members]
-      .map((m, i) => ({ m, i, s: effectiveState(m) }))
-      .sort((a, b) => {
-        const d = PRESENCE_ORDER[a.s] - PRESENCE_ORDER[b.s];
-        return d !== 0 ? d : a.i - b.i;
-      })
-      .map((x) => x.m);
-  }, [members, presenceMap, selfPresence, currentUserId]);
-
-  const visible = useMemo(
-    () => (sorted.length <= INITIAL_WINDOW ? sorted : sorted.slice(0, windowSize)),
-    [sorted, windowSize],
-  );
-  const remaining = Math.max(0, sorted.length - visible.length);
 
   // Section counts from the FULL roster, not just the window — users want
   // to know there are 2,834 offline members even when only 50 are rendered.
@@ -223,27 +237,66 @@ export function MemberList({
     return counts;
   }, [members, presenceMap, selfPresence, currentUserId]);
 
-  // Walk the visible slice and drop group markers on state transitions so
-  // headers only appear for states that have at least one visible row.
-  const rendered = useMemo(() => {
-    const nodes: Array<
-      | { kind: "header"; state: UserPresenceState }
-      | { kind: "row"; member: MemberListItem }
-    > = [];
-    let last: UserPresenceState | null = null;
-    for (const m of visible) {
+  // Partition members into buckets. Stable order within each bucket
+  // (original array order) so the list doesn't jitter when presence flips.
+  const buckets = useMemo(() => {
+    const out: Record<UserPresenceState, MemberListItem[]> = {
+      online: [],
+      away: [],
+      offline: [],
+    };
+    for (const m of members) {
       const s =
         currentUserId === m.id && selfPresence
           ? selfPresence
           : presenceMap[m.id] ?? "offline";
-      if (s !== last) {
-        nodes.push({ kind: "header", state: s });
-        last = s;
-      }
-      nodes.push({ kind: "row", member: m });
+      out[s].push(m);
     }
-    return nodes;
-  }, [visible, presenceMap, selfPresence, currentUserId]);
+    return out;
+  }, [members, presenceMap, selfPresence, currentUserId]);
+
+  // Build the flat visible list by walking buckets in priority order,
+  // skipping collapsed ones, and honouring the PERF-01 window across the
+  // combined expanded pool. Headers for collapsed groups still render
+  // (they're cheap and essential for discoverability), but their rows
+  // aren't emitted — so a collapsed 2,834-offline bucket costs one header
+  // and zero rows.
+  const { nodes, remaining } = useMemo(() => {
+    const orderedStates: UserPresenceState[] = ["online", "away", "offline"];
+    const flatExpanded: Array<{ state: UserPresenceState; member: MemberListItem }> =
+      [];
+    for (const s of orderedStates) {
+      if (collapsed[s]) continue;
+      for (const m of buckets[s]) flatExpanded.push({ state: s, member: m });
+    }
+    const visible =
+      flatExpanded.length <= INITIAL_WINDOW
+        ? flatExpanded
+        : flatExpanded.slice(0, windowSize);
+
+    // Which states have at least one row in the visible slice?
+    const visibleStates = new Set<UserPresenceState>();
+    for (const v of visible) visibleStates.add(v.state);
+
+    // Emit header for every non-empty bucket (collapsed OR expanded) so
+    // users can always click to reveal. Expanded-but-empty buckets are
+    // skipped so we don't render headers for presence states that have
+    // no members at all.
+    const n: Array<
+      | { kind: "header"; state: UserPresenceState }
+      | { kind: "row"; member: MemberListItem }
+    > = [];
+    for (const s of orderedStates) {
+      if (totalCounts[s] === 0) continue;
+      n.push({ kind: "header", state: s });
+      if (collapsed[s]) continue;
+      for (const v of visible) {
+        if (v.state !== s) continue;
+        n.push({ kind: "row", member: v.member });
+      }
+    }
+    return { nodes: n, remaining: Math.max(0, flatExpanded.length - visible.length) };
+  }, [buckets, collapsed, totalCounts, windowSize]);
 
   return (
     <aside className="h-full overflow-auto p-3" aria-label="Members">
@@ -251,12 +304,15 @@ export function MemberList({
         Members · {members.length}
       </div>
       <ul className="room-list-stagger space-y-1">
-        {rendered.map((node, idx) =>
+        {nodes.map((node, idx) =>
           node.kind === "header" ? (
             <GroupHeader
-              key={`h-${node.state}-${idx}`}
+              key={`h-${node.state}`}
               state={node.state}
               count={totalCounts[node.state]}
+              collapsed={collapsed[node.state]}
+              onToggle={() => toggleGroup(node.state)}
+              panelId={`member-group-${node.state}`}
             />
           ) : (
             <MemberRow
