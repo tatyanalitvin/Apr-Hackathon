@@ -25,7 +25,7 @@ export function AuthSplitLayout({ headline, tagline, children }: AuthSplitLayout
           ) : null}
         </div>
         <div className="absolute bottom-6 left-6 z-10">
-          <ThemeToggle />
+          <ThemeToggle size="default" />
         </div>
       </section>
       <section className="flex flex-1 items-center justify-center px-6 py-12 md:py-0">
