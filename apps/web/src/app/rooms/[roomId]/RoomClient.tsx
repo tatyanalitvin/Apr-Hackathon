@@ -365,17 +365,15 @@ function RoomContent({ roomId }: { roomId: string }) {
     // drops the room subscription on disconnect — any `message.new` fired
     // while we were offline is gone. Re-emit `room.subscribe` to rejoin the
     // fanout room, then let the watermark backfill the gap by feeding
-    // the returned head seq through primeFromAck and fetching history for
-    // any seqs we missed (lastSeen+1 .. newHead). Mirrors InboxList + Contacts.
+    // each recovered message through ingest() so lastSeenSeq advances per
+    // message and live events arriving mid-reconnect serialize behind the
+    // backfill via the watermark's busy queue — emitting directly would
+    // leave lastSeenSeq stale and race concurrent gap-detection.
     const onReconnect = () => {
       socket.emit("room.subscribe", roomId, (ack) => {
         const head = BigInt(ack.roomHeadSeq);
         const lastSeen = watermarkRef.current.getLastSeenSeq();
         if (head > lastSeen) {
-          // Use the same gap-fill path as a live message.new arriving at the
-          // current head — fetchHistory covers lastSeen+1..head, emit patches
-          // the list, and primeFromAck advances the watermark if the slice
-          // came back empty.
           void (async () => {
             const fromSeq = lastSeen + 1n;
             try {
@@ -385,7 +383,15 @@ function RoomContent({ roomId }: { roomId: string }) {
                 const bv = BigInt(b.seq);
                 return av < bv ? -1 : av > bv ? 1 : 0;
               });
-              for (const m of sorted) emit(m);
+              for (const m of sorted) {
+                await watermarkRef.current.ingest({
+                  type: "message.new",
+                  roomId,
+                  seq: m.seq,
+                  roomHeadSeq: ack.roomHeadSeq,
+                  message: m,
+                });
+              }
             } finally {
               watermarkRef.current.primeFromAck(ack.roomHeadSeq);
             }
