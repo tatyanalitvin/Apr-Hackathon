@@ -151,6 +151,88 @@ describe("REQ-UserSearch §2.4 ranking + self + soft-delete", () => {
     expect(ids).not.toContain(me.userId);
   });
 
+  test("REQ-UserSearch §2.4 R4 — exact-username match is case-insensitive (rank 0 beats rank 1)", async () => {
+    // Regression: the CASE arm `WHEN u.username = q` used Postgres default
+    // (case-sensitive) collation, so a mixed-case query missed rank 0
+    // and fell through to the ILIKE-prefix arm (rank 2). The target hit
+    // still appeared but the "exact wins" intent broke whenever another
+    // hit sat in a cheaper rank (e.g. a user whose exact NAME matches
+    // lands rank 1 and wrongly outranks the true username-exact hit).
+    // Fix: compare case-insensitively (lower(username) = lower(q)).
+    const me = await registerAgent(app, "usrch-ci-me@example.com", "usrch_ci_me");
+
+    // Target: exact-username hit (stored lowercase 'usrch_ci_alice').
+    // Query uses upper-case so the case-sensitive `=` branch MISSES.
+    await registerAgent(
+      app,
+      "usrch-ci-alice@example.com",
+      "usrch_ci_alice",
+      "Alpha Example",
+    );
+    // Decoy: exact-NAME hit — stored name equals the query verbatim.
+    // Pre-fix: decoy lands rank 1 (name = q); target falls to rank 2
+    // (username ILIKE q||'%'). Decoy wrongly sorts first.
+    // Post-fix: target lands rank 0; decoy stays at rank 1. Target wins.
+    await registerAgent(
+      app,
+      "usrch-ci-decoy@example.com",
+      "zz_ci_decoy",
+      "USRCH_CI_ALICE",
+    );
+
+    const res = await me.agent.get("/api/v1/users?q=USRCH_CI_ALICE");
+    expect(res.status).toBe(200);
+    const usernames = (res.body.users as Array<{ username: string }>)
+      .map((u) => u.username);
+    // Exact-username hit must rank first even though the query case does
+    // not match the stored username case.
+    expect(usernames[0]).toBe("usrch_ci_alice");
+
+    // Upper-case and lower-case queries must produce the same ordering.
+    const resLower = await me.agent.get("/api/v1/users?q=usrch_ci_alice");
+    const lowerUsernames = (resLower.body.users as Array<{ username: string }>)
+      .map((u) => u.username);
+    expect(lowerUsernames[0]).toBe("usrch_ci_alice");
+    expect(lowerUsernames).toEqual(usernames);
+  });
+
+  test("REQ-UserSearch §2.4 R5 — exact-name match is case-insensitive (rank 1 beats rank 3)", async () => {
+    // Same regression as R4 but on the `name` arm. A query with case that
+    // doesn't match the stored `name` value misses rank 1 and falls to
+    // rank 3 (name ILIKE q||'%'). A second hit with a NAME prefix but
+    // without exact equality would wrongly tie at rank 3 and sort ahead
+    // of the intended exact-name hit on the alphabetical tiebreak.
+    const me = await registerAgent(app, "usrch-cin-me@example.com", "usrch_cin_me");
+
+    // Target: exact-name hit. Username is disjoint so the username arms
+    // don't fire at all; ranking is driven entirely by the name arms.
+    await registerAgent(
+      app,
+      "usrch-cin-exact@example.com",
+      "zz_cin_exact",
+      "Bob Exact",
+    );
+    // Decoy: name prefix-match — stored name 'Bob Exact Plus' satisfies
+    // ILIKE 'Bob Exact%' (rank 3). Username 'aa_cin_pfx' sorts BEFORE
+    // 'zz_cin_exact' so pre-fix, when both rows tie at rank 3 (because
+    // the case-sensitive `=` on the target's name misses), the tiebreak
+    // (username ASC) orders decoy first — and the test catches that.
+    await registerAgent(
+      app,
+      "usrch-cin-pfx@example.com",
+      "aa_cin_pfx",
+      "Bob Exact Plus",
+    );
+
+    // Mixed-case query. Pre-fix: target misses rank 1, lands rank 3
+    // alongside decoy; tiebreak on username → decoy 'aa_cin_pfx' first.
+    // Post-fix: target lands rank 1; decoy stays rank 3 → target first.
+    const res = await me.agent.get("/api/v1/users?q=BOB%20EXACT");
+    expect(res.status).toBe(200);
+    const names = (res.body.users as Array<{ name: string }>).map((u) => u.name);
+    expect(names[0]).toBe("Bob Exact");
+  });
+
   test("REQ-UserSearch §2.4 R10 — soft-deleted users never appear", async () => {
     const me = await registerAgent(app, "usrch-sd-me@example.com", "sd_me");
     const ghost = await registerAgent(app, "usrch-sd-ghost@example.com", "sd_ghost");
