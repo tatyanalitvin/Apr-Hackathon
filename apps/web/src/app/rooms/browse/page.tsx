@@ -56,22 +56,43 @@ function BrowseContent() {
   }, [loadCatalog]);
 
   const onJoin = useCallback(
-    async (roomId: string) => {
+    async (roomId: string, roomName: string) => {
       setJoining(roomId);
       setError(null);
       const r = await apiRef.joinRoom(roomId);
       setJoining(null);
       if (r.ok) {
+        // Mirror InboxList.tsx:103 parity — a success toast confirms the
+        // join completed before the redirect unmounts the catalog row.
+        toast.success(`Joined #${roomName}.`);
         router.push(`/rooms/${roomId}`);
         return;
       }
-      // REQ-028 — room reached its 1000-member cap. Surface via toast so the
-      // inline error area stays clean for catalog-level failures.
-      if (r.error.code === "room_full") {
-        toast.error(`This room is full (cap ${r.error.cap}). Ask the owner to make space.`);
-        return;
+      // Map the specific join-error codes to dedicated user-facing copy.
+      // Anything we don't recognise falls through to the generic inline
+      // error below, preserving the previous behaviour for network/unknown.
+      switch (r.error.code) {
+        case "banned_from_room":
+          toast.error("You're banned from this room.");
+          return;
+        case "room_not_joinable":
+          toast.error("This room isn't joinable.");
+          return;
+        case "room_full":
+          toast.error("This room is full.");
+          return;
+        case "rate_limited":
+          toast.error("Slow down — try again in a moment.");
+          return;
+        case "unauthorized":
+          toast.error("Please sign in again.");
+          return;
+        case "network":
+          setError(r.error.message);
+          return;
+        default:
+          setError("Join failed — try again.");
       }
-      setError(r.error.code === "network" ? r.error.message : "Join failed");
     },
     [apiRef, router],
   );
@@ -143,9 +164,15 @@ function BrowseContent() {
                 ) : (
                   <Button
                     size="sm"
-                    variant="outline"
-                    onClick={() => void onJoin(room.id)}
+                    // UX — Join is the primary CTA in each row; promote to the
+                    // filled primary variant so it visually outranks the
+                    // neutral Open-on-already-joined rows elsewhere in the
+                    // catalog. P1-8 disabled treatment keeps the button
+                    // readable mid-request rather than fading to 0.5.
+                    variant="default"
+                    onClick={() => void onJoin(room.id, room.name)}
                     disabled={joining === room.id}
+                    className="disabled:bg-primary/70 disabled:opacity-100"
                   >
                     <LogIn aria-hidden />
                     {joining === room.id ? "Joining…" : "Join"}

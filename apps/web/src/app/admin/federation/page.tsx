@@ -155,7 +155,12 @@ export default function FederationAdminPage() {
               </div>
               <div>
                 <dt className="text-muted-foreground">Last handshake</dt>
-                <dd className="mt-1 text-2xl font-semibold text-foreground">never</dd>
+                {/* Absence ≠ a loud zero. The inbound/outbound 0 counters
+                    intentionally keep text-2xl font-semibold because they're
+                    real numeric metrics; "never" is the lack of any event, so
+                    demote it to a muted text-lg so it reads as absence at a
+                    glance. */}
+                <dd className="mt-1 text-lg text-muted-foreground">never</dd>
               </div>
             </dl>
             <p className="mt-3 text-xs text-muted-foreground">

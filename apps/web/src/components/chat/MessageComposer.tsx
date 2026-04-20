@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { EmojiPickerButton } from "@/components/emoji/EmojiPickerButton";
@@ -169,7 +170,12 @@ export function MessageComposer({
       for (const file of files) {
         const reason = validateFile(file);
         if (reason) {
+          // Surface both the inline alert (accessible via role="alert"
+          // inside the composer) and a toast — the toast catches users
+          // who dropped a too-large file but have scrolled the page such
+          // that the composer's inline error sits below the fold.
           setUploadError(`${file.name}: ${reason}`);
+          toast.error(`${file.name}: ${reason}`);
           continue;
         }
         newPending.push({
@@ -265,6 +271,7 @@ export function MessageComposer({
         ? "📎"
         : currentTrimmed
       ).normalize("NFC");
+      let sendOk = false;
       try {
         // REQ-133 R12 — replyToId flows through as the 3rd positional arg.
         // Non-reply sends pass `undefined`, preserving the S1 2-arg signature
@@ -275,29 +282,40 @@ export function MessageComposer({
         } else {
           await onSend(body, undefined, replyToId);
         }
+        sendOk = true;
       } catch {
-        // Parent owns error surfacing; keep draft intact so user can retry.
-        return;
+        // Parent owns error surfacing (RoomClient.handleSend toasts 429 /
+        // 413 / frozen-dialog / generic). Leave the body, attachments,
+        // reply chip, and persisted draft intact so the user can retry
+        // without retyping. `sendOk` stays false and the post-try clears
+        // below are skipped.
       }
-      // Conditional clear: if the user has typed MORE text since we captured
-      // `currentValue`, leave the ref alone so the next send() can pick it up.
-      // Without this, rapid-burst onSend resolves can wipe an already-typed
-      // message before its Enter keydown runs, silently dropping it.
-      if (latestValueRef.current === currentValue) latestValueRef.current = "";
-      setValue("");
-      setPending([]);
-      setComment("");
-      setUploadError(null);
-      clearDraft(userId, roomId);
-      // Clear the reply target after a successful send. Parent owns state,
-      // so ask it to drop the chip — `onClearReply` is optional because
-      // legacy composer callers don't supply reply props at all.
-      if (replyTo && onClearReply) onClearReply();
+      // State-reset runs ONLY on success. On error, every field below is
+      // preserved — this is what lets rate_limited / 4xx / network failures
+      // leave the composer usable for a retry.
+      if (sendOk) {
+        // Conditional clear: if the user has typed MORE text since we captured
+        // `currentValue`, leave the ref alone so the next send() can pick it up.
+        // Without this, rapid-burst onSend resolves can wipe an already-typed
+        // message before its Enter keydown runs, silently dropping it.
+        if (latestValueRef.current === currentValue) latestValueRef.current = "";
+        setValue("");
+        setPending([]);
+        setComment("");
+        setUploadError(null);
+        clearDraft(userId, roomId);
+        // Clear the reply target after a successful send. Parent owns state,
+        // so ask it to drop the chip — `onClearReply` is optional because
+        // legacy composer callers don't supply reply props at all.
+        if (replyTo && onClearReply) onClearReply();
+      }
     } finally {
       // Drain any messages that the user queued by pressing Enter while
       // this send was in flight. If any one fails, RoomClient's existing
-      // catch surfaces a toast (429 etc.) — we swallow here so one bad
-      // message doesn't block the rest of the queue.
+      // catch surfaces a toast (429 etc.). We also restore the failed
+      // body back into the composer so the draft isn't lost — the queue
+      // path cleared state optimistically (so the user could keep typing),
+      // but that's only safe when the send actually succeeds.
       while (queueRef.current.length > 0) {
         const next = queueRef.current.shift();
         if (!next) break;
@@ -308,7 +326,13 @@ export function MessageComposer({
             await onSend(next.body, undefined, next.replyToId);
           }
         } catch {
-          /* surfaced by parent via toast */
+          // Parent already toasted (see RoomClient.handleSend). Restore
+          // the failed body into the composer only when the user hasn't
+          // typed something newer — don't clobber fresh keystrokes.
+          if (latestValueRef.current.length === 0) {
+            latestValueRef.current = next.body;
+            setValue(next.body);
+          }
         }
       }
       sendingRef.current = false;
@@ -429,7 +453,20 @@ export function MessageComposer({
                   : "bg-muted/40"
               }`}
             >
-              {p.status === "uploading" ? <span aria-hidden className="animate-pulse">…</span> : null}
+              {p.status === "uploading" ? (
+                // TODO(hackathon): real byte-level progress requires swapping
+                // the fetch-based uploadAttachment in chat-api.ts for an
+                // XHR (or fetch-with-ReadableStream) path that emits
+                // progress events. The current fetch() API has no
+                // bytesLoaded hook, so we surface an animated spinner to
+                // distinguish "in flight" from the static "…" placeholder.
+                <span
+                  role="status"
+                  aria-label="Uploading"
+                  data-testid="upload-spinner"
+                  className="inline-block h-3 w-3 animate-spin rounded-full border-[1.5px] border-current border-t-transparent"
+                />
+              ) : null}
               {p.status === "uploaded" ? <span aria-hidden>✓</span> : null}
               {p.status === "error" ? <span aria-hidden>⚠</span> : null}
               <span className="max-w-[12rem] truncate">{p.file.name}</span>
