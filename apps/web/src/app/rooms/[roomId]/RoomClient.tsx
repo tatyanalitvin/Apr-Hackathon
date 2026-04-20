@@ -871,12 +871,26 @@ function RoomContent({ roomId }: { roomId: string }) {
             onReply={handleReply}
           />
           <ChatComposer>
+            {dmFrozenReason ? (
+              <div
+                role="status"
+                aria-live="polite"
+                className="mb-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+              >
+                {dmFrozenReason === "blocked"
+                  ? "You can't send messages — this conversation is blocked."
+                  : dmFrozenReason === "user_deleted"
+                    ? "This user deleted their account. You can't send new messages."
+                    : "You can't send messages — you and this user are no longer friends."}
+              </div>
+            ) : null}
             <MessageComposer
               userId={userId}
               roomId={roomId}
               roomName={currentRoom?.name ?? roomId}
               onSend={handleSend}
               onUpload={handleUpload}
+              disabled={dmFrozenReason !== null}
               replyTo={replyTo}
               onClearReply={handleClearReply}
             />
