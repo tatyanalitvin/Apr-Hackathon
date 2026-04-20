@@ -45,15 +45,20 @@ async function searchUsers(
 ): Promise<UserSearchRow[]> {
   // Escape ILIKE metacharacters so user-supplied `%` and `_` are literal.
   // Postgres ILIKE uses `\` as the default escape character, so we prefix
-  // each `\`, `%`, `_` with `\`. Keep `q` unescaped for exact `=` arms.
+  // each `\`, `%`, `_` with `\`. Keep `q` unescaped for the exact `=`
+  // arms (they use `lower(q)` — no wildcards in play).
   const escaped = q.replace(/[\\%_]/g, "\\$&");
 
   // Ranking SQL — CASE expression drives ORDER BY. Tiebreak is username ASC.
-  // Exact-match arms use `q` (no wildcards needed).
+  // Exact-match arms compare case-insensitively via lower(...) = lower(...)
+  // so a query like `Alice` against stored username `alice` still ranks 0
+  // instead of falling through to the prefix arm (rank 2). This mirrors
+  // the case-insensitive semantics of the ILIKE arms — the exact vs. prefix
+  // vs. substring distinction is about wildcard shape, not casing.
   // Prefix/substring arms use `escaped` so metacharacters are literal.
   const rankExpr = sql<number>`CASE
-    WHEN ${user.username} = ${q} THEN 0
-    WHEN ${user.name}     = ${q} THEN 1
+    WHEN lower(${user.username}) = lower(${q}) THEN 0
+    WHEN lower(${user.name})     = lower(${q}) THEN 1
     WHEN ${user.username} ILIKE ${escaped + "%"} THEN 2
     WHEN ${user.name}     ILIKE ${escaped + "%"} THEN 3
     WHEN ${user.username} ILIKE ${"%" + escaped + "%"} THEN 4
