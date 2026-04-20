@@ -23,6 +23,11 @@
 //   SLO_MS              default 3000      (p95 budget, v3 §3.2)
 //   MIN_DELIVERY_RATE   default 0.99      (fraction of expected receipts)
 //   SEND_STAGGER_MS     default 100       (gap between sends within a round)
+//
+// Sign-ups send `X-Forwarded-For: 10.<(i>>8)&255>.<i&255>.2` per client so the
+// §REQ-009 /24-subnet sign-up cap (5/hour) doesn't trip — each client lands in
+// its own /24 bucket. The backend has `trustProxy: true`, so the spoofed
+// header wins. Remove or override by setting FORWARDED_FOR_BASE="".
 
 import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -44,8 +49,22 @@ const RUN_TAG = envStr("RUN_TAG", randomUUID().slice(0, 8));
 const SLO_MS = envInt("SLO_MS", 3000);
 const MIN_DELIVERY_RATE = envNum("MIN_DELIVERY_RATE", 0.99);
 const SEND_STAGGER_MS = envInt("SEND_STAGGER_MS", 100);
+// Base octets for the synthetic X-Forwarded-For address; each client gets a
+// distinct /24 by indexing the last two octets. "" disables spoofing.
+const FORWARDED_FOR_BASE = envStr("FORWARDED_FOR_BASE", "10");
+// better-auth blocks sign-up / sign-in without a trusted `Origin` (CSRF
+// guard). Docker default is http://localhost:3000; override here when the
+// web origin differs.
+const ORIGIN = envStr("ORIGIN", "http://localhost:3000");
 
-type User = { cookie: string; email: string; username: string };
+function spoofedIpFor(index: number): string | null {
+  if (!FORWARDED_FOR_BASE) return null;
+  const hi = (index >> 8) & 0xff;
+  const lo = index & 0xff;
+  return `${FORWARDED_FOR_BASE}.${hi}.${lo}.2`;
+}
+
+type User = { cookie: string; email: string; username: string; ip: string | null };
 
 type RoomPlan = {
   id: string;
@@ -90,10 +109,16 @@ async function withRetry<T>(label: string, fn: () => Promise<T>, attempts = 4): 
 async function signUp(index: number): Promise<User> {
   const email = `load-${RUN_TAG}-${index}@load.test`;
   const username = `load_${RUN_TAG}_${index}`;
+  const spoofedIp = spoofedIpFor(index);
   return withRetry(`signUp[${index}]`, async () => {
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+      origin: ORIGIN,
+    };
+    if (spoofedIp) headers["x-forwarded-for"] = spoofedIp;
     const res = await fetch(`${BASE_URL}/api/auth/sign-up/email`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers,
       body: JSON.stringify({
         email,
         username,
@@ -108,15 +133,21 @@ async function signUp(index: number): Promise<User> {
     const setCookies = res.headers.getSetCookie();
     const cookie = setCookies.map((c) => c.split(";")[0]).join("; ");
     if (!cookie) throw new Error("no Set-Cookie on sign-up");
-    return { cookie, email, username };
+    return { cookie, email, username, ip: spoofedIp };
   });
+}
+
+function authHeaders(user: User, extra: Record<string, string> = {}): Record<string, string> {
+  const h: Record<string, string> = { cookie: user.cookie, ...extra };
+  if (user.ip) h["x-forwarded-for"] = user.ip;
+  return h;
 }
 
 async function createPublicRoom(owner: User, name: string): Promise<string> {
   return withRetry(`createRoom[${name}]`, async () => {
     const res = await fetch(`${BASE_URL}/api/v1/rooms`, {
       method: "POST",
-      headers: { "content-type": "application/json", cookie: owner.cookie },
+      headers: authHeaders(owner, { "content-type": "application/json" }),
       body: JSON.stringify({ name, visibility: "public" }),
     });
     if (!res.ok) {
@@ -131,7 +162,7 @@ async function joinRoom(user: User, roomId: string): Promise<void> {
   await withRetry(`join[${user.username}]`, async () => {
     const res = await fetch(`${BASE_URL}/api/v1/rooms/${roomId}/join`, {
       method: "POST",
-      headers: { cookie: user.cookie },
+      headers: authHeaders(user),
     });
     // 409 = already a member (idempotent). Any other non-2xx retries.
     if (!res.ok && res.status !== 409) {
@@ -172,7 +203,7 @@ async function subscribe(socket: ClientSocket, roomId: string): Promise<void> {
 async function sendMessage(owner: User, roomId: string, body: string): Promise<void> {
   const res = await fetch(`${BASE_URL}/api/v1/rooms/${roomId}/messages`, {
     method: "POST",
-    headers: { "content-type": "application/json", cookie: owner.cookie },
+    headers: authHeaders(owner, { "content-type": "application/json" }),
     body: JSON.stringify({ body }),
   });
   if (!res.ok) {
