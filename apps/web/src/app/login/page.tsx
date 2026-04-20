@@ -85,7 +85,7 @@ function LoginForm() {
   return (
     <AuthSplitLayout headline="Welcome back." variant="v2">
       <form onSubmit={onSubmit} className="space-y-4" noValidate>
-        <div className="space-y-2">
+        <div className="input-glow space-y-2">
           <Label htmlFor="email">Email</Label>
           <Input
             id="email"
@@ -100,7 +100,7 @@ function LoginForm() {
             <p id="email-error" className="text-sm text-destructive">{form.formState.errors.email.message}</p>
           )}
         </div>
-        <div className="space-y-2">
+        <div className="input-glow space-y-2">
           <Label htmlFor="password">Password</Label>
           <Input
             id="password"

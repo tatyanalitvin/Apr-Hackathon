@@ -67,9 +67,15 @@ function RoomsContent() {
           )}
         </aside>
         <section className="flex-1 flex flex-col min-w-0 relative">
+          <div className="petal-layer" aria-hidden="true">
+            <span className="petal" />
+            <span className="petal" />
+            <span className="petal" />
+            <span className="petal" />
+          </div>
           <h1 className="sr-only">Your rooms</h1>
-          <div className="flex h-full items-center justify-center p-6">
-            <div className="flex flex-col items-center text-center max-w-md">
+          <div className="relative z-10 flex h-full items-center justify-center p-6">
+            <div className="hero-stagger flex flex-col items-center text-center max-w-md">
               <div
                 aria-hidden="true"
                 className="mb-6 flex h-16 w-16 items-center justify-center rounded-full glass-panel"
@@ -86,7 +92,7 @@ function RoomsContent() {
               </p>
               <div className="flex flex-col sm:flex-row items-center gap-3">
                 <Link href="/rooms/browse">
-                  <Button size="lg">Browse rooms →</Button>
+                  <Button size="lg" className="send-btn">Browse rooms →</Button>
                 </Link>
                 <Link
                   href="/contacts"

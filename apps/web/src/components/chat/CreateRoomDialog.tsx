@@ -77,20 +77,18 @@ export function CreateRoomDialog({ onCreated }: CreateRoomDialogProps) {
     }
     switch (r.error.code) {
       case "validation": {
+        // Mirror login/register: inline field-error is the single surface for
+        // targeted validation. A parallel toast ("Name must be…") duplicates
+        // copy within 50px of the underlined field and confuses Playwright's
+        // strict matchers. Only fall back to a toast when the backend can't
+        // localise the failure to a specific field.
         const fe = r.error.fieldErrors;
         const nameMsg = fe?.name?.[0];
         const descMsg = fe?.description?.[0];
-        if (nameMsg || descMsg) {
-          if (nameMsg) {
-            setNameError(nameMsg);
-            toast.error(nameMsg);
-          }
-          if (descMsg) {
-            setDescriptionError(descMsg);
-            if (!nameMsg) toast.error(descMsg);
-          }
-        } else {
-          toast.error("Letters, numbers, spaces, _, -. 3–64 characters.");
+        if (nameMsg) setNameError(nameMsg);
+        if (descMsg) setDescriptionError(descMsg);
+        if (!nameMsg && !descMsg) {
+          toast.error("Please check the room details and try again.");
         }
         break;
       }

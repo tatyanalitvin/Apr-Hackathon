@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Hash, Users } from "lucide-react";
+import { Hash, Key, Monitor, UserRound, Users } from "lucide-react";
 import { signOut, useSession } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
 import { PendingBadge } from "@/components/contacts/PendingBadge";
@@ -123,19 +123,56 @@ export function Header({
               <span className="text-xs text-muted-foreground">@{username}</span>
             )}
           </div>
-          {/* P1-2 — ghost variant has no resting affordance and read as body
-              copy next to the outlined Sign out, inverting hierarchy. Add a
-              faint border at rest so they register as actions; ghost still
-              drives the hover swap. */}
-          <Button asChild size="sm" variant="ghost" className="border border-border/40">
-            <Link href="/settings/password">Password</Link>
-          </Button>
-          <Button asChild size="sm" variant="ghost" className="border border-border/40">
-            <Link href="/settings/sessions">Sessions</Link>
-          </Button>
-          <Button asChild size="sm" variant="ghost" className="border border-border/40">
-            <Link href="/settings/account">Account</Link>
-          </Button>
+          {/* P1-2 + UX round-2 — collapsed from three text buttons to icon-only
+              pills with aria-label + title. Keeps the faint border so they
+              still register as actions at rest (ghost has no resting
+              affordance), but cuts ~20ch of horizontal clutter so the
+              display-name + presence dot is the anchor, not a row of three
+              neutral-weight words. */}
+          <div className="flex items-center gap-1">
+            <Button
+              asChild
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8 border border-border/40"
+            >
+              <Link
+                href="/settings/password"
+                aria-label="Password settings"
+                title="Password"
+              >
+                <Key className="h-4 w-4" aria-hidden />
+              </Link>
+            </Button>
+            <Button
+              asChild
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8 border border-border/40"
+            >
+              <Link
+                href="/settings/sessions"
+                aria-label="Sessions settings"
+                title="Sessions"
+              >
+                <Monitor className="h-4 w-4" aria-hidden />
+              </Link>
+            </Button>
+            <Button
+              asChild
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8 border border-border/40"
+            >
+              <Link
+                href="/settings/account"
+                aria-label="Account settings"
+                title="Account"
+              >
+                <UserRound className="h-4 w-4" aria-hidden />
+              </Link>
+            </Button>
+          </div>
           <ThemeToggle />
           <Button size="sm" variant="outline" onClick={handleSignOut}>
             Sign out

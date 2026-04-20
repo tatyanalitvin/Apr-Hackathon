@@ -113,7 +113,7 @@ function RegisterForm() {
   return (
     <AuthSplitLayout headline="Start herding ideas." variant="v1">
       <form onSubmit={onSubmit} className="space-y-4" noValidate>
-        <div className="space-y-2">
+        <div className="input-glow space-y-2">
           <Label htmlFor="email">Email</Label>
           <Input
             id="email"
@@ -128,7 +128,7 @@ function RegisterForm() {
             <p id="email-error" className="text-sm text-destructive">{form.formState.errors.email.message}</p>
           )}
         </div>
-        <div className="space-y-2">
+        <div className="input-glow space-y-2">
           <Label htmlFor="username">Username</Label>
           <Input
             id="username"
@@ -142,7 +142,7 @@ function RegisterForm() {
             <p id="username-error" className="text-sm text-destructive">{form.formState.errors.username.message}</p>
           )}
         </div>
-        <div className="space-y-2">
+        <div className="input-glow space-y-2">
           <Label htmlFor="name">Display name</Label>
           <Input
             id="name"
@@ -155,7 +155,7 @@ function RegisterForm() {
             <p id="name-error" className="text-sm text-destructive">{form.formState.errors.name.message}</p>
           )}
         </div>
-        <div className="space-y-2">
+        <div className="input-glow space-y-2">
           <Label htmlFor="password">Password</Label>
           <Input
             id="password"
@@ -170,7 +170,7 @@ function RegisterForm() {
             <p id="password-error" className="text-sm text-destructive">{form.formState.errors.password.message}</p>
           )}
         </div>
-        <div className="space-y-2">
+        <div className="input-glow space-y-2">
           <Label htmlFor="passwordConfirm">Confirm password</Label>
           <Input
             id="passwordConfirm"

@@ -50,7 +50,7 @@ function MemberRow({
   const presence = isSelf && selfPresence ? selfPresence : storePresence;
   const suffix = presenceSuffix(presence);
   return (
-    <li className="flex items-center gap-2 rounded px-2 py-1 hover:bg-accent/40">
+    <li className="member-row flex items-center gap-2 rounded px-2 py-1 hover:bg-accent/40">
       <PresencePill
         userId={member.id}
         state={isSelf && selfPresence ? selfPresence : undefined}
@@ -114,7 +114,7 @@ export function MemberList({
       <div className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
         Members · {members.length}
       </div>
-      <ul className="space-y-1">
+      <ul className="room-list-stagger space-y-1">
         {visible.map((m) => (
           <MemberRow
             key={m.id}
