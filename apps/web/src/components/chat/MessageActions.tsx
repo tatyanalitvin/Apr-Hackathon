@@ -11,6 +11,7 @@
 "use client";
 
 import { useState } from "react";
+import { Reply as ReplyIcon, Pencil, Trash2, X } from "lucide-react";
 
 export interface MessageActionsProps {
   // REQ-212 — onEdit may be omitted by admin-delete callers (who can't
@@ -39,7 +40,11 @@ export function MessageActions({ onEdit, onDelete, onReply }: MessageActionsProp
   }
 
   return (
-    <div className="flex items-center gap-1 text-xs">
+    <div
+      role="group"
+      aria-label="Message actions"
+      className="flex items-center gap-1 rounded-md border border-border bg-popover px-2 py-1.5 text-xs text-popover-foreground shadow-md"
+    >
       {onReply ? (
         <button
           type="button"
@@ -49,8 +54,9 @@ export function MessageActions({ onEdit, onDelete, onReply }: MessageActionsProp
             setConfirmingDelete(false);
             onReply();
           }}
-          className="rounded bg-muted px-2 py-0.5 hover:bg-muted-foreground/20"
+          className="inline-flex items-center gap-1 rounded bg-muted px-2 py-0.5 transition-colors hover:bg-muted-foreground/20"
         >
+          <ReplyIcon aria-hidden="true" size={14} />
           Reply
         </button>
       ) : null}
@@ -63,8 +69,9 @@ export function MessageActions({ onEdit, onDelete, onReply }: MessageActionsProp
             setConfirmingDelete(false);
             onEdit();
           }}
-          className="rounded bg-muted px-2 py-0.5 hover:bg-muted-foreground/20"
+          className="inline-flex items-center gap-1 rounded bg-muted px-2 py-0.5 transition-colors hover:bg-muted-foreground/20"
         >
+          <Pencil aria-hidden="true" size={14} />
           Edit
         </button>
       ) : null}
@@ -78,8 +85,9 @@ export function MessageActions({ onEdit, onDelete, onReply }: MessageActionsProp
               setConfirmingDelete(false);
               onDelete();
             }}
-            className="rounded bg-destructive px-2 py-0.5 text-destructive-foreground hover:bg-destructive/90"
+            className="inline-flex items-center gap-1 rounded bg-destructive px-2 py-0.5 text-destructive-foreground transition-colors hover:bg-destructive/90"
           >
+            <Trash2 aria-hidden="true" size={14} />
             Confirm
           </button>
         ) : (
@@ -87,8 +95,9 @@ export function MessageActions({ onEdit, onDelete, onReply }: MessageActionsProp
             type="button"
             data-testid="message-delete"
             onClick={() => setConfirmingDelete(true)}
-            className="rounded bg-muted px-2 py-0.5 hover:bg-muted-foreground/20"
+            className="inline-flex items-center gap-1 rounded bg-muted px-2 py-0.5 transition-colors hover:bg-muted-foreground/20"
           >
+            <Trash2 aria-hidden="true" size={14} />
             Delete
           </button>
         )
@@ -100,9 +109,9 @@ export function MessageActions({ onEdit, onDelete, onReply }: MessageActionsProp
           setOpen(false);
           setConfirmingDelete(false);
         }}
-        className="rounded px-1 text-muted-foreground hover:bg-muted"
+        className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
       >
-        ×
+        <X aria-hidden="true" size={14} />
       </button>
     </div>
   );
