@@ -22,6 +22,7 @@ test-results/
 blob-report/
 .playwright/
 tests/e2e/screenshots/
+docs/ui-review/**/*.png
 *.tsbuildinfo
 
 # IDE
