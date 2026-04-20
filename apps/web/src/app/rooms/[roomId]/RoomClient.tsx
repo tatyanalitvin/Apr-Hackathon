@@ -40,6 +40,7 @@ import { MuteToggle } from "@/components/chat/MuteToggle";
 import { computeUnreadList } from "@/lib/unread";
 import { useMarkRead } from "@/lib/use-mark-read";
 import { useUnreadNotifications } from "@/lib/use-unread-notifications";
+import { makeAiFixtures } from "@/lib/chat/ai-fixtures";
 
 const INITIAL_FIRST_INDEX = 1_000_000;
 const HISTORY_PAGE_SIZE = 50;
@@ -555,6 +556,10 @@ function RoomContent({ roomId }: { roomId: string }) {
   const displayedMembers: MemberListItem[] =
     roomMembers ?? (selfEntry ? [selfEntry] : []);
 
+  const displayMessages = process.env.NEXT_PUBLIC_AI_FIXTURES === "1"
+    ? [...messages, ...makeAiFixtures(roomId, messages.length)]
+    : messages;
+
   return (
     <div className="flex flex-col h-dvh">
       <Header selfPresence={selfPresence} />
@@ -609,7 +614,7 @@ function RoomContent({ roomId }: { roomId: string }) {
             </div>
           </div>
           <MessageList
-            messages={messages}
+            messages={displayMessages}
             hasMoreOlder={hasMoreOlder}
             onLoadOlder={loadOlder}
             firstItemIndex={firstItemIndex}

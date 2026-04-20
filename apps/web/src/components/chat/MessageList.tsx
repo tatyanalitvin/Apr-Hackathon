@@ -15,6 +15,7 @@ import { AttachmentChip } from "@/components/chat/AttachmentChip";
 import { MessageActions } from "@/components/chat/MessageActions";
 import { EditMessageForm } from "@/components/chat/EditMessageForm";
 import { Avatar } from "@/components/avatar/Avatar";
+import { AiMessageBubble } from "./AiMessageBubble";
 
 const IMAGE_MIME_RE = /^image\/(png|jpe?g|gif|webp)$/i;
 
@@ -121,24 +122,29 @@ export function MessageList({
         atBottomStateChange={handleAtBottomStateChange}
         atBottomThreshold={100}
         startReached={handleStartReached}
-        itemContent={(_index, message) => (
-          <MessageRow
-            message={message}
-            currentUserId={currentUserId}
-            currentUserRole={currentUserRole}
-            roomKind={roomKind}
-            isEditing={editingId === message.id}
-            onStartEdit={() => setEditingId(message.id)}
-            onCancelEdit={() => setEditingId(null)}
-            onSaveEdit={(body) => handleEditSave(message.id, body)}
-            onDelete={onDeleteMessage ? () => onDeleteMessage(message.id) : undefined}
-            onReply={
-              onReply
-                ? () => onReply(message.id, message.authorUsername)
-                : undefined
-            }
-          />
-        )}
+        itemContent={(_index, message) =>
+          message.authorType === "ai" ? (
+            <AiMessageBubble key={message.id} message={message} />
+          ) : (
+            <MessageRow
+              key={message.id}
+              message={message}
+              currentUserId={currentUserId}
+              currentUserRole={currentUserRole}
+              roomKind={roomKind}
+              isEditing={editingId === message.id}
+              onStartEdit={() => setEditingId(message.id)}
+              onCancelEdit={() => setEditingId(null)}
+              onSaveEdit={(body) => handleEditSave(message.id, body)}
+              onDelete={onDeleteMessage ? () => onDeleteMessage(message.id) : undefined}
+              onReply={
+                onReply
+                  ? () => onReply(message.id, message.authorUsername)
+                  : undefined
+              }
+            />
+          )
+        }
         components={{
           Header: () => hasMoreOlder ? <div className="p-4 text-center text-xs text-muted-foreground">Loading older…</div> : null,
         }}
