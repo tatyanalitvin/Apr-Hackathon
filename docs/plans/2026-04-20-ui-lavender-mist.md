@@ -29,6 +29,8 @@
 | `apps/web/src/components/chat/StreamingShimmer.tsx` | 1px shimmer bar w/ reduced-motion fallback. |
 | `apps/web/src/components/empty/BlossomEmptyState.tsx` | Reusable empty state (sakura + serif tagline). |
 | `apps/web/src/lib/chat/ai-fixtures.ts` | Dev-only seed for AI bubble visual states. |
+| `apps/web/src/components/avatar/Avatar.tsx` | Deterministic initials-on-color avatar (v1). |
+| `apps/web/src/components/avatar/Avatar.test.ts` | Unit tests for hash + initials logic. |
 | `tests/e2e/lavender-mist-a11y.spec.ts` | axe-core contrast + focus-ring checks (R30). |
 
 ### Modify
@@ -636,7 +638,199 @@ git commit -m "feat(web/chat): three-pane layout + serif room title + theme togg
 
 ---
 
-## Task 5: Frosted composer
+## Task 5: Avatars v1 — deterministic initials-on-color
+
+**Files:**
+- Create: `apps/web/src/components/avatar/Avatar.tsx`, `apps/web/src/components/avatar/Avatar.test.ts`
+- Modify: `apps/web/src/components/chat/MessageList.tsx`, `apps/web/src/components/chat/MemberList.tsx`, `apps/web/src/app/contacts/page.tsx`
+
+**Scope note:** This task exceeds the original spec (R1–R30) but was approved as a scoped addition after plan review. Pure frontend, deterministic from user ID. No backend or storage changes.
+
+**Design:** Circular avatar with initials rendered on one of 8 dark palette colors; the color is chosen by a deterministic hash of `userId`, so the same user always lands on the same swatch across reloads and devices. All palette colors are dark enough (≥ 4.5:1) for `var(--accent-soft)` text in both themes.
+
+- [ ] **Step 5.1: Write failing tests for hash + initials logic**
+
+Create `apps/web/src/components/avatar/Avatar.test.ts`:
+
+```ts
+import { describe, it, expect } from "vitest";
+import { hashUserIdToPalette, getInitials } from "./Avatar";
+
+describe("hashUserIdToPalette", () => {
+  it("is deterministic for the same userId", () => {
+    expect(hashUserIdToPalette("user-1")).toEqual(hashUserIdToPalette("user-1"));
+    expect(hashUserIdToPalette("abc-xyz-42")).toEqual(hashUserIdToPalette("abc-xyz-42"));
+  });
+  it("returns an index in [0, 8)", () => {
+    for (const id of ["a", "b", "c", "long-user-id-with-dashes", "", "日本語"]) {
+      const idx = hashUserIdToPalette(id);
+      expect(idx).toBeGreaterThanOrEqual(0);
+      expect(idx).toBeLessThan(8);
+    }
+  });
+});
+
+describe("getInitials", () => {
+  it("takes first letters of the first two words, uppercased", () => {
+    expect(getInitials("Alice Smith")).toBe("AS");
+    expect(getInitials("alice smith")).toBe("AS");
+    expect(getInitials("Alice Middle Smith")).toBe("AS");
+  });
+  it("uses one letter for single-word names", () => {
+    expect(getInitials("bob")).toBe("B");
+  });
+  it("falls back to userId first letter when name is missing", () => {
+    expect(getInitials(undefined, "user-123")).toBe("U");
+  });
+  it("returns ? when both are missing/empty", () => {
+    expect(getInitials(undefined, undefined)).toBe("?");
+    expect(getInitials("", "")).toBe("?");
+  });
+});
+```
+
+Run: `pnpm --filter web test:run src/components/avatar/Avatar.test.ts`
+Expected: FAIL — `hashUserIdToPalette` / `getInitials` not found.
+
+- [ ] **Step 5.2: Implement `apps/web/src/components/avatar/Avatar.tsx`**
+
+```tsx
+export const AVATAR_BG_PALETTE = [
+  "#7C3AED", // violet-600
+  "#4C1D95", // violet-900
+  "#BE185D", // pink-700
+  "#047857", // emerald-700
+  "#B45309", // amber-700
+  "#6D28D9", // violet-700
+  "#831843", // rose-900
+  "#0F766E", // teal-700
+] as const;
+
+export function hashUserIdToPalette(userId: string): number {
+  let h = 5381;
+  for (let i = 0; i < userId.length; i++) {
+    h = ((h << 5) + h + userId.charCodeAt(i)) & 0xffffffff;
+  }
+  return Math.abs(h) % AVATAR_BG_PALETTE.length;
+}
+
+export function getInitials(name?: string, userId?: string): string {
+  const source = (name ?? userId ?? "").trim();
+  if (!source) return "?";
+  const parts = source.split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return parts[0][0].toUpperCase();
+}
+
+interface Props {
+  userId: string;
+  name?: string;
+  size?: number;
+  className?: string;
+}
+
+export function Avatar({ userId, name, size = 32, className }: Props) {
+  const idx = hashUserIdToPalette(userId);
+  const bg = AVATAR_BG_PALETTE[idx];
+  const initials = getInitials(name, userId);
+  return (
+    <div
+      className={`inline-flex shrink-0 select-none items-center justify-center rounded-full font-semibold ${className ?? ""}`}
+      style={{
+        width: size,
+        height: size,
+        background: bg,
+        color: "var(--accent-soft)",
+        fontSize: Math.round(size * 0.4),
+        lineHeight: 1,
+      }}
+      aria-label={name ? `${name}'s avatar` : "User avatar"}
+      role="img"
+    >
+      {initials}
+    </div>
+  );
+}
+```
+
+- [ ] **Step 5.3: Verify tests pass**
+
+Run: `pnpm --filter web test:run src/components/avatar/Avatar.test.ts`
+Expected: PASS, all describe blocks green.
+
+- [ ] **Step 5.4: Retrofit `apps/web/src/components/chat/MessageList.tsx` — user bubble avatar**
+
+Where each user message is rendered, prepend an `<Avatar>` to the header row. Example structure:
+
+```tsx
+import { Avatar } from "@/components/avatar/Avatar";
+
+// ...inside the map that renders user messages:
+<div className="flex gap-3">
+  <Avatar userId={msg.authorId} name={msg.authorName} size={32} />
+  <div className="flex-1 min-w-0">
+    {/* existing author row + body */}
+  </div>
+</div>
+```
+
+Preserve all existing body rendering, attachments, reply threading, edit/delete actions.
+
+- [ ] **Step 5.5: Retrofit `apps/web/src/components/chat/MemberList.tsx` — member avatars**
+
+For each member row, prepend a 24px avatar:
+
+```tsx
+import { Avatar } from "@/components/avatar/Avatar";
+
+// ...inside each member row:
+<li className="flex items-center gap-2">
+  <Avatar userId={member.id} name={member.displayName ?? member.username} size={24} />
+  <span className="truncate text-sm" style={{ color: "var(--text-hi)" }}>
+    {member.displayName ?? member.username}
+  </span>
+  {/* preserve: presence pill, mute toggle, overflow menu */}
+</li>
+```
+
+- [ ] **Step 5.6: Retrofit `apps/web/src/app/contacts/page.tsx` — contact card avatars**
+
+For each contact card, prepend a 40px avatar at the left:
+
+```tsx
+import { Avatar } from "@/components/avatar/Avatar";
+
+// ...inside each contact card render:
+<article className="flex items-center gap-4 glass-panel p-4">
+  <Avatar userId={contact.id} name={contact.displayName ?? contact.username} size={40} />
+  <div className="flex-1 min-w-0">
+    {/* preserve: existing name + meta + actions */}
+  </div>
+</article>
+```
+
+If the page currently maps contacts inside a different wrapper, wrap each row's left side with the Avatar while keeping the existing card chrome.
+
+- [ ] **Step 5.7: Verify typecheck + tests + build**
+
+Run: `pnpm --filter web typecheck && pnpm --filter web test:run && pnpm --filter web build`
+Expected: all three exit 0.
+
+- [ ] **Step 5.8: Visual check**
+
+Run: `pnpm --filter web dev`. Sign in. Navigate to `/rooms/<any-roomId>` — user messages now show a 32px colored initials avatar next to the author name. Open the right pane — member list shows 24px avatars. Navigate to `/contacts` — 40px avatars on each card. Reload each page — same user gets the same color every time. Toggle to light theme — avatars remain readable. Kill the dev server.
+
+- [ ] **Step 5.9: Commit**
+
+```bash
+git add apps/web/src/components/avatar apps/web/src/components/chat/MessageList.tsx apps/web/src/components/chat/MemberList.tsx apps/web/src/app/contacts/page.tsx
+git commit -m "feat(web): deterministic initials-on-color avatars (v1)"
+```
+
+---
+
+## Task 6: Frosted composer
 
 **Files:**
 - Create: `apps/web/src/components/chat/ChatComposer.tsx`
@@ -644,7 +838,7 @@ git commit -m "feat(web/chat): three-pane layout + serif room title + theme togg
 
 Covers: R14, R15.
 
-- [ ] **Step 5.1: Create `apps/web/src/components/chat/ChatComposer.tsx`**
+- [ ] **Step 6.1: Create `apps/web/src/components/chat/ChatComposer.tsx`**
 
 ```tsx
 import type { ReactNode } from "react";
@@ -671,7 +865,7 @@ export function ChatComposer({ children }: ChatComposerProps) {
 }
 ```
 
-- [ ] **Step 5.2: Refactor `apps/web/src/components/chat/MessageComposer.tsx`**
+- [ ] **Step 6.2: Refactor `apps/web/src/components/chat/MessageComposer.tsx`**
 
 The existing component renders a textarea + send button. Two changes:
 
@@ -695,7 +889,7 @@ The existing component renders a textarea + send button. Two changes:
 
 Keep: submission handler, keyboard shortcuts (Enter to send, Shift+Enter for newline), validation, emoji/attachment triggers.
 
-- [ ] **Step 5.3: Wrap the rendered `MessageComposer` in `ChatComposer` on the room page**
+- [ ] **Step 6.3: Wrap the rendered `MessageComposer` in `ChatComposer` on the room page**
 
 In `apps/web/src/app/rooms/[roomId]/page.tsx` (or wherever `<MessageComposer />` is mounted inside the center pane), wrap it:
 
@@ -707,16 +901,16 @@ In `apps/web/src/app/rooms/[roomId]/page.tsx` (or wherever `<MessageComposer />`
 
 Import from `@/components/chat/ChatComposer`.
 
-- [ ] **Step 5.4: Verify typecheck + build**
+- [ ] **Step 6.4: Verify typecheck + build**
 
 Run: `pnpm --filter web typecheck && pnpm --filter web build`
 Expected: both exit 0.
 
-- [ ] **Step 5.5: Visual check**
+- [ ] **Step 6.5: Visual check**
 
 Run: `pnpm --filter web dev`. Open a room. Scroll older messages. Confirm: the composer floats frosted at the bottom, messages visibly slide *under* it with a gradient fade, textarea grows up to ~6 lines then scrolls internally, italic serif placeholder shows the room name. Kill the dev server.
 
-- [ ] **Step 5.6: Commit**
+- [ ] **Step 6.6: Commit**
 
 ```bash
 git add apps/web/src/components/chat/ChatComposer.tsx apps/web/src/components/chat/MessageComposer.tsx apps/web/src/app/rooms/[roomId]/page.tsx
@@ -725,7 +919,7 @@ git commit -m "feat(web/chat): frosted composer pinned bottom with gradient fade
 
 ---
 
-## Task 6: AI message variant — type, chip, shimmer, bubble, fixtures
+## Task 7: AI message variant — type, chip, shimmer, bubble, fixtures
 
 **Files:**
 - Create: `apps/web/src/components/chat/ConfidenceChip.tsx`, `ConfidenceChip.test.ts`, `StreamingShimmer.tsx`, `AiMessageBubble.tsx`, `apps/web/src/lib/chat/ai-fixtures.ts`
@@ -733,7 +927,7 @@ git commit -m "feat(web/chat): frosted composer pinned bottom with gradient fade
 
 Covers: R16, R17, R18, R19, R20.
 
-- [ ] **Step 6.1: Extend `MessagePayload` in `packages/shared/src/protocol.ts`**
+- [ ] **Step 7.1: Extend `MessagePayload` in `packages/shared/src/protocol.ts`**
 
 Add three optional fields at the bottom of the interface (keep them optional so existing producers stay valid):
 
@@ -747,7 +941,7 @@ export interface MessagePayload {
 }
 ```
 
-- [ ] **Step 6.2: Write failing test for `ConfidenceChip` label logic**
+- [ ] **Step 7.2: Write failing test for `ConfidenceChip` label logic**
 
 Create `apps/web/src/components/chat/ConfidenceChip.test.ts`:
 
@@ -779,7 +973,7 @@ describe("tierForConfidence", () => {
 Run: `pnpm --filter web test:run src/components/chat/ConfidenceChip.test.ts`
 Expected: FAIL — `tierForConfidence` not found.
 
-- [ ] **Step 6.3: Implement `ConfidenceChip`**
+- [ ] **Step 7.3: Implement `ConfidenceChip`**
 
 Create `apps/web/src/components/chat/ConfidenceChip.tsx`:
 
@@ -820,12 +1014,12 @@ export function ConfidenceChip({ confidence }: Props) {
 }
 ```
 
-- [ ] **Step 6.4: Re-run the test**
+- [ ] **Step 7.4: Re-run the test**
 
 Run: `pnpm --filter web test:run src/components/chat/ConfidenceChip.test.ts`
 Expected: PASS, 4/4 tests.
 
-- [ ] **Step 6.5: Create `apps/web/src/components/chat/StreamingShimmer.tsx`**
+- [ ] **Step 7.5: Create `apps/web/src/components/chat/StreamingShimmer.tsx`**
 
 ```tsx
 export function StreamingShimmer() {
@@ -846,10 +1040,11 @@ export function StreamingShimmer() {
 
 Note: the `@media (prefers-reduced-motion: reduce)` rule in `globals.css` (Task 1) already disables `shimmer-sweep`. The static 1px line remains visible because the wrapper keeps `bottom: 0; height: 1px;` with the gradient `background`.
 
-- [ ] **Step 6.6: Create `apps/web/src/components/chat/AiMessageBubble.tsx`**
+- [ ] **Step 7.6: Create `apps/web/src/components/chat/AiMessageBubble.tsx`**
 
 ```tsx
 import type { MessagePayload } from "@ai-herders/shared/protocol";
+import { Avatar } from "@/components/avatar/Avatar";
 import { ConfidenceChip } from "./ConfidenceChip";
 import { StreamingShimmer } from "./StreamingShimmer";
 
@@ -860,31 +1055,34 @@ interface Props {
 export function AiMessageBubble({ message }: Props) {
   const isStreaming = message.status === "streaming";
   return (
-    <article className="relative glass-panel px-4 py-3" style={{
+    <article className="relative flex gap-3 glass-panel px-4 py-3" style={{
       backgroundImage: "linear-gradient(to bottom, rgba(196, 181, 253, 0.12), transparent 40%)",
     }}>
-      <header className="flex items-baseline gap-2 mb-1">
-        <span className="text-sm font-semibold" style={{ color: "var(--text-hi)" }}>
-          {message.authorName}
-        </span>
-        <span className="text-[11px]" style={{ color: "var(--accent)" }}>✦ AI</span>
-        <time className="ml-auto text-[11px]" style={{ color: "var(--text-lo)" }}>
-          {new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-        </time>
-      </header>
-      <div className="text-[15px] leading-[1.55] whitespace-pre-wrap" style={{ color: "var(--text-hi)" }}>
-        {message.body}
+      <Avatar userId={message.authorId} name={message.authorName} size={32} />
+      <div className="flex-1 min-w-0">
+        <header className="flex items-baseline gap-2 mb-1">
+          <span className="text-sm font-semibold" style={{ color: "var(--text-hi)" }}>
+            {message.authorName}
+          </span>
+          <span className="text-[11px]" style={{ color: "var(--accent)" }}>✦ AI</span>
+          <time className="ml-auto text-[11px]" style={{ color: "var(--text-lo)" }}>
+            {new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          </time>
+        </header>
+        <div className="text-[15px] leading-[1.55] whitespace-pre-wrap" style={{ color: "var(--text-hi)" }}>
+          {message.body}
+        </div>
+        <footer className="mt-2 flex justify-end">
+          <ConfidenceChip confidence={message.confidence} />
+        </footer>
       </div>
-      <footer className="mt-2 flex justify-end">
-        <ConfidenceChip confidence={message.confidence} />
-      </footer>
       {isStreaming && <StreamingShimmer />}
     </article>
   );
 }
 ```
 
-- [ ] **Step 6.7: Dispatch to `AiMessageBubble` in `apps/web/src/components/chat/MessageList.tsx`**
+- [ ] **Step 7.7: Dispatch to `AiMessageBubble` in `apps/web/src/components/chat/MessageList.tsx`**
 
 Where each message is rendered (inside the map that produces the user bubble), branch on `authorType`:
 
@@ -898,7 +1096,7 @@ Where each message is rendered (inside the map that produces the user bubble), b
 
 Import `AiMessageBubble` from `./AiMessageBubble`. Keep the existing user-bubble render path.
 
-- [ ] **Step 6.8: Create `apps/web/src/lib/chat/ai-fixtures.ts`**
+- [ ] **Step 7.8: Create `apps/web/src/lib/chat/ai-fixtures.ts`**
 
 ```ts
 import type { MessagePayload } from "@ai-herders/shared/protocol";
@@ -925,7 +1123,7 @@ export function makeAiFixtures(roomId: string, baseSeq: number): MessagePayload[
 }
 ```
 
-- [ ] **Step 6.9: Add a dev-only fixture toggle to the room page**
+- [ ] **Step 7.9: Add a dev-only fixture toggle to the room page**
 
 In `apps/web/src/app/rooms/[roomId]/page.tsx`, after the messages-fetching hook populates the message list, append fixtures when `process.env.NEXT_PUBLIC_AI_FIXTURES === "1"`:
 
@@ -940,16 +1138,16 @@ const withFixtures = process.env.NEXT_PUBLIC_AI_FIXTURES === "1"
 
 This keeps fixtures out of production builds unless the env var is explicitly set.
 
-- [ ] **Step 6.10: Verify typecheck + unit tests + build**
+- [ ] **Step 7.10: Verify typecheck + unit tests + build**
 
 Run: `pnpm --filter web typecheck && pnpm --filter web test:run && pnpm --filter web build`
 Expected: all three exit 0.
 
-- [ ] **Step 6.11: Visual verification with fixtures**
+- [ ] **Step 7.11: Visual verification with fixtures**
 
 Run: `NEXT_PUBLIC_AI_FIXTURES=1 pnpm --filter web dev`. Navigate to `/rooms/<any-roomId>`. Confirm all 5 fixture states render: High (green chip), Med (lavender chip, readable text in both themes), Low (amber/butter chip), streaming (shimmer bar along bottom, no chip because no confidence on fixture 4), no-chip (no pill rendered). Toggle to light theme and re-verify Med chip text is readable. Toggle reduced-motion — shimmer becomes a static line. Kill the dev server.
 
-- [ ] **Step 6.12: Commit**
+- [ ] **Step 7.12: Commit**
 
 ```bash
 git add packages/shared/src/protocol.ts apps/web/src/components/chat/ConfidenceChip.tsx apps/web/src/components/chat/ConfidenceChip.test.ts apps/web/src/components/chat/StreamingShimmer.tsx apps/web/src/components/chat/AiMessageBubble.tsx apps/web/src/components/chat/MessageList.tsx apps/web/src/lib/chat/ai-fixtures.ts apps/web/src/app/rooms/[roomId]/page.tsx
@@ -958,7 +1156,7 @@ git commit -m "feat(web/chat): AI message variant with confidence chip, streamin
 
 ---
 
-## Task 7: Rooms browse + contacts + empty states
+## Task 8: Rooms browse + contacts + empty states
 
 **Files:**
 - Create: `apps/web/src/components/empty/BlossomEmptyState.tsx`
@@ -966,7 +1164,7 @@ git commit -m "feat(web/chat): AI message variant with confidence chip, streamin
 
 Covers: R20, R21, R22, R23.
 
-- [ ] **Step 7.1: Create `apps/web/src/components/empty/BlossomEmptyState.tsx`**
+- [ ] **Step 8.1: Create `apps/web/src/components/empty/BlossomEmptyState.tsx`**
 
 ```tsx
 import type { ReactNode } from "react";
@@ -997,7 +1195,7 @@ export function BlossomEmptyState({ tagline, children }: Props) {
 }
 ```
 
-- [ ] **Step 7.2: Masonry grid on `apps/web/src/app/rooms/browse/page.tsx`**
+- [ ] **Step 8.2: Masonry grid on `apps/web/src/app/rooms/browse/page.tsx`**
 
 Replace the current grid container (where it maps rooms to cards) with CSS columns. Example outer wrapper:
 
@@ -1023,7 +1221,7 @@ Replace the current grid container (where it maps rooms to cards) with CSS colum
 
 If the rooms list is empty, render `<BlossomEmptyState tagline="No rooms yet. Ask someone to invite you." />`.
 
-- [ ] **Step 7.3: Two-col + empty state on `apps/web/src/app/contacts/page.tsx`**
+- [ ] **Step 8.3: Two-col + empty state on `apps/web/src/app/contacts/page.tsx`**
 
 Wrap the existing content in a 2-col layout. Left is the current filter/search UI. Right is the contact cards list. When the right-side list is empty, render `<BlossomEmptyState tagline="No contacts yet. Send an invitation to start." />`.
 
@@ -1044,20 +1242,20 @@ Wrap the existing content in a 2-col layout. Left is the current filter/search U
 </main>
 ```
 
-- [ ] **Step 7.4: Empty-state for rooms without messages**
+- [ ] **Step 8.4: Empty-state for rooms without messages**
 
 In `apps/web/src/components/chat/MessageList.tsx`, when `messages.length === 0` render `<BlossomEmptyState tagline="No messages yet. Say hello to start the room." />` in place of the scrolling list.
 
-- [ ] **Step 7.5: Verify typecheck + build**
+- [ ] **Step 8.5: Verify typecheck + build**
 
 Run: `pnpm --filter web typecheck && pnpm --filter web build`
 Expected: both exit 0.
 
-- [ ] **Step 7.6: Visual check**
+- [ ] **Step 8.6: Visual check**
 
 Run: `pnpm --filter web dev`. Visit `/rooms/browse` — masonry grid, hover lift works. Visit `/contacts` — two-col; if no contacts, see blossom empty state. Enter an empty room — blossom empty state in the message pane. Kill the dev server.
 
-- [ ] **Step 7.7: Commit**
+- [ ] **Step 8.7: Commit**
 
 ```bash
 git add apps/web/src/components/empty/BlossomEmptyState.tsx apps/web/src/app/rooms/browse/page.tsx apps/web/src/app/contacts/page.tsx apps/web/src/components/chat/MessageList.tsx
@@ -1066,14 +1264,14 @@ git commit -m "feat(web): masonry rooms-browse, contacts 2-col, sakura empty sta
 
 ---
 
-## Task 8: Tiered admin + settings restyle
+## Task 9: Tiered admin + settings restyle
 
 **Files:**
 - Modify: `apps/web/src/app/admin/page.tsx`, `admin/federation/page.tsx`, `settings/account/page.tsx`, `settings/password/page.tsx`, `settings/sessions/page.tsx`
 
 Covers: R24, R25, R26.
 
-- [ ] **Step 8.1: Wrap `apps/web/src/app/admin/page.tsx` in the tiered shell**
+- [ ] **Step 9.1: Wrap `apps/web/src/app/admin/page.tsx` in the tiered shell**
 
 Wrap the existing content in:
 
@@ -1088,19 +1286,19 @@ Wrap the existing content in:
 
 No `backdrop-filter`, no glass opacity — solid panel.
 
-- [ ] **Step 8.2: Apply the same shell to `apps/web/src/app/admin/federation/page.tsx`**
+- [ ] **Step 9.2: Apply the same shell to `apps/web/src/app/admin/federation/page.tsx`**
 
-Same pattern as Step 8.1. Page H1: `"Federation"`.
+Same pattern as Step 9.1. Page H1: `"Federation"`.
 
-- [ ] **Step 8.3: Apply to `apps/web/src/app/settings/account/page.tsx`**
+- [ ] **Step 9.3: Apply to `apps/web/src/app/settings/account/page.tsx`**
 
 Same pattern. H1: `"Account"`.
 
-- [ ] **Step 8.4: Apply to `apps/web/src/app/settings/password/page.tsx`**
+- [ ] **Step 9.4: Apply to `apps/web/src/app/settings/password/page.tsx`**
 
 Same pattern. H1: `"Password"`.
 
-- [ ] **Step 8.5: Apply to `apps/web/src/app/settings/sessions/page.tsx` with quiet table**
+- [ ] **Step 9.5: Apply to `apps/web/src/app/settings/sessions/page.tsx` with quiet table**
 
 Same shell plus: the sessions table loses vertical dividers; rows highlight on hover only. Example style block for the table rows:
 
@@ -1131,16 +1329,16 @@ Same shell plus: the sessions table loses vertical dividers; rows highlight on h
 
 Keep revoke-session behavior unchanged.
 
-- [ ] **Step 8.6: Verify typecheck + build**
+- [ ] **Step 9.6: Verify typecheck + build**
 
 Run: `pnpm --filter web typecheck && pnpm --filter web build`
 Expected: both exit 0.
 
-- [ ] **Step 8.7: Visual check**
+- [ ] **Step 9.7: Visual check**
 
 Run: `pnpm --filter web dev`. Visit each tiered page — serif H1s, solid elevated panels (no translucency), session table rows highlight on hover only, no vertical dividers. Kill the dev server.
 
-- [ ] **Step 8.8: Commit**
+- [ ] **Step 9.8: Commit**
 
 ```bash
 git add apps/web/src/app/admin apps/web/src/app/settings
@@ -1149,7 +1347,7 @@ git commit -m "feat(web): tiered palette for admin/settings — serif H1 + solid
 
 ---
 
-## Task 9: Accessibility + performance verification
+## Task 10: Accessibility + performance verification
 
 **Files:**
 - Create: `tests/e2e/lavender-mist-a11y.spec.ts`
@@ -1157,7 +1355,7 @@ git commit -m "feat(web): tiered palette for admin/settings — serif H1 + solid
 
 Covers: R30, plus validates R9/R19 reduced-motion and R19 perf target.
 
-- [ ] **Step 9.1: Add `@axe-core/playwright` as a dev dep**
+- [ ] **Step 10.1: Add `@axe-core/playwright` as a dev dep**
 
 From the repo root:
 
@@ -1165,7 +1363,7 @@ From the repo root:
 pnpm add -D -w @axe-core/playwright
 ```
 
-- [ ] **Step 9.2: Create `tests/e2e/lavender-mist-a11y.spec.ts`**
+- [ ] **Step 10.2: Create `tests/e2e/lavender-mist-a11y.spec.ts`**
 
 ```ts
 import { test, expect } from "@playwright/test";
@@ -1210,7 +1408,7 @@ test("rooms room view with AI fixtures has no color-contrast violations", async 
 });
 ```
 
-- [ ] **Step 9.3: Run axe checks against the dev server**
+- [ ] **Step 10.3: Run axe checks against the dev server**
 
 Start the dev server in a second terminal: `pnpm --filter web dev`. Then:
 
@@ -1220,15 +1418,15 @@ pnpm test:e2e tests/e2e/lavender-mist-a11y.spec.ts
 
 Expected: all contrast tests pass, both themes × 4 routes. If any violation reports, inspect the offending element, adjust tokens (most likely `--text-lo` or a chip edge case), and re-run.
 
-- [ ] **Step 9.4: Perf target spot-check (R19)**
+- [ ] **Step 10.4: Perf target spot-check (R19)**
 
 Start dev server: `NEXT_PUBLIC_AI_FIXTURES=1 pnpm --filter web dev`. Open a room that includes the 5 fixture bubbles (plus real messages, aim for ~15 visible). In Chrome DevTools → Performance, start recording, let the streaming shimmer run for 5s, stop. Confirm average FPS ≥ 30 on an M1-class (or similar 2020+) laptop. If below target, reduce backdrop-blur radius or limit shimmer to the most recent streaming bubble only.
 
-- [ ] **Step 9.5: Reduced-motion check**
+- [ ] **Step 10.5: Reduced-motion check**
 
 Enable OS reduced-motion, reload `/login` and a room with fixtures. Confirm: petals render static (no drift), shimmer is a static line (no sweep). Card hover tilt on `/rooms/browse` is still fine because it's user-initiated.
 
-- [ ] **Step 9.6: Commit**
+- [ ] **Step 10.6: Commit**
 
 ```bash
 git add apps/web/package.json pnpm-lock.yaml tests/e2e/lavender-mist-a11y.spec.ts
