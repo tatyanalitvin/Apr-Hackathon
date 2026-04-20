@@ -642,7 +642,7 @@ function RoomContent({ roomId }: { roomId: string }) {
           </ChatComposer>
         </section>
         <aside className="hidden min-[1100px]:flex min-[1100px]:flex-col w-[240px] shrink-0 glass-panel m-3 p-4 overflow-y-auto" style={{ color: "var(--text-lo)" }}>
-          <MemberList members={displayedMembers} />
+          <MemberList members={displayedMembers} selfPresence={selfPresence} />
         </aside>
       </main>
 
@@ -655,7 +655,7 @@ function RoomContent({ roomId }: { roomId: string }) {
         </details>
         <details className="border-t">
           <summary className="px-4 py-2 text-sm font-medium cursor-pointer">Members ({displayedMembers.length})</summary>
-          <MemberList members={displayedMembers} />
+          <MemberList members={displayedMembers} selfPresence={selfPresence} />
         </details>
       </div>
     </div>
