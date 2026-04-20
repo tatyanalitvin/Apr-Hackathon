@@ -41,17 +41,23 @@ function RegisterForm() {
     // attach the password_common / username_taken / etc. messages to the
     // offending field. The backend still Set-Cookie's the session; the
     // subsequent router.replace triggers a hard nav that picks it up.
-    const res = await fetch(`${BACKEND_URL}/api/auth/sign-up/email`, {
-      method: "POST",
-      credentials: "include",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        email: values.email,
-        password: values.password,
-        name: values.name,
-        username: values.username,
-      }),
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${BACKEND_URL}/api/auth/sign-up/email`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          email: values.email,
+          password: values.password,
+          name: values.name,
+          username: values.username,
+        }),
+      });
+    } catch {
+      toast.error("Network error — try again.");
+      return;
+    }
 
     if (res.ok) {
       router.replace(nextTarget);
