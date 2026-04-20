@@ -43,3 +43,6 @@ apps/backend/infra/uploads/
 
 .claude/
 .human/
+
+# parallel worktrees
+.worktrees/
