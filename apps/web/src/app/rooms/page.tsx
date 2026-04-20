@@ -107,15 +107,15 @@ function RoomsContent() {
         </section>
         {/* Empty right aside on the rooms index — fill the dead space with the
             sakura scene so the landing feels alive without competing for focus
-            with the centre CTA. A narrow-column variant (`v5-slim`) is tuned
-            for the ~240px column; the centre petal-layer still drifts over the
-            main section. */}
+            with the centre CTA. The `v6-fullbloom` variant is tuned for the
+            ~240px column: short trunk + canopy-heavy silhouette; the centre
+            petal-layer still drifts over the main section. */}
         <aside
           aria-hidden="true"
           className="hidden min-[1100px]:block relative w-[240px] shrink-0 overflow-hidden glass-panel m-3"
           style={{ color: "var(--text-lo)" }}
         >
-          <SakuraPetals variant="v5" />
+          <SakuraPetals variant="v6" />
         </aside>
       </main>
     </div>
