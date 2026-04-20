@@ -326,7 +326,15 @@ export async function messagesRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const payload = toMessagePayload(inserted, false, parentRow);
-      if (attachmentIds.length > 0 && !deduped) {
+      // Hydrate attachments on EVERY commit, fresh or deduped. On dedup,
+      // `inserted` is the row the original request wrote (seq-allocator
+      // fast-path returns it verbatim), so its id still addresses the
+      // linked attachment rows. The `!deduped` guard below correctly skips
+      // the sent-metric + socket broadcast — subscribers already saw the
+      // first emit — but the HTTP 201 body must stay wire-compatible with
+      // the first response so a client whose first 201 got eaten by a
+      // network blip can reconcile its optimistic row on retry.
+      if (attachmentIds.length > 0) {
         payload.attachments = await loadAttachmentPayloads(inserted.id);
       }
       if (!deduped) {
