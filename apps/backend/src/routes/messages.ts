@@ -280,10 +280,11 @@ export async function messagesRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const normalized = normalizeBody(request.body.body);
-      if (normalized.length === 0) {
+      if (normalized.trim().length === 0) {
         // Post-normalization the body could be entirely stripped (pure control
-        // characters). We treat that as invalid input, the same way the zod
-        // min(1) rejects an empty submission.
+        // characters or invisible bidi/zero-width), or reduce to whitespace
+        // only. Treat all three as invalid input, the same way the zod min(1)
+        // rejects an empty submission.
         return reply.status(400).send({
           error: "validation",
           issues: [
@@ -543,7 +544,7 @@ export async function messagesRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const normalized = normalizeBody(parsed.data.body);
-      if (normalized.length === 0) {
+      if (normalized.trim().length === 0) {
         return reply.status(400).send({
           error: "validation",
           issues: [

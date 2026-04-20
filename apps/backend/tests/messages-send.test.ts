@@ -161,6 +161,64 @@ describe("REQ-029 POST /api/v1/rooms/:id/messages send message", () => {
     expect(res.status).toBe(400);
   });
 
+  // Invisible-message hardening — exploratory bug report 2026-04-20 (B1, B2).
+  // Zod min(1) counted bytes, so whitespace-only and zero-width-only bodies
+  // were 201 Created and polluted the feed with visible-but-empty rows.
+  test("whitespace-only body → 400 (cannot spam blank bubbles)", async () => {
+    const { agent, userId } = await registerAgent(app, "blank-ws@example.com", "blank_ws");
+    await createRoom("r-blank-ws");
+    await addMember("r-blank-ws", userId);
+
+    const res = await agent
+      .post("/api/v1/rooms/r-blank-ws/messages")
+      .send({ body: "     " });
+
+    expect(res.status).toBe(400);
+  });
+
+  test("zero-width-only body → 400 (strips to empty after sanitization)", async () => {
+    const { agent, userId } = await registerAgent(app, "blank-zw@example.com", "blank_zw");
+    await createRoom("r-blank-zw");
+    await addMember("r-blank-zw", userId);
+
+    const res = await agent
+      .post("/api/v1/rooms/r-blank-zw/messages")
+      .send({ body: "\u200b\u200b\u200b" });
+
+    expect(res.status).toBe(400);
+  });
+
+  test("bidi-override-only body → 400 (no visible content survives strip)", async () => {
+    const { agent, userId } = await registerAgent(app, "blank-bidi@example.com", "blank_bidi");
+    await createRoom("r-blank-bidi");
+    await addMember("r-blank-bidi", userId);
+
+    const res = await agent
+      .post("/api/v1/rooms/r-blank-bidi/messages")
+      .send({ body: "\u202e\u202d\u202e" });
+
+    expect(res.status).toBe(400);
+  });
+
+  test("bidi override inside a message is stripped before persist", async () => {
+    const { agent, userId } = await registerAgent(app, "bidi-mix@example.com", "bidi_mix");
+    await createRoom("r-bidi-mix");
+    await addMember("r-bidi-mix", userId);
+
+    const res = await agent
+      .post("/api/v1/rooms/r-bidi-mix/messages")
+      .send({ body: "hello \u202eworld" });
+
+    expect(res.status).toBe(201);
+    expect(res.body.body).toBe("hello world");
+
+    const [row] = await getTestDb()
+      .select({ body: message.body })
+      .from(message)
+      .where(eq(message.roomId, "r-bidi-mix"));
+    expect(row.body).toBe("hello world");
+  });
+
   test("REQ-029 no cookie → 401 unauthorized", async () => {
     await createRoom("r-req029-nocookie");
     const res = await request(app.server)
