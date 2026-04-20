@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // REQ-018 (v3.docx §2.2) — "messages remain visible after account removal;
 // username is replaced with a placeholder." This test exercises the three
 // public serialization paths where a deleted author/peer must render as
@@ -53,7 +54,7 @@ async function registerAgent(
   const agent = request.agent(app.server);
   await agent
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   return { agent, userId: await userIdByEmail(email) };
 }
@@ -121,7 +122,7 @@ describe("REQ-018 deleted-user display substitution", () => {
     // Bob deletes his account.
     await bob.agent
       .delete("/api/v1/users/me")
-      .send({ password: "password1234" })
+      .send({ password: TEST_PASSWORD_OK })
       .expect(204);
 
     // ── 1. Group-room history: bob's message now renders as [deleted user].

@@ -16,6 +16,17 @@ import { secondaryStorage } from "./secondary-storage";
 
 const GENERAL_ROOM_ID = "general";
 
+// Test-only override for better-auth's `/sign-up/email` custom rate-limit.
+// Production always falls through to `env.NODE_ENV === "test" ? 10000 : 5`;
+// rate-limit tests that want to prove the 429 path deterministically (e.g.
+// `tests/register-rate-limit.test.ts`) install this before their own
+// `buildApp()` so better-auth's `customRule` function resolves to a low cap.
+// Matches the `__setTestRateLimitGlobalMax` escape-hatch pattern in app.ts.
+let __testSignUpMaxOverride: number | undefined;
+export function __setTestSignUpMaxOverride(max: number | undefined): void {
+  __testSignUpMaxOverride = max;
+}
+
 // better-auth namespaces its session cookie with the library prefix; verified
 // at runtime + sourced from node_modules/better-auth/dist/cookies.mjs. Surfaced
 // as a constant so the CSRF cookie-stamping path in app.ts can match against
@@ -106,6 +117,21 @@ export const auth = betterAuth({
   // caps wrong-creds at 5 within a 60s window so the REQ-014 "≤10 attempts"
   // budget is enforced with headroom. Global defaults stay generous (100/60s)
   // so well-behaved clients (and the other login tests) are unaffected.
+  //
+  // The `/sign-up/email` rule gets a test-mode bypass (`max: 10000`) because
+  // better-auth 1.6.5's rate-limiter stores the bucket in secondary-storage
+  // (Redis) via `secondaryStorage.set(key, value, ttl=window)`. Tests run with
+  // `vitest` `singleFork: true` and 600+ total sign-ups across the suite; the
+  // production `5/3600s` ceiling is hit within ~dozen files (observed as 401s
+  // on subsequent handler calls — once better-auth rate-limits the sign-up,
+  // the row is still written but the Set-Cookie header is replaced with the
+  // 429 body, so supertest's cookie jar has no session cookie and the next
+  // authenticated call 401s). `tests/setup.ts` beforeEach flushes Redis but
+  // that runs BETWEEN tests, not within a file that signs up 10+ users across
+  // 6+ tests (e.g. `users-unban.test.ts`). The prod `/24` bucket in
+  // `src/lib/register-rate-limit.ts` gets the same test-mode relaxation.
+  // See docs/FOLLOWUPS.md "Backend sign-up rate-limit bleed" + "Backend
+  // parallel-DB FK race".
   rateLimit: {
     enabled: true,
     window: 60,
@@ -120,7 +146,19 @@ export const auth = betterAuth({
       // per-route keyGenerator hook. This per-IP rule still fires first for
       // a lone noisy IP, which keeps the "one bad actor, one bucket" error
       // message identical to the behaviour S1 tests pin.
-      "/sign-up/email": { window: 3600, max: 5 },
+      // Function form (verified in node_modules/better-auth/dist/api/rate-limiter/
+      // index.mjs:136) lets us resolve `max` at request time, so
+      // `tests/register-rate-limit.test.ts` can call
+      // `__setTestSignUpMaxOverride(5)` in its beforeAll to restore the REQ-009
+      // ceiling for that one test, while the rest of the suite keeps the 10000
+      // test-mode headroom that prevents the cross-file bleed documented in
+      // docs/FOLLOWUPS.md "Backend sign-up rate-limit bleed".
+      "/sign-up/email": async () => ({
+        window: 3600,
+        max:
+          __testSignUpMaxOverride ??
+          (env.NODE_ENV === "test" ? 10000 : 5),
+      }),
     },
   },
   // Auto-enroll every newly created user into the seeded 'general' room so a

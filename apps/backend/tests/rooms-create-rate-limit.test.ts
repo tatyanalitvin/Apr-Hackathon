@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // REQ-024 integration tests for POST /api/v1/rooms rate limit.
 // Dual-tier: burst 3/60s, sustained 20/24h. Binding: docs/specs/s1-rooms.md §4 R7/R8.
 
@@ -35,7 +36,7 @@ async function registerAgent(
   const agent = request.agent(app.server);
   await agent
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   return { agent, userId: await userIdByEmail(email) };
 }

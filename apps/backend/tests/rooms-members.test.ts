@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // Gate-3 demo patch — GET /api/v1/rooms/:id/members.
 // Returns the caller-visible roster so RoomClient can key PresencePill on
 // real user.id values (not seeded placeholders). Membership is required:
@@ -38,7 +39,7 @@ async function registerAgent(
   const agent = request.agent(app.server);
   await agent
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   return { agent, userId: await userIdByEmail(email) };
 }

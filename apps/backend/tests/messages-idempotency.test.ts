@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // REQ-033 — clientMessageId idempotency (R5).
 //
 // Decision: spec §8 Q1 option (a) — Postgres column + partial unique index
@@ -38,7 +39,7 @@ async function registerAgent(app: FastifyInstance, email: string, username: stri
   const agent = request.agent(app.server);
   await agent
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   return { agent, userId: await userIdByEmail(email) };
 }

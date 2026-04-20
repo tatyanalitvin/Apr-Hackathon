@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // S2 account-deletion + GDPR. Binding brief:
 // `.human/S2_ACCOUNT_GDPR_AGENT_BRIEF.md` + v3.docx §2.2 "Account Removal".
 //
@@ -56,7 +57,7 @@ async function registerAgent(
   app: FastifyInstance,
   email: string,
   username: string,
-  password = "password1234",
+  password = TEST_PASSWORD_OK,
 ): Promise<SignedUpAgent> {
   const agent = request.agent(app.server);
   await agent
@@ -158,7 +159,7 @@ describe("REQ-018 DELETE /api/v1/users/me cascade (task S2-account)", () => {
     // Fire the delete.
     const del = await anna.agent
       .delete("/api/v1/users/me")
-      .send({ password: "password1234" });
+      .send({ password: TEST_PASSWORD_OK });
     expect(del.status).toBe(204);
 
     // Cookie no longer auths — session row FK-cascaded away.
@@ -252,7 +253,7 @@ describe("REQ-018 DELETE /api/v1/users/me cascade (task S2-account)", () => {
 
     const del = await anna.agent
       .delete("/api/v1/users/me")
-      .send({ password: "password1234" });
+      .send({ password: TEST_PASSWORD_OK });
     expect(del.status).toBe(204);
 
     // Owned room row is gone.

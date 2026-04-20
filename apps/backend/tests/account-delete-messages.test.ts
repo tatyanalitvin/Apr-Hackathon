@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // REQ-018 — tombstone rename must NOT leak into historical messages.
 // `message.authorUsername` is snapshotted at send time (schema.ts:256) so
 // when account-delete rewrites `user.username` to the tombstone string,
@@ -44,7 +45,7 @@ async function signUp(
   const agent = request.agent(app.server);
   await agent
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   const [row] = await getTestDb()
     .select({ id: user.id })
@@ -89,7 +90,7 @@ describe("REQ-018 account delete preserves message.authorUsername snapshot", () 
     // row's authorUsername is a snapshot and must not change.
     const del = await agent
       .delete("/api/v1/users/me")
-      .send({ password: "password1234" });
+      .send({ password: TEST_PASSWORD_OK });
     expect(del.status).toBe(204);
 
     const [u] = await getTestDb()

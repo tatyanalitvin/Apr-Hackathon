@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // REQ-075 / REQ-079 / REQ-081 / REQ-082 / R5 / R9 / R16 — upload happy paths
 // + auth gates. Binding spec: docs/specs/s2-attachments.md §4 R1, R2, R4, R5,
 // R9, R16. The size-cap boundaries (REQ-077 R7/R8) live in
@@ -44,7 +45,7 @@ async function registerAgent(
   const agent = request.agent(app.server);
   await agent
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   return { agent, userId: await userIdByEmail(email) };
 }

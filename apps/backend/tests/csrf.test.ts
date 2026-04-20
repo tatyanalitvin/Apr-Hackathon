@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // REQ-146 — CSRF double-submit on mutating /api/v1/* endpoints.
 //
 // Contract (apps/backend/src/lib/csrf.ts):
@@ -115,7 +116,7 @@ describe("REQ-146 CSRF double-submit preHandler", () => {
       .send({
         email: "csrf-exempt@example.com",
         username: "csrf_exempt",
-        password: "password1234",
+        password: TEST_PASSWORD_OK,
         name: "CSRF Exempt",
       });
     // 200 = sign-up succeeded; anything OTHER than 403 proves the exempt.

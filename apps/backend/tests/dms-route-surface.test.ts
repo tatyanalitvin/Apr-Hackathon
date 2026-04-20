@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // R13 (no separate DM history) + R14 (room_ban not applicable to DMs).
 //
 // R13: GET /api/v1/dms/:id/messages MUST NOT exist. DM history is
@@ -27,7 +28,7 @@ async function register(
   const agent = request.agent(app.server);
   await agent
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   const [row] = await getTestDb()
     .select({ id: user.id })

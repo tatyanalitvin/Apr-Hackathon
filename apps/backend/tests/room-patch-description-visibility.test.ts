@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // REQ-022 / REQ-028 / REQ-087 / REQ-088 — backend coverage for the S3
 // widening of PATCH /api/v1/rooms/:id:
 //   • description (≤500, NFC, nullable-clear) accepted alongside name
@@ -54,7 +55,7 @@ async function signUp(
   const agent = request.agent(app.server);
   const res = await agent
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   const raw = res.headers["set-cookie"];
   const arr = Array.isArray(raw) ? raw : raw ? [raw] : [];

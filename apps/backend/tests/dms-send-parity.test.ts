@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // R8 (REQ-062) send parity — a DM send MUST emit message.new with the
 // exact same event shape as a group-room send. No new event name, no
 // new field. The S1 REQ-034 assertion (seq === roomHeadSeq ===
@@ -36,7 +37,7 @@ async function register(
   const agent = request.agent(app.server);
   const res = await agent
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   const setCookie = res.headers["set-cookie"];
   const cookies = Array.isArray(setCookie) ? setCookie : setCookie ? [setCookie] : [];

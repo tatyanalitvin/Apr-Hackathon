@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // Concurrent find-or-create race — REQ-061 R1 tail. 20 parallel POSTs
 // with the same target MUST collapse to a single room. Some responses
 // win 201 (inserter), the rest 200 (idempotent find or post-conflict
@@ -26,7 +27,7 @@ async function register(
   const agent = request.agent(app.server);
   await agent
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   const [row] = await getTestDb()
     .select({ id: user.id })

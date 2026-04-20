@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // REQ-018 — POST /api/auth/reset-password confirms a password reset token.
 //
 // Endpoint verified in
@@ -25,7 +26,7 @@ import { auth } from "../src/auth";
 const seed = {
   email: "reset-confirm@example.com",
   username: "reset_confirm",
-  password: "password1234",
+  password: TEST_PASSWORD_OK,
   name: "Reset Confirm",
 };
 

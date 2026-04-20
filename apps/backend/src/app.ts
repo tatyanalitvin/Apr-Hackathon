@@ -16,6 +16,7 @@ import { auth, SESSION_COOKIE_PREFIX } from "./auth";
 import { db } from "./db";
 import { toFetchHeaders } from "./lib/fetch-headers";
 import { checkRegisterRateLimit } from "./lib/register-rate-limit";
+import { isCommonPassword } from "./lib/password-blocklist";
 import { sessionsRoutes } from "./routes/sessions";
 import { messagesRoutes } from "./routes/messages";
 import { friendshipRoutes } from "./routes/friendship";
@@ -200,7 +201,11 @@ export async function buildApp(): Promise<FastifyInstance> {
       // that make it past the bucket. better-auth's own per-/32 rule in
       // auth.ts stays as a belt-and-suspenders cap; see lib/register-rate-
       // limit.ts for the CIDR rationale.
-      preHandler: [registerRateLimitGuard, zodBodyGuard(registerSchema)],
+      preHandler: [
+        registerRateLimitGuard,
+        zodBodyGuard(registerSchema),
+        passwordPolicyGuard,
+      ],
     },
     proxyToBetterAuth,
   );
@@ -329,10 +334,53 @@ async function deletedAccountGuard(
 // the 429 mirrors @fastify/rate-limit's (retryAfterSec seconds) so the
 // existing client-side handler in apps/web/src/lib/backend.ts doesn't need
 // a special case.
+// ─── REQ-006 common-password blocklist guard ──────────────────────────────
+// Runs AFTER zodBodyGuard (so `request.body.password` is a validated string in
+// the 12–128 byte range) and BEFORE proxyToBetterAuth (so a common password
+// never reaches the DB write). The 4xx envelope mirrors zodBodyGuard's shape
+// (`{error:"validation", issues:[{path,message,code}]}`) so clients can
+// regex-match all password validation errors on the same "password_*" prefix
+// convention. The blocklist itself is a 100 KB committed asset loaded once per
+// worker at import time; see lib/password-blocklist.ts for the loader.
+async function passwordPolicyGuard(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const pw = (request.body as { password?: unknown })?.password;
+  if (typeof pw !== "string") return;
+  if (isCommonPassword(pw)) {
+    return reply.status(400).send({
+      error: "validation",
+      issues: [
+        {
+          path: ["password"],
+          message: "password_common: password is too common",
+          code: "custom",
+        },
+      ],
+    });
+  }
+}
+
 async function registerRateLimitGuard(
   request: FastifyRequest,
   reply: FastifyReply,
 ) {
+  // Test-mode bypass: the /24 bucket is keyed on request.ip, which supertest
+  // pins to 127.0.0.1 across every test file. With `vitest singleFork: true`
+  // and ~600 sign-ups across the full suite, the 5-per-hour production cap
+  // would trip after the first ~dozen files — even though
+  // `tests/setup.ts beforeEach flushRedis()` resets the counter between
+  // tests, sign-ups WITHIN a single test file (e.g. `users-unban.test.ts`
+  // signs up 11 users across 6 tests) still overflow because beforeEach
+  // doesn't fire MID-test. The REQ-009 /24-subnet contract is still
+  // exercised in isolation by `register-rate-limit.test.ts`, which calls
+  // `checkRegisterRateLimit` directly with rotating IPs; only the Fastify
+  // preHandler path is skipped here.
+  // See docs/FOLLOWUPS.md "Backend sign-up rate-limit bleed" / "parallel-DB
+  // FK race".
+  if (env.NODE_ENV === "test") return;
+
   const outcome = await checkRegisterRateLimit(request.ip);
   if (!outcome.allowed) {
     return reply

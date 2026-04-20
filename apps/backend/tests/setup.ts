@@ -15,7 +15,12 @@ process.env.REDIS_URL = inject("redisUrl");
 
 // Remaining env — priming only (existing tests depend on these defaults).
 process.env.NODE_ENV ??= "test";
-process.env.LOG_LEVEL ??= "warn";
+// `error` keeps the full-suite output signal-rich in CI by muting the
+// `auto-enroll skipped: 'general' room not seeded` warn from auth.ts that
+// fires on every sign-up (600+ across the suite) — that contract is covered
+// explicitly by `register-auto-enroll.test.ts` test 3. pino rejects "silent";
+// per-memory `feedback-pino-log-level`.
+process.env.LOG_LEVEL ??= "error";
 process.env.PORT ??= "4001";
 process.env.WEB_ORIGIN ??= "http://localhost:3000";
 process.env.SESSION_SECRET ??= "test-session-secret-32-chars-min!!";

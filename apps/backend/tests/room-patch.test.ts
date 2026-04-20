@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // REQ-087 integration tests for PATCH /api/v1/rooms/:id (rename).
 // Creator-only authz (room.ownerId === user.id). DM rooms rejected.
 // Rate-limit 10/hr/user (shares the auth → rate-limit → zod order pattern).
@@ -40,7 +41,7 @@ async function registerAgent(
   const agent = request.agent(app.server);
   await agent
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   return { agent, userId: await userIdByEmail(email) };
 }

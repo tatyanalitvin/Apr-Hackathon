@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // POST /api/v1/rooms/:id/messages — REQ-029 send message.
 // Also exercises REQ-031 (NFC + control-strip) end-to-end through the route
 // (the helper is unit-tested in src/lib/message-text.test.ts).
@@ -36,7 +37,7 @@ async function registerAgent(app: FastifyInstance, email: string, username: stri
   const agent = request.agent(app.server);
   await agent
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   return { agent, userId: await userIdByEmail(email) };
 }

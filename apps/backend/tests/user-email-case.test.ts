@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // REQ-003 — case-insensitive email uniqueness.
 //
 // v3.docx §2.1.2 says "Email must be unique," which in web-chat convention
@@ -39,7 +40,7 @@ describe("REQ-003 email uniqueness is case-insensitive", () => {
       .send({
         email: "Alice@example.com",
         username: "alice_01",
-        password: "password1234",
+        password: TEST_PASSWORD_OK,
         name: "Alice",
       });
     expect(first.status).toBe(200);
@@ -49,7 +50,7 @@ describe("REQ-003 email uniqueness is case-insensitive", () => {
       .send({
         email: "alice@example.com",
         username: "alice_02",
-        password: "password1234",
+        password: TEST_PASSWORD_OK,
         name: "Alice",
       });
     expect(second.status).toBeGreaterThanOrEqual(400);
@@ -70,7 +71,7 @@ describe("REQ-003 email uniqueness is case-insensitive", () => {
       .send({
         email: "MiXeD@Example.COM",
         username: "mixed_case_1",
-        password: "password1234",
+        password: TEST_PASSWORD_OK,
         name: "Mixed",
       })
       .expect(200);
@@ -101,14 +102,14 @@ describe("REQ-003 sign-in accepts any case variation of a registered email", () 
       .send({
         email: "case@example.com",
         username: "case_a",
-        password: "password1234",
+        password: TEST_PASSWORD_OK,
         name: "Case A",
       })
       .expect(200);
 
     const res = await request(app.server)
       .post("/api/auth/sign-in/email")
-      .send({ email: "CASE@EXAMPLE.COM", password: "password1234" });
+      .send({ email: "CASE@EXAMPLE.COM", password: TEST_PASSWORD_OK });
     expect(res.status).toBe(200);
   });
 
@@ -118,14 +119,14 @@ describe("REQ-003 sign-in accepts any case variation of a registered email", () 
       .send({
         email: "BoB@Example.com",
         username: "case_b",
-        password: "password1234",
+        password: TEST_PASSWORD_OK,
         name: "Case B",
       })
       .expect(200);
 
     const res = await request(app.server)
       .post("/api/auth/sign-in/email")
-      .send({ email: "bob@example.com", password: "password1234" });
+      .send({ email: "bob@example.com", password: TEST_PASSWORD_OK });
     expect(res.status).toBe(200);
   });
 });

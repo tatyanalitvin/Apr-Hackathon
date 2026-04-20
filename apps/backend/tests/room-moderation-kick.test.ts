@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // REQ-203 / REQ-207 (kicked payload) / REQ-208 (forced socket leave).
 // Binding spec: docs/specs/s2-moderation.md §4 REQ-203/207/208 + §5 socket-leave design + §6 Task 4.
 //
@@ -55,7 +56,7 @@ async function registerAgent(
   const agent = request.agent(app.server);
   const res = await agent
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   const setCookie = res.headers["set-cookie"];
   const cookies = Array.isArray(setCookie) ? setCookie : setCookie ? [setCookie] : [];

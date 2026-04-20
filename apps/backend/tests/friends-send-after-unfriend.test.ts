@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // REQ-051 / REQ-059 — resend friend request after unfriend.
 // Hotfix: the post-unfriend state leaves friend_request at status='accepted'
 // (DELETE /friends/:userId only tears down the friendship row — see R12).
@@ -41,7 +42,7 @@ async function registerAgent(
   const agent = request.agent(app.server);
   await agent
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   return { agent, userId: await userIdByEmail(email) };
 }

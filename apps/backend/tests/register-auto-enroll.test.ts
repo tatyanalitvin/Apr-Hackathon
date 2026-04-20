@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // Auto-enroll new users into the seeded 'general' room on signup.
 //
 // NOT a v4 REQ — v4 REQ-022 is "Room description" (unimplemented; tracked in
@@ -76,7 +77,7 @@ describe("auto-enroll new users in 'general' on sign-up (non-v4 convenience, see
       .send({
         email: "enroll-one@example.com",
         username: "enroll_one",
-        password: "password1234",
+        password: TEST_PASSWORD_OK,
         name: "Enroll One",
       })
       .expect(200);
@@ -103,7 +104,7 @@ describe("auto-enroll new users in 'general' on sign-up (non-v4 convenience, see
       .send({
         email: "enroll-two@example.com",
         username: "enroll_two",
-        password: "password1234",
+        password: TEST_PASSWORD_OK,
         name: "Enroll Two",
       })
       .expect(200);
@@ -147,7 +148,7 @@ describe("auto-enroll new users in 'general' on sign-up (non-v4 convenience, see
       .send({
         email: "enroll-noroom@example.com",
         username: "enroll_noroom",
-        password: "password1234",
+        password: TEST_PASSWORD_OK,
         name: "Enroll NoRoom",
       });
 

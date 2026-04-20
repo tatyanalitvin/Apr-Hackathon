@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // PATCH /api/v1/rooms/:roomId/messages/:messageId — REQ-110/111/114.
 // Author-only edit with a server-stamped `editedAt` timestamp and a
 // live `message.edited` broadcast. Deleted messages reject with 410.
@@ -46,7 +47,7 @@ async function registerAgent(
   const agent = request.agent(app.server);
   await agent
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   return { agent, userId: await userIdByEmail(email) };
 }

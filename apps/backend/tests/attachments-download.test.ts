@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // REQ-078 / REQ-083 / R6 / R11 / R14 / R16 — attachment download endpoint.
 // Binding spec: docs/specs/s2-attachments.md §4 R6, R11, R14, R16.
 //
@@ -47,7 +48,7 @@ async function registerAgent(
   const agent = request.agent(app.server);
   await agent
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   return { agent, userId: await userIdByEmail(email) };
 }

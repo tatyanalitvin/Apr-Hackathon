@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // REQ-214 — v3 §2.7.1 / §4.4 DM unread badges.
 // GET /api/v1/dms must compute `unreadCount = max(0, headSeq - lastReadSeq)`
 // per DM room, NOT the `0` placeholder the old handler returned.
@@ -35,7 +36,7 @@ async function register(
   const agent = request.agent(app.server);
   await agent
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   const [row] = await getTestDb()
     .select({ id: user.id })
