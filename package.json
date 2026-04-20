@@ -23,6 +23,7 @@
     "prepare": "husky || true"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.11.2",
     "@playwright/test": "^1.49.1",
     "prettier": "^3.4.2",
     "redis": "^4.7.0",
