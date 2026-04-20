@@ -5,7 +5,7 @@
 //   friend            → Start DM (createDm → /rooms/:roomId)
 //   none              → Send friend request (POST /api/v1/friends/requests)
 //   request_outgoing  → "Request sent" (disabled)
-//   request_incoming  → Accept → /friends (deep-link, no inline accept)
+//   request_incoming  → Accept → /contacts (deep-link, no inline accept)
 
 "use client";
 
