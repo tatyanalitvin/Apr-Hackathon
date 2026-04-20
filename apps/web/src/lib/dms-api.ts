@@ -4,15 +4,17 @@
 // (`self_dm`, `dm_not_allowed`, `user_not_found`) don't leak into the
 // friendship union type.
 
-import type { DmListItem } from "@ai-herders/shared/protocol";
+import type { DmListItem, UserSearchHit } from "@ai-herders/shared/protocol";
 import { BACKEND_URL, csrfHeaders } from "./backend";
 
 export type DmErrorCode =
   | "unauthorized"
   | "validation"
+  | "invalid_query"
   | "self_dm"
   | "dm_not_allowed"
   | "user_not_found"
+  | "rate_limited"
   | "network"
   | "unknown";
 
@@ -90,6 +92,30 @@ export async function createDm(userId: string): Promise<DmResult<CreateDmResult>
       ok: true,
       data: { ...data, created: res.status === 201 },
     };
+  } catch {
+    return { ok: false, error: { code: "unknown", status: res.status } };
+  }
+}
+
+// REQ-UserSearch §2.4 — directory search (docs/specs/s3-user-search.md).
+// 2-char minimum is enforced on both sides: UI guards in NewDmDialog,
+// backend re-validates in routes/users.ts. Error codes widened to include
+// 'rate_limited' (60/min per-user) + 'invalid_query' (network-layer guard
+// for the <2-char / >64-char / empty-q edges).
+export async function searchUsers(q: string): Promise<DmResult<UserSearchHit[]>> {
+  let res: Response;
+  try {
+    res = await fetch(
+      `${BACKEND_URL}/api/v1/users?q=${encodeURIComponent(q)}`,
+      { credentials: "include" },
+    );
+  } catch {
+    return { ok: false, error: { code: "network" } };
+  }
+  if (!res.ok) return { ok: false, error: await parseError(res) };
+  try {
+    const data = (await res.json()) as { users: UserSearchHit[] };
+    return { ok: true, data: data.users };
   } catch {
     return { ok: false, error: { code: "unknown", status: res.status } };
   }
