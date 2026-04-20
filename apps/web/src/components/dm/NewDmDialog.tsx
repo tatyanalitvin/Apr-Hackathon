@@ -75,16 +75,27 @@ export function NewDmDialog() {
   // Track the q that fired the last request so a stale 300ms timer
   // doesn't clobber fresher results.
   const inFlightRef = useRef<string>("");
+  // Mirrors `query` so the in-flight response handler can compare against the
+  // live input instead of the closure-captured trimmed value (which goes
+  // stale if the user clears/changes the query mid-request).
+  const queryRef = useRef<string>("");
   // Refreshes after an inline accept need to re-read the directory so the
   // accepted row flips from request_incoming → friend.
   const refreshRef = useRef<() => Promise<void>>(async () => {});
 
   useEffect(() => {
+    queryRef.current = query;
     const trimmed = query.trim();
     if (trimmed.length < MIN_QUERY) {
       setHits(null);
       setLoading(false);
       setError(null);
+      // Invalidate any in-flight request for a prior query so its resolve
+      // doesn't write phantom results into the now-empty input, and replace
+      // the refresh ref with a no-op so inline-accept callers don't re-fire
+      // a stale search after the input was cleared.
+      inFlightRef.current = "";
+      refreshRef.current = async () => {};
       return;
     }
     const runSearch = async () => {
@@ -92,7 +103,10 @@ export function NewDmDialog() {
       setLoading(true);
       setError(null);
       const r = await searchUsers(trimmed);
+      // Drop the response if the query moved on (including being cleared
+      // below MIN_QUERY, which resets inFlightRef and queryRef).
       if (inFlightRef.current !== trimmed) return; // stale
+      if (queryRef.current.trim() !== trimmed) return; // stale
       setLoading(false);
       if (r.ok) {
         setHits(r.data);
