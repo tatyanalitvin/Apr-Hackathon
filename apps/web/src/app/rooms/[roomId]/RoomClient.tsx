@@ -566,7 +566,7 @@ function RoomContent({ roomId }: { roomId: string }) {
   return (
     <div className="flex flex-col h-dvh">
       <Header selfPresence={selfPresence} />
-      <main id="main" className="flex flex-1 min-h-0">
+      <main id="main" className="flex flex-col lg:flex-row flex-1 min-h-0">
         <aside className="hidden lg:flex lg:flex-col w-[256px] shrink-0 glass-panel m-3 p-4 overflow-y-auto">
           <InboxList onAccepted={() => refreshMyRooms()} />
           <RoomList rooms={displayedRooms} currentRoomId={roomId} onRoomCreated={refreshMyRooms} />
@@ -641,9 +641,24 @@ function RoomContent({ roomId }: { roomId: string }) {
             />
           </ChatComposer>
         </section>
-        <aside className="hidden min-[1100px]:flex min-[1100px]:flex-col w-[240px] shrink-0 glass-panel m-3 p-4 overflow-y-auto" style={{ color: "var(--text-lo)" }}>
+        {/*
+          REQ-045: single MemberList instance — renders once across breakpoints
+          to avoid a duplicate presence-store subscription and duplicate ARIA
+          landmark. Below 1024px it shows as an accordion inside <main> (which
+          is flex-col at that range); between 1024–1099px it is hidden (parity
+          with prior behavior); at ≥1100px it becomes the right-rail pane with
+          the <summary> hidden so <details open> behaves like a static panel.
+        */}
+        <details
+          open
+          className="max-lg:block lg:hidden min-[1100px]:flex min-[1100px]:flex-col w-full min-[1100px]:w-[240px] shrink-0 max-lg:border-t min-[1100px]:glass-panel min-[1100px]:m-3 min-[1100px]:p-4 overflow-y-auto"
+          style={{ color: "var(--text-lo)" }}
+        >
+          <summary className="px-4 py-2 text-sm font-medium cursor-pointer min-[1100px]:hidden">
+            Members ({displayedMembers.length})
+          </summary>
           <MemberList members={displayedMembers} selfPresence={selfPresence} />
-        </aside>
+        </details>
       </main>
 
       {/* Mobile accordion fallback — shown below 1024px */}
@@ -652,10 +667,6 @@ function RoomContent({ roomId }: { roomId: string }) {
           <summary className="px-4 py-2 text-sm font-medium cursor-pointer">Rooms</summary>
           <InboxList onAccepted={() => refreshMyRooms()} />
           <RoomList rooms={displayedRooms} currentRoomId={roomId} onRoomCreated={refreshMyRooms} />
-        </details>
-        <details className="border-t">
-          <summary className="px-4 py-2 text-sm font-medium cursor-pointer">Members ({displayedMembers.length})</summary>
-          <MemberList members={displayedMembers} selfPresence={selfPresence} />
         </details>
       </div>
     </div>
