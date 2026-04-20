@@ -134,7 +134,11 @@ export function MessageComposer({
   const anyUploading = pending.some((p) => p.status === "uploading");
 
   const hasContent = trimmed.length > 0 || readyAttachmentIds.length > 0;
-  const canSend = !sending && !disabled && !anyUploading && hasContent && !overLimit;
+  // `canEnqueue` drops the `!sending` gate so rapid Enters queue onto the
+  // in-flight send rather than being dropped. `canSend` keeps `!sending`
+  // because the button + first-send path still want the classic gate.
+  const canEnqueue = !disabled && !anyUploading && hasContent && !overLimit;
+  const canSend = !sending && canEnqueue;
 
   const uploadFiles = useCallback(
     async (files: File[]) => {
@@ -193,7 +197,7 @@ export function MessageComposer({
     // the queue and clear the composer so the user can keep typing. The
     // in-flight send's finally drains the queue serially.
     if (sendingRef.current) {
-      if (!canSend) return;
+      if (!canEnqueue) return;
       const attachmentIds = readyAttachmentIds;
       const body = (trimmed.length === 0 && attachmentIds.length > 0
         ? "📎"
@@ -269,6 +273,7 @@ export function MessageComposer({
     }
   }, [
     canSend,
+    canEnqueue,
     trimmed,
     readyAttachmentIds,
     onSend,

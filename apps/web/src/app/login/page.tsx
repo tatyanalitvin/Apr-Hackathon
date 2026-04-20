@@ -95,7 +95,7 @@ function LoginForm() {
               {form.formState.isSubmitting ? "Signing in…" : "Sign in"}
             </Button>
             <p className="text-sm text-center text-muted-foreground">
-              No account yet? <Link className="underline" href={`/register?next=${encodeURIComponent(nextTarget)}`}>Create one</Link>
+              Need an account? <Link className="underline" href={`/register?next=${encodeURIComponent(nextTarget)}`}>Create one</Link>
             </p>
           </form>
         </CardContent>
