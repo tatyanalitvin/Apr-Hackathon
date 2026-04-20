@@ -8,7 +8,7 @@
 import { useState } from "react";
 import { Check, X, Ban, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar } from "@/components/avatar/Avatar";
 import { Button } from "@/components/ui/button";
 import {
   acceptFriendRequest,
@@ -89,9 +89,7 @@ function IncomingRow({
   return (
     <li className="flex flex-col gap-2 rounded-md border border-border/60 p-3">
       <div className="flex items-center gap-3">
-        <Avatar className="h-9 w-9">
-          <AvatarFallback>{request.from.name.slice(0, 1).toUpperCase()}</AvatarFallback>
-        </Avatar>
+        <Avatar userId={request.from.userId} name={request.from.name} size={40} />
         <div className="min-w-0 flex-1 leading-tight">
           <div className="truncate text-sm font-medium">{request.from.name}</div>
           <div className="truncate text-xs text-muted-foreground">

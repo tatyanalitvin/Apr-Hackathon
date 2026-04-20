@@ -5,7 +5,7 @@
 "use client";
 
 import { Hourglass } from "lucide-react";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar } from "@/components/avatar/Avatar";
 import { Badge } from "@/components/ui/badge";
 import type { OutgoingFriendRequest } from "@/lib/friendship-api";
 
@@ -32,9 +32,7 @@ export function OutgoingRequestsTab({ requests, loading }: OutgoingTabProps) {
           key={r.id}
           className="flex items-center gap-3 rounded-md border border-border/60 px-3 py-2"
         >
-          <Avatar className="h-9 w-9">
-            <AvatarFallback>{r.to.name.slice(0, 1).toUpperCase()}</AvatarFallback>
-          </Avatar>
+          <Avatar userId={r.to.userId} name={r.to.name} size={40} />
           <div className="min-w-0 flex-1 leading-tight">
             <div className="truncate text-sm font-medium">{r.to.name}</div>
             <div className="truncate text-xs text-muted-foreground">@{r.to.username}</div>

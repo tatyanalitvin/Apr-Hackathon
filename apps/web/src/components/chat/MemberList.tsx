@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { UserPresenceState } from "@ai-herders/shared/protocol";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar } from "@/components/avatar/Avatar";
 import { Button } from "@/components/ui/button";
 import { AddFriendButton } from "@/components/contacts/AddFriendButton";
 import { PresencePill, usePresence } from "@/components/chat/PresencePill";
@@ -37,9 +37,7 @@ function MemberRow({ member, isSelf }: { member: MemberListItem; isSelf: boolean
   return (
     <li className="flex items-center gap-2 rounded px-2 py-1 hover:bg-accent/40">
       <PresencePill userId={member.id} />
-      <Avatar className="h-6 w-6">
-        <AvatarFallback>{member.displayName.slice(0, 1).toUpperCase()}</AvatarFallback>
-      </Avatar>
+      <Avatar userId={member.id} name={member.displayName} size={24} />
       <div className="min-w-0 flex-1 text-sm leading-tight">
         <div className="flex items-center gap-1 truncate">
           <span className="truncate">{member.displayName}</span>
