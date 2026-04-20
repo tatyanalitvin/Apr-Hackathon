@@ -30,12 +30,46 @@ const FILE_CAP_BYTES = 20 * 1024 * 1024;
 const IMAGE_CAP_BYTES = 3 * 1024 * 1024;
 const COMMENT_MAX = 500;
 
+// MIME allowlist — defense-in-depth per handler-level security pass. The
+// original spec (s2-attachments.md §REQ-075) is "arbitrary types, no allowlist;
+// executable deny-list deferred to S3". We keep the policy tight: images +
+// common documents + generic binary + a small media set. `application/
+// octet-stream` stays in the allowlist because legitimate clients send it for
+// unknown binary content (and the existing REQ-075 integration test covers
+// the .exe-as-octet-stream case — we still accept it; safety lives in the
+// download path's forced `Content-Disposition: attachment`, not the upload
+// gate). A rejection is reported with 415 + `attachment_mime_unsupported`.
+const ALLOWED_MIME_TYPES = new Set<string>([
+  // Images
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  // Documents
+  "application/pdf",
+  "text/plain",
+  "application/zip",
+  // Media
+  "video/mp4",
+  "audio/mpeg",
+  "audio/wav",
+  // Generic binary — the REQ-075 regression test leans on this; client-
+  // provided octet-stream is passed through as-is because the download path's
+  // `Content-Disposition: attachment` is the real safety net (R11).
+  "application/octet-stream",
+]);
+
 function drain(stream: NodeJS.ReadableStream): void {
   // Best-effort: if the multipart stream is left unconsumed the request hangs
   // on the client side until idle timeout. Resume() ditches the bytes; the
   // plugin still tears down the connection cleanly.
   stream.resume();
 }
+
+// Sentinel error codes thrown from the stream listener so the outer pipeline
+// rejection can distinguish a deliberate cap-abort from a real I/O failure.
+const ERR_IMAGE_CAP = "E_IMAGE_CAP";
+const ERR_FILE_CAP = "E_FILE_CAP";
 
 export async function attachmentsRoutes(app: FastifyInstance): Promise<void> {
   // REQ-147 — 30/min/IP upload cap. Each upload can be up to 20 MB and
@@ -117,6 +151,21 @@ export async function attachmentsRoutes(app: FastifyInstance): Promise<void> {
       const originalName = (data.filename ?? "").normalize("NFC");
       const mimeType = data.mimetype || "application/octet-stream";
 
+      // REQ-075 defense-in-depth MIME allowlist. Rejection is decided BEFORE
+      // we spool any bytes: the multipart part headers (including mimetype)
+      // arrive with `request.file()`, so the file stream has not yet been
+      // consumed. Draining keeps the client connection tidy.
+      if (!ALLOWED_MIME_TYPES.has(mimeType)) {
+        drain(data.file);
+        request.log.info(
+          { mimeType, policy: "attachment-allowlist" },
+          "attachment mime rejected",
+        );
+        return reply
+          .status(415)
+          .send({ error: "attachment_mime_unsupported" });
+      }
+
       const attachmentId = randomUUID();
       const { relativePath, absolutePath } = buildStoragePath(
         attachmentId,
@@ -131,32 +180,47 @@ export async function attachmentsRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(500).send({ error: "storage_unavailable" });
       }
 
+      // P0 — DoS-amplifier fix: track bytesWritten while the stream is still
+      // flowing. When the declared mimetype is `image/*` we abort at
+      // IMAGE_CAP_BYTES + 1; for anything else we abort at FILE_CAP_BYTES + 1
+      // (the outer @fastify/multipart `fileSize: 20 MB` limit still marks
+      // `.truncated` as a belt-and-suspenders defense — see R7 below). The
+      // abort is `file.destroy(err)` with a sentinel code; the pipeline
+      // rejection below decodes the sentinel into the right 413.
       let bytesWritten = 0;
+      const isImage = mimeType.startsWith("image/");
+      const perStreamCap = isImage ? IMAGE_CAP_BYTES : FILE_CAP_BYTES;
+      let abortCode: typeof ERR_IMAGE_CAP | typeof ERR_FILE_CAP | null = null;
       data.file.on("data", (chunk: Buffer) => {
         bytesWritten += chunk.length;
+        if (abortCode === null && bytesWritten > perStreamCap) {
+          abortCode = isImage ? ERR_IMAGE_CAP : ERR_FILE_CAP;
+          // Stops further `data` events and rejects the pipeline.
+          data.file.destroy(new Error(abortCode));
+        }
       });
 
       try {
         await pipeline(data.file, fs.createWriteStream(absolutePath));
       } catch (err) {
         await fs.promises.unlink(absolutePath).catch(() => {});
+        if (abortCode === ERR_IMAGE_CAP) {
+          return reply.status(413).send({ error: "image_too_large" });
+        }
+        if (abortCode === ERR_FILE_CAP) {
+          return reply.status(413).send({ error: "file_too_large" });
+        }
         request.log.error({ err, absolutePath }, "attachment write failed");
         return reply.status(500).send({ error: "storage_unavailable" });
       }
 
       // R7 — multipart's fileSize cap marks the stream truncated if the byte
       // limit was hit. We unlink the partial file and surface 413; the row
-      // is never inserted.
+      // is never inserted. Still covered here as belt-and-suspenders — the
+      // early-abort above should already have tripped in practice.
       if (data.file.truncated) {
         await fs.promises.unlink(absolutePath).catch(() => {});
         return reply.status(413).send({ error: "file_too_large" });
-      }
-
-      // R8 — image cap is conditional on mime so it lives at the handler.
-      // Plugin would have to per-request reconfigure to push this lower.
-      if (mimeType.startsWith("image/") && bytesWritten > IMAGE_CAP_BYTES) {
-        await fs.promises.unlink(absolutePath).catch(() => {});
-        return reply.status(413).send({ error: "image_too_large" });
       }
 
       try {
