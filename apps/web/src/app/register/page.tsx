@@ -8,7 +8,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { registerSchema, type RegisterInput } from "@ai-herders/shared/dto";
-import { signUp } from "@/lib/auth-client";
+import { BACKEND_URL } from "@/lib/backend";
 import { safeNextOr } from "@/lib/safe-next";
 import { AuthSplitLayout } from "@/components/auth/AuthSplitLayout";
 import { Button } from "@/components/ui/button";
@@ -32,19 +32,82 @@ function RegisterForm() {
   });
 
   const onSubmit = form.handleSubmit(async (values) => {
-    const res = await signUp.email({
-      email: values.email,
-      password: values.password,
-      name: values.name,
-      ...({ username: values.username } as Record<string, string>),
+    // Raw fetch instead of better-auth's signUp.email — the client flattens
+    // our zodBodyGuard/passwordPolicyGuard response envelope
+    // ({error:"validation", issues:[{path,message,code}]}) into a bare
+    // "Registration failed" because better-auth only surfaces a top-level
+    // `message`, which our envelope doesn't have. Going direct lets us
+    // attach the password_common / username_taken / etc. messages to the
+    // offending field. The backend still Set-Cookie's the session; the
+    // subsequent router.replace triggers a hard nav that picks it up.
+    const res = await fetch(`${BACKEND_URL}/api/auth/sign-up/email`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        email: values.email,
+        password: values.password,
+        name: values.name,
+        username: values.username,
+      }),
     });
-    if (res.error) {
-      const msg = res.error.message ?? "Registration failed";
-      toast.error(msg);
-      form.setError("root", { message: msg });
+
+    if (res.ok) {
+      router.replace(nextTarget);
       return;
     }
-    router.replace(nextTarget);
+
+    type Issue = { path?: unknown; message?: string; code?: string };
+    const body = (await res.json().catch(() => null)) as
+      | { error?: string; issues?: Issue[]; code?: string; message?: string }
+      | null;
+
+    const fieldMap: Record<string, keyof RegisterInput> = {
+      email: "email",
+      username: "username",
+      name: "name",
+      password: "password",
+      passwordConfirm: "passwordConfirm",
+    };
+
+    const prettyPw = (raw: string): string => {
+      if (raw.startsWith("password_common"))
+        return "This password is too common — please pick a stronger one.";
+      if (raw.startsWith("password_too_short"))
+        return "Password is too short (minimum 12 characters).";
+      if (raw.startsWith("password_too_long"))
+        return "Password is too long (maximum 128 characters).";
+      return raw;
+    };
+
+    // Shape 1 — our zodBodyGuard/passwordPolicyGuard envelope.
+    if (Array.isArray(body?.issues) && body.issues.length > 0) {
+      let rootMsg: string | undefined;
+      for (const issue of body.issues) {
+        const key = Array.isArray(issue.path) ? String(issue.path[0] ?? "") : "";
+        const target = fieldMap[key];
+        const message =
+          target === "password" ? prettyPw(issue.message ?? "") : issue.message ?? "Invalid input";
+        if (target) {
+          form.setError(target, { message });
+        } else {
+          rootMsg = rootMsg ?? message;
+        }
+      }
+      const firstVisible = body.issues[0]?.message ?? "Please fix the highlighted fields.";
+      const pretty =
+        body.issues[0] && Array.isArray(body.issues[0].path) && body.issues[0].path[0] === "password"
+          ? prettyPw(firstVisible)
+          : firstVisible;
+      toast.error(pretty);
+      if (rootMsg) form.setError("root", { message: rootMsg });
+      return;
+    }
+
+    // Shape 2 — better-auth canonical {code, message} (e.g. USER_ALREADY_EXISTS).
+    const canonical = body?.message ?? body?.code ?? `Registration failed (${res.status})`;
+    toast.error(canonical);
+    form.setError("root", { message: canonical });
   });
 
   return (
