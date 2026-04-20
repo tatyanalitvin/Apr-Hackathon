@@ -43,3 +43,16 @@ if (typeof window !== "undefined") {
     });
   }
 }
+
+// Radix primitives (via @radix-ui/react-use-size) hit `new ResizeObserver()` on
+// mount. jsdom does not ship one — without a polyfill, CreateRoomDialog and any
+// other Radix Popover/Select-based test crashes at render time.
+if (typeof globalThis.ResizeObserver === "undefined") {
+  class NoopResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  (globalThis as unknown as { ResizeObserver: typeof NoopResizeObserver }).ResizeObserver =
+    NoopResizeObserver;
+}

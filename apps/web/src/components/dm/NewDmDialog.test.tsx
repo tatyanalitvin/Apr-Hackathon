@@ -12,6 +12,8 @@ import { NewDmDialog } from "./NewDmDialog";
 const searchUsersMock = vi.fn<(q: string) => Promise<DmResult<UserSearchHit[]>>>();
 const createDmMock = vi.fn<(id: string) => Promise<DmResult<CreateDmResult>>>();
 const pushMock = vi.fn<(path: string) => void>();
+const listIncomingRequestsMock = vi.fn();
+const acceptFriendRequestMock = vi.fn();
 
 vi.mock("@/lib/dms-api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/dms-api")>(
@@ -21,6 +23,18 @@ vi.mock("@/lib/dms-api", async () => {
     ...actual,
     searchUsers: (q: string) => searchUsersMock(q),
     createDm: (id: string) => createDmMock(id),
+  };
+});
+
+vi.mock("@/lib/friendship-api", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/friendship-api")>(
+    "@/lib/friendship-api",
+  );
+  // Keep sendFriendRequest real so R22's fetchSpy still observes the POST.
+  return {
+    ...actual,
+    listIncomingRequests: () => listIncomingRequestsMock(),
+    acceptFriendRequest: (id: string) => acceptFriendRequestMock(id),
   };
 });
 
@@ -50,6 +64,8 @@ beforeEach(() => {
   searchUsersMock.mockReset();
   createDmMock.mockReset();
   pushMock.mockReset();
+  listIncomingRequestsMock.mockReset();
+  acceptFriendRequestMock.mockReset();
 });
 
 describe("REQ-UserSearch §2.4 NewDmDialog R19 — mount + search input", () => {
@@ -162,17 +178,48 @@ describe("REQ-UserSearch §2.4 NewDmDialog R23 — outgoing row", () => {
 });
 
 describe("REQ-UserSearch §2.4 NewDmDialog R24 — incoming row", () => {
-  it("request_incoming → 'Accept' button routes to /contacts", async () => {
-    searchUsersMock.mockResolvedValue({
+  it("request_incoming → 'Accept' accepts inline and refreshes the search", async () => {
+    // R24 now keeps the user in-flow: click Accept → resolve the incoming
+    // request id via listIncomingRequests → accept → re-run the current
+    // search so the row flips from request_incoming → friend. No /contacts
+    // navigation, no push.
+    searchUsersMock
+      .mockResolvedValueOnce({
+        ok: true,
+        data: [hit({ relationship: "request_incoming", userId: "usr-bob" })],
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: [hit({ relationship: "friend", userId: "usr-bob" })],
+      });
+    listIncomingRequestsMock.mockResolvedValue({
       ok: true,
-      data: [hit({ relationship: "request_incoming" })],
+      data: [
+        {
+          id: "frq-1",
+          from: { userId: "usr-bob", username: "bob", name: "Bob Bobson" },
+          createdAt: "2026-04-20T00:00:00Z",
+        },
+      ],
     });
+    acceptFriendRequestMock.mockResolvedValue({ ok: true, data: { accepted: true } });
+
     const user = await openDialog();
     const input = screen.getByRole("searchbox", { name: /search/i });
     await user.type(input, "bob");
     const accept = await screen.findByRole("button", { name: /accept/i });
     await user.click(accept);
-    expect(pushMock).toHaveBeenCalledWith(
+
+    await waitFor(() => {
+      expect(listIncomingRequestsMock).toHaveBeenCalled();
+      expect(acceptFriendRequestMock).toHaveBeenCalledWith("frq-1");
+    });
+    // Row refreshes to friend and the Start-DM affordance appears.
+    expect(
+      await screen.findByRole("button", { name: /start dm/i }),
+    ).toBeInTheDocument();
+    // The old spec pushed to /contacts; the new spec stays in the dialog.
+    expect(pushMock).not.toHaveBeenCalledWith(
       expect.stringMatching(/\/contacts/),
     );
   });

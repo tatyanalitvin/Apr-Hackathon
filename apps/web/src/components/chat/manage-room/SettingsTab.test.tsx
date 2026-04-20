@@ -126,6 +126,9 @@ describe("REQ-088 SettingsTab visibility diff", () => {
 
   it("sends only visibility when that's all that changed", async () => {
     const user = userEvent.setup();
+    // REQ-088 (UX) — flipping public→private now pops a window.confirm.
+    // jsdom's default returns undefined/false, so we stub true here.
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     await renderOwner(makeRoom({ visibility: "public", description: "cozy place" }));
     updateRoomMock.mockResolvedValue({
       ok: true,
@@ -141,12 +144,16 @@ describe("REQ-088 SettingsTab visibility diff", () => {
     await user.click(screen.getByRole("radio", { name: /private/i }));
     await user.click(screen.getByRole("button", { name: /save/i }));
     expect(updateRoomMock).toHaveBeenCalledWith(ROOM_ID, { visibility: "private" });
+    confirmSpy.mockRestore();
   });
 });
 
 describe("REQ-087 SettingsTab no-op save", () => {
-  it("does not call updateRoom when nothing changed", async () => {
-    const user = userEvent.setup();
+  it("Save button is disabled when nothing has changed", async () => {
+    // Spec (UX) — on a fresh owner view with no edits, Save is disabled.
+    // Previously the button was enabled and a click hit a silent early-return
+    // to onClose; now the absence of dirt gates the affordance itself so
+    // there's no phantom click. See SettingsTab.tsx isDirty comment.
     const onClose = vi.fn();
     listMyRoomsMock.mockResolvedValue([makeRoom({ description: "cozy place" })]);
     render(
@@ -162,13 +169,15 @@ describe("REQ-087 SettingsTab no-op save", () => {
       const ta = screen.getByLabelText(/description/i) as HTMLTextAreaElement;
       expect(ta.value).toBe("cozy place");
     });
-    await user.click(screen.getByRole("button", { name: /save/i }));
+    const saveBtn = screen.getByRole("button", { name: /save/i });
+    expect(saveBtn).toBeDisabled();
     expect(updateRoomMock).not.toHaveBeenCalled();
-    expect(onClose).toHaveBeenCalled();
   });
 
   it("sends name + description + visibility when all three change", async () => {
     const user = userEvent.setup();
+    // Public→private flip triggers the REQ-088 confirm; stub to accept.
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     await renderOwner(makeRoom({ description: "cozy place", visibility: "public" }));
     updateRoomMock.mockResolvedValue({
       ok: true,
@@ -194,5 +203,6 @@ describe("REQ-087 SettingsTab no-op save", () => {
       description: "new desc",
       visibility: "private",
     });
+    confirmSpy.mockRestore();
   });
 });

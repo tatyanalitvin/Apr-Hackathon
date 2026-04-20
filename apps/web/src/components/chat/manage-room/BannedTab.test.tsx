@@ -84,11 +84,15 @@ describe("REQ-211 — BannedTab admin view + unban", () => {
   });
 
   it("unban click confirms, calls API, removes the row, and shows success toast", async () => {
+    // REQ-211 — the row-level [Unban] button now opens a shadcn Dialog
+    // (UnbanConfirmDialog) instead of using window.confirm. Click sequence is
+    // row-trigger → confirm-button (data-testid="unban-confirm-<username>").
     unbanMemberMock.mockResolvedValueOnce({ ok: true, data: { unbanned: true } });
     const user = userEvent.setup();
     render(<BannedTab roomId="r-1" viewerRole="admin" />);
     await waitFor(() => expect(listRoomBansMock).toHaveBeenCalled());
     await user.click(screen.getByTestId("unban-bob"));
+    await user.click(await screen.findByTestId("unban-confirm-bob"));
     await waitFor(() =>
       expect(unbanMemberMock).toHaveBeenCalledWith("r-1", "u-bob"),
     );
