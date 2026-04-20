@@ -15,6 +15,7 @@ import request from "supertest";
 import type { FastifyInstance } from "fastify";
 import { eq } from "drizzle-orm";
 import {
+  attachment,
   message,
   messageSeq,
   room,
@@ -60,6 +61,22 @@ async function addMember(roomId: string, userId: string): Promise<void> {
   await getTestDb()
     .insert(roomMember)
     .values({ id: `${roomId}-${userId}`, roomId, userId, role: "member" });
+}
+
+async function uploadAttachment(
+  agent: request.Agent,
+  roomId: string,
+  filename: string,
+  contentType = "text/plain",
+): Promise<string> {
+  const res = await agent
+    .post("/api/v1/attachments")
+    .field("roomId", roomId)
+    .attach("file", Buffer.from("x"), { filename, contentType });
+  if (res.status !== 201) {
+    throw new Error(`upload failed ${res.status}: ${JSON.stringify(res.body)}`);
+  }
+  return res.body.attachmentId as string;
 }
 
 describe("REQ-033 clientMessageId idempotency", () => {
@@ -171,5 +188,78 @@ describe("REQ-033 clientMessageId idempotency", () => {
       .post(`/api/v1/rooms/${roomId}/messages`)
       .send({ body: "hi", clientMessageId: "not-a-uuid" });
     expect(res.status).toBe(400);
+  });
+
+  // REQ-033 + R17 — a retry whose first 201 was eaten by a network blip must
+  // return the SAME attachment payloads the original commit linked. Without
+  // this, the client's optimistic row can't reconcile attachments and the UI
+  // renders a message with no files. The dedup path may skip the socket
+  // fanout and the sent-metric (subscribers already saw the first emit), but
+  // the HTTP response body must stay wire-compatible with the first 201.
+  test("REQ-033 deduped retry with attachmentIds → 201 response includes attachments", async () => {
+    const { agent, userId } = await registerAgent(
+      app,
+      "idemp-f@example.com",
+      "idemp_f",
+    );
+    const roomId = "r-idemp-f";
+    await createRoom(roomId);
+    await addMember(roomId, userId);
+
+    const fileA = await uploadAttachment(agent, roomId, "one.txt");
+    const fileB = await uploadAttachment(agent, roomId, "two.png", "image/png");
+    const clientMessageId = "55555555-5555-4555-8555-555555555555";
+
+    const first = await agent
+      .post(`/api/v1/rooms/${roomId}/messages`)
+      .send({
+        body: "first with files",
+        clientMessageId,
+        attachmentIds: [fileA, fileB],
+      });
+    expect(first.status).toBe(201);
+    expect(Array.isArray(first.body.attachments)).toBe(true);
+    expect(first.body.attachments).toHaveLength(2);
+
+    // Retry with the same clientMessageId — on a successful first commit the
+    // server should dedupe and return the same row. attachmentIds is what
+    // the client re-sends; the server should ignore the link step (already
+    // linked) but still hydrate the response from the DB state.
+    const retry = await agent
+      .post(`/api/v1/rooms/${roomId}/messages`)
+      .send({
+        body: "first with files",
+        clientMessageId,
+        attachmentIds: [fileA, fileB],
+      });
+    expect(retry.status).toBe(201);
+    expect(retry.body.id).toBe(first.body.id);
+    expect(retry.body.seq).toBe(first.body.seq);
+
+    // Regression assertion for the bug this test covers: the `!deduped`
+    // guard was previously applied to the hydration branch too, so the retry
+    // body came back with no `attachments` key even though the DB still had
+    // the rows linked. Keep the DB-state assertion alongside the response
+    // assertion so a later refactor that drops hydration can't silently
+    // pass.
+    expect(Array.isArray(retry.body.attachments)).toBe(true);
+    expect(retry.body.attachments).toHaveLength(2);
+    const retryIds = new Set(
+      (retry.body.attachments as Array<{ id: string }>).map((p) => p.id),
+    );
+    expect(retryIds.has(fileA)).toBe(true);
+    expect(retryIds.has(fileB)).toBe(true);
+
+    // DB invariant: only one message row, attachment rows still point at it.
+    const rows = await getTestDb()
+      .select()
+      .from(message)
+      .where(eq(message.roomId, roomId));
+    expect(rows).toHaveLength(1);
+    const attRows = await getTestDb()
+      .select({ id: attachment.id, messageId: attachment.messageId })
+      .from(attachment)
+      .where(eq(attachment.messageId, rows[0].id));
+    expect(attRows).toHaveLength(2);
   });
 });
