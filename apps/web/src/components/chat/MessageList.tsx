@@ -16,6 +16,7 @@ import { MessageActions } from "@/components/chat/MessageActions";
 import { EditMessageForm } from "@/components/chat/EditMessageForm";
 import { Avatar } from "@/components/avatar/Avatar";
 import { AiMessageBubble } from "./AiMessageBubble";
+import { BlossomEmptyState } from "@/components/empty/BlossomEmptyState";
 
 const IMAGE_MIME_RE = /^image\/(png|jpe?g|gif|webp)$/i;
 
@@ -113,6 +114,9 @@ export function MessageList({
       aria-relevant="additions text"
       aria-label="Room messages"
     >
+      {messages.length === 0 ? (
+        <BlossomEmptyState tagline="No messages yet. Say hello to start the room." />
+      ) : (
       <Virtuoso
         ref={ref}
         data={messages}
@@ -149,6 +153,7 @@ export function MessageList({
           Header: () => hasMoreOlder ? <div className="p-4 text-center text-xs text-muted-foreground">Loading older…</div> : null,
         }}
       />
+      )}
       {unreadCount > 0 && !isAtBottom && (
         <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
           <Button size="sm" onClick={scrollToBottom} className="pointer-events-auto shadow">

@@ -8,6 +8,7 @@ import { Hourglass } from "lucide-react";
 import { Avatar } from "@/components/avatar/Avatar";
 import { Badge } from "@/components/ui/badge";
 import type { OutgoingFriendRequest } from "@/lib/friendship-api";
+import { BlossomEmptyState } from "@/components/empty/BlossomEmptyState";
 
 interface OutgoingTabProps {
   requests: OutgoingFriendRequest[];
@@ -19,11 +20,7 @@ export function OutgoingRequestsTab({ requests, loading }: OutgoingTabProps) {
     return <div className="py-8 text-sm text-muted-foreground">Loading sent requests…</div>;
   }
   if (requests.length === 0) {
-    return (
-      <div className="py-8 text-sm text-muted-foreground">
-        Nothing pending. Requests you send show up here until they&apos;re accepted.
-      </div>
-    );
+    return <BlossomEmptyState tagline="No pending requests. You haven't sent any invitations." />;
   }
   return (
     <ul className="flex flex-col gap-1" aria-label="Outgoing friend requests">

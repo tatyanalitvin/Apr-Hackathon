@@ -8,8 +8,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { RequireSession } from "@/components/chat/RequireSession";
 import { Header } from "@/components/chat/Header";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { BlossomEmptyState } from "@/components/empty/BlossomEmptyState";
 import { createChatApi } from "@/lib/socket";
 import { toast } from "sonner";
 import type { RoomCatalogEntry } from "@/lib/chat-api";
@@ -82,7 +82,7 @@ function BrowseContent() {
       <Header />
       <main id="main" className="flex-1 p-6">
         <div className="flex items-center justify-between mb-4 max-w-2xl">
-          <h1 className="text-2xl font-semibold">Browse rooms</h1>
+          <h1 className="font-display text-4xl" style={{ color: "var(--text-hi)" }}>Browse rooms</h1>
           <Link href="/rooms">
             <Button variant="ghost" size="sm">← Your rooms</Button>
           </Link>
@@ -105,47 +105,49 @@ function BrowseContent() {
         {rooms === null ? (
           <div className="text-sm text-muted-foreground">Loading…</div>
         ) : rooms.length === 0 ? (
-          <div className="text-sm text-muted-foreground">
-            {hasQuery ? "No rooms match your search." : "No public rooms yet."}
-          </div>
+          hasQuery ? (
+            <div className="text-sm text-muted-foreground">No rooms match your search.</div>
+          ) : (
+            <BlossomEmptyState tagline="No public rooms yet. Ask someone to invite you." />
+          )
         ) : (
-          <ul className="space-y-2 max-w-2xl">
+          <div className="columns-1 gap-4 md:columns-2 xl:columns-3">
             {rooms.map((room) => (
-              <li key={room.id}>
-                <Card>
-                  <CardContent className="py-3 px-4 flex items-center justify-between gap-4">
-                    <div className="min-w-0">
-                      <div className="font-medium truncate">#{room.name}</div>
-                      {room.description ? (
-                        <div
-                          className="text-xs text-muted-foreground truncate"
-                          data-testid={`browse-description-${room.id}`}
-                        >
-                          {room.description}
-                        </div>
-                      ) : null}
-                      <div className="text-xs text-muted-foreground">
-                        {room.memberCount} member{room.memberCount === 1 ? "" : "s"}
-                      </div>
-                    </div>
-                    {room.isMember ? (
-                      <Link href={`/rooms/${room.id}`}>
-                        <Button size="sm" variant="outline">Open</Button>
-                      </Link>
-                    ) : (
-                      <Button
-                        size="sm"
-                        onClick={() => void onJoin(room.id)}
-                        disabled={joining === room.id}
-                      >
-                        {joining === room.id ? "Joining…" : "Join"}
-                      </Button>
-                    )}
-                  </CardContent>
-                </Card>
-              </li>
+              <article
+                key={room.id}
+                className="glass-panel mb-4 break-inside-avoid p-5 transition-all duration-200 hover:-translate-y-1 hover:rotate-[-0.5deg]"
+              >
+                <h2 className="font-display text-2xl mb-1" style={{ color: "var(--text-hi)" }}>
+                  #{room.name}
+                </h2>
+                {room.description ? (
+                  <p
+                    className="text-sm mb-2"
+                    style={{ color: "var(--text-lo)" }}
+                    data-testid={`browse-description-${room.id}`}
+                  >
+                    {room.description}
+                  </p>
+                ) : null}
+                <p className="text-xs mb-3" style={{ color: "var(--text-lo)" }}>
+                  {room.memberCount} member{room.memberCount === 1 ? "" : "s"}
+                </p>
+                {room.isMember ? (
+                  <Link href={`/rooms/${room.id}`}>
+                    <Button size="sm" variant="outline">Open</Button>
+                  </Link>
+                ) : (
+                  <Button
+                    size="sm"
+                    onClick={() => void onJoin(room.id)}
+                    disabled={joining === room.id}
+                  >
+                    {joining === room.id ? "Joining…" : "Join"}
+                  </Button>
+                )}
+              </article>
             ))}
-          </ul>
+          </div>
         )}
       </main>
     </div>

@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { Avatar } from "@/components/avatar/Avatar";
 import { Button } from "@/components/ui/button";
 import { unblockUser, type BlockedUser } from "@/lib/friendship-api";
+import { BlossomEmptyState } from "@/components/empty/BlossomEmptyState";
 
 interface BlockedListProps {
   blocked: BlockedUser[];
@@ -22,12 +23,7 @@ export function BlockedList({ blocked, loading, onMutate }: BlockedListProps) {
     return <div className="py-8 text-sm text-muted-foreground">Loading blocked users…</div>;
   }
   if (blocked.length === 0) {
-    return (
-      <div className="py-8 text-sm text-muted-foreground">
-        <Ban className="inline-block h-4 w-4 align-text-bottom" aria-hidden />{" "}
-        You haven&apos;t blocked anyone.
-      </div>
-    );
+    return <BlossomEmptyState tagline="No one blocked." />;
   }
   return (
     <ul className="flex flex-col gap-1" aria-label="Blocked users">

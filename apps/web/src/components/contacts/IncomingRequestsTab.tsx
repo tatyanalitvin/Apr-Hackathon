@@ -16,6 +16,7 @@ import {
   declineFriendRequest,
   type IncomingFriendRequest,
 } from "@/lib/friendship-api";
+import { BlossomEmptyState } from "@/components/empty/BlossomEmptyState";
 
 interface IncomingTabProps {
   requests: IncomingFriendRequest[];
@@ -28,11 +29,7 @@ export function IncomingRequestsTab({ requests, loading, onMutate }: IncomingTab
     return <div className="py-8 text-sm text-muted-foreground">Loading requests…</div>;
   }
   if (requests.length === 0) {
-    return (
-      <div className="py-8 text-sm text-muted-foreground">
-        No incoming requests.
-      </div>
-    );
+    return <BlossomEmptyState tagline="No incoming requests." />;
   }
   return (
     <ul className="flex flex-col gap-2" aria-label="Incoming friend requests">

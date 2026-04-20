@@ -12,6 +12,7 @@ import {
   removeFriend,
   type FriendSummary,
 } from "@/lib/friendship-api";
+import { BlossomEmptyState } from "@/components/empty/BlossomEmptyState";
 
 interface FriendsTabProps {
   friends: FriendSummary[];
@@ -24,11 +25,7 @@ export function FriendsTab({ friends, loading, onMutate }: FriendsTabProps) {
     return <div className="py-8 text-sm text-muted-foreground">Loading friends…</div>;
   }
   if (friends.length === 0) {
-    return (
-      <div className="py-8 text-sm text-muted-foreground">
-        No friends yet. Use <span className="font-medium text-foreground">+ Add friend</span> to send your first request.
-      </div>
-    );
+    return <BlossomEmptyState tagline="No friends yet. Send an invitation to start." />;
   }
   return (
     <ul className="flex flex-col gap-1" aria-label="Friends">
