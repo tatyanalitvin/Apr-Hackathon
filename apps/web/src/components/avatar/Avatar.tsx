@@ -1,3 +1,5 @@
+import { cn } from "@/lib/utils";
+
 export const AVATAR_BG_PALETTE = [
   "#7C3AED", // violet-600
   "#4C1D95", // violet-900
@@ -43,7 +45,10 @@ export function Avatar({ userId, name, size = 32, className }: Props) {
   const initials = getInitials(name, userId);
   return (
     <div
-      className={`inline-flex shrink-0 select-none items-center justify-center rounded-full font-semibold ${className ?? ""}`}
+      className={cn(
+        "inline-flex shrink-0 select-none items-center justify-center rounded-full font-semibold",
+        className,
+      )}
       style={{
         width: size,
         height: size,

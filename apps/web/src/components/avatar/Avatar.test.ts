@@ -16,7 +16,7 @@ describe("hashUserIdToPalette", () => {
 });
 
 describe("getInitials", () => {
-  it("takes first letters of the first two words, uppercased", () => {
+  it("takes first letter of first word + first letter of last word, uppercased", () => {
     expect(getInitials("Alice Smith")).toBe("AS");
     expect(getInitials("alice smith")).toBe("AS");
     expect(getInitials("Alice Middle Smith")).toBe("AS");
