@@ -11,9 +11,11 @@ import type { FastifyInstance } from "fastify";
 import { eq } from "drizzle-orm";
 import fs from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import {
   attachment,
   room,
+  roomBan,
   roomMember,
   user,
 } from "@ai-herders/shared/schema";
@@ -215,6 +217,38 @@ describe("REQ-075 POST /api/v1/attachments accepts any mime type", () => {
       .field("roomId", "ghost-room-id")
       .attach("file", Buffer.from("nope"), {
         filename: "n.txt",
+        contentType: "text/plain",
+      });
+    expect(res.status).toBe(403);
+  });
+
+  // Defense-in-depth: ban-apply in rooms.ts deletes the membership row in the
+  // same tx, so in production a banned user loses membership and the existing
+  // !membership branch already returns 403. This test forces the asymmetric
+  // case (membership row retained, ban row present) to lock in that the
+  // upload gate matches the download gate — download leftJoins roomBan and
+  // rejects on row.banId regardless of membership. See attachments.ts GET.
+  test("banned user with lingering membership → 403", async () => {
+    const mallory = await registerAgent(
+      app,
+      "ban-upload@example.com",
+      "ban_upload",
+    );
+    await createRoom("r-ban-upload");
+    await addMember("r-ban-upload", mallory.userId);
+    await getTestDb().insert(roomBan).values({
+      id: randomUUID(),
+      roomId: "r-ban-upload",
+      userId: mallory.userId,
+      bannedById: mallory.userId,
+      reason: null,
+    });
+
+    const res = await mallory.agent
+      .post("/api/v1/attachments")
+      .field("roomId", "r-ban-upload")
+      .attach("file", Buffer.from("should-not-store"), {
+        filename: "b.txt",
         contentType: "text/plain",
       });
     expect(res.status).toBe(403);
