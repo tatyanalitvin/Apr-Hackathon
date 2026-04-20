@@ -10,13 +10,14 @@ import { renderV1 } from "./sakura/v1-layered";
 import { buildWeepingTree, renderV2 } from "./sakura/v2-weeping";
 import { buildWindsweptTree, renderV3 } from "./sakura/v3-windswept";
 import { renderV4 } from "./sakura/v4-stylized";
+import { buildSlimTree, renderV5 } from "./sakura/v5-slim";
 
 const TREE_SEED = 0x5a4b5a41;
 const PETAL_COUNT = 60;
 const TARGET_FPS = 30;
 const FRAME_MS = 1000 / TARGET_FPS;
 
-export type VariantKey = "v1" | "v2" | "v3" | "v4";
+export type VariantKey = "v1" | "v2" | "v3" | "v4" | "v5";
 
 type Renderer = (
   tctx: CanvasRenderingContext2D,
@@ -35,12 +36,13 @@ const VARIANTS: Record<VariantKey, Variant> = {
   v2: { build: buildWeepingTree, render: renderV2 },
   v3: { build: buildWindsweptTree, render: renderV3 },
   v4: { build: (w, h, r) => lSystemTree(w, h, r), render: renderV4 },
+  v5: { build: buildSlimTree, render: renderV5 },
 };
 
 function pickVariant(fallback: VariantKey): VariantKey {
   if (typeof window === "undefined") return fallback;
   const q = new URLSearchParams(window.location.search).get("sakura");
-  if (q === "v1" || q === "v2" || q === "v3" || q === "v4") return q;
+  if (q === "v1" || q === "v2" || q === "v3" || q === "v4" || q === "v5") return q;
   return fallback;
 }
 

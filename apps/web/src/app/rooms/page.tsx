@@ -7,6 +7,7 @@ import { Hash } from "lucide-react";
 import { RequireSession } from "@/components/chat/RequireSession";
 import { Header } from "@/components/chat/Header";
 import { Button } from "@/components/ui/button";
+import { SakuraPetals } from "@/components/auth/SakuraPetals";
 import { createChatApi } from "@/lib/socket";
 import type { MyRoomSummary } from "@/lib/chat-api";
 
@@ -104,8 +105,17 @@ function RoomsContent() {
             </div>
           </div>
         </section>
-        <aside className="hidden min-[1100px]:flex min-[1100px]:flex-col w-[240px] shrink-0 glass-panel m-3 p-4 overflow-y-auto" style={{ color: "var(--text-lo)" }}>
-          {/* members panel — empty on the rooms index */}
+        {/* Empty right aside on the rooms index — fill the dead space with the
+            sakura scene so the landing feels alive without competing for focus
+            with the centre CTA. A narrow-column variant (`v5-slim`) is tuned
+            for the ~240px column; the centre petal-layer still drifts over the
+            main section. */}
+        <aside
+          aria-hidden="true"
+          className="hidden min-[1100px]:block relative w-[240px] shrink-0 overflow-hidden glass-panel m-3"
+          style={{ color: "var(--text-lo)" }}
+        >
+          <SakuraPetals variant="v5" />
         </aside>
       </main>
     </div>
