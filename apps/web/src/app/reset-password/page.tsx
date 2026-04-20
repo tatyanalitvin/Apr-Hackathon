@@ -1,7 +1,7 @@
 // REQ-018 — Confirm password reset. Reads `?token=<token>` from the URL
 // (better-auth generates and logs it via the sendResetPassword stub in
 // apps/backend/src/auth.ts). Password shape matches registerSchema's
-// `min(8).max(256)` rule to stay consistent with /register.
+// `min(12).max(128)` rule to stay consistent with /register (REQ-006).
 "use client";
 
 import { Suspense } from "react";
@@ -10,7 +10,12 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
-import { confirmPasswordReset, PasswordResetError } from "@/lib/auth-api";
+import {
+  applyAuthIssues,
+  confirmPasswordReset,
+  PasswordResetError,
+  prettyPasswordMessage,
+} from "@/lib/auth-api";
 import { AuthSplitLayout } from "@/components/auth/AuthSplitLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,7 +23,10 @@ import { Label } from "@/components/ui/label";
 
 const schema = z
   .object({
-    password: z.string().min(8, "At least 8 characters").max(256),
+    password: z
+      .string()
+      .min(12, "password_too_short: password must be at least 12 characters")
+      .max(128, "password_too_long: password must be at most 128 characters"),
     passwordConfirm: z.string(),
   })
   .superRefine((val, ctx) => {
@@ -53,14 +61,43 @@ function ResetPasswordForm() {
       router.replace("/login");
     } catch (err) {
       if (err instanceof PasswordResetError && err.code === "INVALID_TOKEN") {
+        // Root-level copy paired with the "Request a new reset link" CTA
+        // rendered below. No toast — the inline block is enough and the two
+        // surfaces confused users with duplicated copy within 50px.
         form.setError("root", {
           message: "This reset link is invalid or expired.",
         });
         return;
       }
+
+      // Prefer field-level surfacing: walk issues[] → `password` / `passwordConfirm`.
+      // Only fall back to a toast when no field can be blamed.
+      if (err instanceof PasswordResetError && err.envelope) {
+        const attached = applyAuthIssues(err.envelope, form, {
+          password: "password",
+          newPassword: "password",
+          passwordConfirm: "passwordConfirm",
+        });
+        if (attached) return;
+      }
+
+      // better-auth canonical shape — short/long come back as
+      // `{code:"PASSWORD_TOO_SHORT"|..., message}`. Prefer attaching to the
+      // password field; humanise the prefix just like the zod envelope path.
+      if (
+        err instanceof PasswordResetError &&
+        (err.code === "PASSWORD_TOO_SHORT" || err.code === "PASSWORD_TOO_LONG")
+      ) {
+        const raw =
+          err.code === "PASSWORD_TOO_SHORT"
+            ? "password_too_short"
+            : "password_too_long";
+        form.setError("password", { message: prettyPasswordMessage(raw) });
+        return;
+      }
+
       const msg = err instanceof Error ? err.message : "Reset failed";
       toast.error(msg);
-      form.setError("root", { message: msg });
     }
   });
 
@@ -96,7 +133,7 @@ function ResetPasswordForm() {
               </p>
             )}
             <p className="text-xs text-muted-foreground">
-              At least 8 characters.
+              At least 12 characters.
             </p>
           </div>
           <div className="space-y-2">
@@ -128,7 +165,7 @@ function ResetPasswordForm() {
           )}
           <Button
             type="submit"
-            className="w-full"
+            className="w-full disabled:bg-primary/70 disabled:text-primary-foreground disabled:opacity-100"
             disabled={form.formState.isSubmitting}
           >
             {form.formState.isSubmitting ? "Updating…" : "Update password"}

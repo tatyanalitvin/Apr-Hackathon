@@ -6,11 +6,14 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { toast } from "sonner";
 import { loginSchema, type LoginInput } from "@ai-herders/shared/dto";
-import { signIn } from "@/lib/auth-client";
+import { BACKEND_URL } from "@/lib/backend";
+import { applyAuthIssues } from "@/lib/auth-api";
 import { safeNextOr } from "@/lib/safe-next";
 import { AuthSplitLayout } from "@/components/auth/AuthSplitLayout";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -31,20 +34,52 @@ function LoginForm() {
   });
 
   const onSubmit = form.handleSubmit(async (values) => {
-    const res = await signIn.email({
-      email: values.email,
-      password: values.password,
-      rememberMe: values.rememberMe ?? false,
-    });
-    if (res.error) {
-      // Inline-only — a form-level <p> and a toast with identical copy
-      // within 50px of each other is noise, and Playwright strict-mode
-      // matchers can't tell them apart either (blocks
-      // exploratory/auth: wrong-password copy).
-      form.setError("root", { message: describeAuthError(res.error.status) });
+    // Raw fetch — mirror /register: better-auth's signIn.email flattens our
+    // zodBodyGuard envelope (`{error:"validation", issues:[...]}`) into a
+    // bare top-level message, stripping field targeting. Going direct lets
+    // us route email/password zod issues to their own inputs.
+    let res: Response;
+    try {
+      res = await fetch(`${BACKEND_URL}/api/auth/sign-in/email`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          email: values.email,
+          password: values.password,
+          rememberMe: values.rememberMe ?? false,
+        }),
+      });
+    } catch {
+      toast.error("Network error — try again.");
       return;
     }
-    router.replace(nextTarget);
+
+    if (res.ok) {
+      router.replace(nextTarget);
+      return;
+    }
+
+    const body = (await res.json().catch(() => null)) as
+      | {
+          error?: string;
+          issues?: { path?: unknown; message?: string; code?: string }[];
+          code?: string;
+          message?: string;
+        }
+      | null;
+
+    // Zod-envelope path → attach each issue to its field.
+    const attached = applyAuthIssues(body, form, {
+      email: "email",
+      password: "password",
+    });
+    if (attached) return;
+
+    // Non-validation failure (401 wrong password, 429 rate-limited, etc.) —
+    // single inline root surface; no toast dup (Playwright strict matchers
+    // can't tell duplicated copy apart).
+    form.setError("root", { message: describeAuthError(res.status) });
   });
 
   return (
@@ -81,13 +116,23 @@ function LoginForm() {
           )}
         </div>
         <div className="flex items-center gap-2 text-sm">
-          <input id="rememberMe" type="checkbox" {...form.register("rememberMe")} className="h-4 w-4" />
+          <Checkbox
+            id="rememberMe"
+            checked={form.watch("rememberMe") ?? false}
+            onCheckedChange={(checked) =>
+              form.setValue("rememberMe", checked === true)
+            }
+          />
           <Label htmlFor="rememberMe" className="font-normal">Keep me signed in</Label>
         </div>
         {form.formState.errors.root && (
           <p className="text-sm text-destructive">{form.formState.errors.root.message}</p>
         )}
-        <Button type="submit" className="w-full" disabled={form.formState.isSubmitting}>
+        <Button
+          type="submit"
+          className="w-full disabled:bg-primary/70 disabled:text-primary-foreground disabled:opacity-100"
+          disabled={form.formState.isSubmitting}
+        >
           {form.formState.isSubmitting ? "Signing in…" : "Sign in"}
         </Button>
         <div className="flex items-center justify-between text-sm text-muted-foreground pt-2">
