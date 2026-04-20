@@ -16,6 +16,7 @@ import {
   declineFriendRequest,
   type IncomingFriendRequest,
 } from "@/lib/friendship-api";
+import { refreshMyBlocks } from "@/lib/use-my-blocks";
 import { BlossomEmptyState } from "@/components/empty/BlossomEmptyState";
 
 interface IncomingTabProps {
@@ -94,6 +95,7 @@ function IncomingRow({
             ? `Declined @${request.from.username}'s request`
             : `Blocked @${request.from.username}`,
       );
+      if (action === "block") void refreshMyBlocks();
       onMutate();
     } else if (r.error.code === "already_friends") {
       toast.info("Already friends — refreshing.");

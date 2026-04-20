@@ -19,6 +19,7 @@ import {
   type FriendSummary,
 } from "@/lib/friendship-api";
 import { createDm, type DmError } from "@/lib/dms-api";
+import { refreshMyBlocks } from "@/lib/use-my-blocks";
 import { BlossomEmptyState } from "@/components/empty/BlossomEmptyState";
 
 export type FriendsTabMutationKind = "remove" | "block";
@@ -127,6 +128,7 @@ function FriendRow({
     setBusy(null);
     if (r.ok) {
       toast.success(`Blocked @${friend.username}`);
+      void refreshMyBlocks();
       onMutate("block");
     } else {
       toast.error("Couldn't block — try again.");

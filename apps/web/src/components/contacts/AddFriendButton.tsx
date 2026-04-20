@@ -15,6 +15,7 @@ import { UserPlus, Check, Hourglass, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { sendFriendRequest } from "@/lib/friendship-api";
+import { useMyBlockedUserIds } from "@/lib/use-my-blocks";
 
 export type AddFriendButtonState = "idle" | "friends" | "pending" | "blocked-self";
 
@@ -46,9 +47,14 @@ export function AddFriendButton({
   compact = false,
 }: AddFriendButtonProps) {
   const [busy, setBusy] = useState(false);
+  const myBlocks = useMyBlockedUserIds();
 
-  if (state === "blocked-self") {
-    // REQ-053 — UI does not render the affordance for users the caller blocked.
+  // REQ-053 — caller→target block is a REAL insert at the backend (see
+  // friends-send-blocked.test.ts reverse-direction case), so the UI has to
+  // suppress the affordance itself. The explicit `state` prop still wins
+  // (FriendsTab etc. set `friends` / `pending`); otherwise we self-check
+  // the caller's blocklist.
+  if (state === "blocked-self" || myBlocks?.has(targetUserId)) {
     return null;
   }
   if (state === "friends") {

@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { Avatar } from "@/components/avatar/Avatar";
 import { Button } from "@/components/ui/button";
 import { unblockUser, type BlockedUser } from "@/lib/friendship-api";
+import { refreshMyBlocks } from "@/lib/use-my-blocks";
 import { BlossomEmptyState } from "@/components/empty/BlossomEmptyState";
 
 interface BlockedListProps {
@@ -45,6 +46,7 @@ function BlockedRow({ user, onMutate }: { user: BlockedUser; onMutate: () => voi
       // REQ-074: friendship is NOT auto-restored; surface that so the user
       // doesn't expect the old friendship back.
       toast.success(`Unblocked @${user.username}. You're not friends again yet — send a new request if you want.`);
+      void refreshMyBlocks();
       onMutate();
     } else {
       toast.error("Couldn't unblock — try again.");
