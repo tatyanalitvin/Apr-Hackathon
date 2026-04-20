@@ -265,13 +265,14 @@ function BanReasonDialog({
             Cancel
           </Button>
           <Button
-            variant="outline"
+            variant="destructive"
             onClick={() => void onSubmit(reason)}
-            // UX(ui-pass remove-ban-consistency) — destructive-outline matches
-            // the Ban and Remove-from-room buttons in the members row above;
-            // consistent severity treatment across all destructive actions in
-            // this file.
-            className="border-destructive text-destructive hover:bg-destructive hover:text-destructive-foreground disabled:border-destructive/70 disabled:text-destructive/70 disabled:opacity-100"
+            // UX — confirmation-dialog submit stays filled: the user has
+            // already committed to the destructive action by opening this
+            // dialog, so the final step reads stronger than the in-row
+            // Ban/Remove pair (which are destructive-outline to signal
+            // "review required" before commit).
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:bg-destructive/70 disabled:text-destructive-foreground disabled:opacity-100"
           >
             Ban user
           </Button>
