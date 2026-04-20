@@ -6,8 +6,6 @@
 // explicit about headers and cookies.
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -15,6 +13,7 @@ import { toast } from "sonner";
 import { RequireSession } from "@/components/chat/RequireSession";
 import { Header } from "@/components/chat/Header";
 import { BACKEND_URL } from "@/lib/backend";
+import { applyAuthIssues } from "@/lib/auth-api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -22,7 +21,12 @@ import { Label } from "@/components/ui/label";
 const changePasswordSchema = z
   .object({
     currentPassword: z.string().min(1, "Current password is required"),
-    newPassword: z.string().min(8, "At least 8 characters").max(256),
+    // REQ-006 — match registerSchema's min(12)/max(128). Any future drift
+    // would let users bypass the policy via /settings/password.
+    newPassword: z
+      .string()
+      .min(12, "password_too_short: password must be at least 12 characters")
+      .max(128, "password_too_long: password must be at most 128 characters"),
     newPasswordConfirm: z.string(),
     revokeOtherSessions: z.boolean(),
   })
@@ -31,15 +35,15 @@ const changePasswordSchema = z
       ctx.addIssue({
         code: "custom",
         path: ["newPasswordConfirm"],
-        message: "password_mismatch: passwords do not match",
+        // Plain copy for the user — the machine-code prefix
+        // `password_mismatch:` was leaking into the UI.
+        message: "Passwords do not match.",
       });
     }
   });
 type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
 
 function PasswordContent() {
-  const router = useRouter();
-  const [submitting, setSubmitting] = useState(false);
   const form = useForm<ChangePasswordInput>({
     resolver: zodResolver(changePasswordSchema),
     defaultValues: {
@@ -51,9 +55,9 @@ function PasswordContent() {
   });
 
   const onSubmit = form.handleSubmit(async (values) => {
-    setSubmitting(true);
+    let res: Response;
     try {
-      const res = await fetch(`${BACKEND_URL}/api/auth/change-password`, {
+      res = await fetch(`${BACKEND_URL}/api/auth/change-password`, {
         method: "POST",
         credentials: "include",
         headers: { "content-type": "application/json" },
@@ -63,24 +67,49 @@ function PasswordContent() {
           revokeOtherSessions: values.revokeOtherSessions,
         }),
       });
-      if (!res.ok) {
-        const text = await res.text();
-        let msg = "Password change failed";
-        try {
-          const parsed = JSON.parse(text);
-          msg = parsed.message ?? parsed.error ?? msg;
-        } catch {
-          if (text) msg = text;
-        }
-        toast.error(msg);
-        form.setError("root", { message: msg });
-        return;
-      }
-      toast.success("Password updated");
-      router.replace("/rooms");
-    } finally {
-      setSubmitting(false);
+    } catch {
+      toast.error("Network error — try again.");
+      return;
     }
+    if (res.ok) {
+      // Stay on page + reset form; sonner's default toast duration survives
+      // the re-render. No router.replace — the old code navigated away and
+      // swallowed the success toast, and there's no reason to leave /settings
+      // after a successful password change.
+      form.reset({
+        currentPassword: "",
+        newPassword: "",
+        newPasswordConfirm: "",
+        revokeOtherSessions: values.revokeOtherSessions,
+      });
+      toast.success("Password updated");
+      return;
+    }
+
+    const body = (await res.json().catch(() => null)) as
+      | {
+          error?: string;
+          issues?: { path?: unknown; message?: string; code?: string }[];
+          code?: string;
+          message?: string;
+        }
+      | null;
+
+    // Pass `newPassword` here so `path:["password"]` issues (from the
+    // backend passwordPolicyGuard + zod length checks) land on the newPassword
+    // input rather than the (currentPassword) field.
+    const attached = applyAuthIssues(body, form, {
+      password: "newPassword",
+      newPassword: "newPassword",
+      newPasswordConfirm: "newPasswordConfirm",
+      currentPassword: "currentPassword",
+    });
+    if (attached) return;
+
+    // No field could be blamed → fall back to a single toast.
+    const canonical =
+      body?.message ?? body?.code ?? `Password change failed (${res.status})`;
+    toast.error(canonical);
   });
 
   return (
@@ -157,8 +186,12 @@ function PasswordContent() {
                 {form.formState.errors.root.message}
               </p>
             )}
-            <Button type="submit" className="w-full" disabled={submitting}>
-              {submitting ? "Updating…" : "Update password"}
+            <Button
+              type="submit"
+              className="w-full disabled:bg-primary/70 disabled:text-primary-foreground disabled:opacity-100"
+              disabled={form.formState.isSubmitting}
+            >
+              {form.formState.isSubmitting ? "Updating…" : "Update password"}
             </Button>
           </form>
         </div>

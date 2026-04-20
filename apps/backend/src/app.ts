@@ -216,6 +216,23 @@ export async function buildApp(): Promise<FastifyInstance> {
     proxyToBetterAuth,
   );
 
+  // REQ-006 — password-policy guard (common-password blocklist) also applies
+  // to reset-password and change-password, not just sign-up. Without these,
+  // a user could sidestep the blocklist via /forgot-password → reset flow
+  // or via /settings/password. The guard reads `newPassword` (better-auth's
+  // field name for both endpoints) and `password` (sign-up) from the body
+  // — see passwordPolicyGuard below for the shared check.
+  app.post(
+    "/api/auth/reset-password",
+    { preHandler: [passwordPolicyGuard] },
+    proxyToBetterAuth,
+  );
+  app.post(
+    "/api/auth/change-password",
+    { preHandler: [passwordPolicyGuard] },
+    proxyToBetterAuth,
+  );
+
   // App-owned /api/v1/* routes go here, ahead of the catch-all so specific
   // prefixes win. See docs/specs/s1-auth.md task #6a for why sessions is an
   // app route, not a bare better-auth proxy.
@@ -348,8 +365,20 @@ async function passwordPolicyGuard(
   request: FastifyRequest,
   reply: FastifyReply,
 ) {
-  const pw = (request.body as { password?: unknown })?.password;
-  if (typeof pw !== "string") return;
+  // Sign-up uses `password`; better-auth reset-password + change-password
+  // both use `newPassword`. We check whichever is present — belt-and-
+  // suspenders against any future endpoint that re-uses this guard.
+  const body = request.body as {
+    password?: unknown;
+    newPassword?: unknown;
+  } | null;
+  const pw =
+    typeof body?.password === "string"
+      ? body.password
+      : typeof body?.newPassword === "string"
+        ? body.newPassword
+        : undefined;
+  if (pw === undefined) return;
   if (isCommonPassword(pw)) {
     return reply.status(400).send({
       error: "validation",

@@ -32,6 +32,33 @@ export async function downloadAccountExport(): Promise<void> {
   URL.revokeObjectURL(url);
 }
 
+// Envelope returned on zod-validation failures. Matches the backend's
+// `{error:"validation", issues:[{path,message,code}]}` shape; fields are
+// optional because non-validation errors (e.g. 401 wrong-password) come back
+// as `{code, message}` instead.
+export type DeleteAccountErrorEnvelope = {
+  error?: string;
+  issues?: { path?: unknown; message?: string; code?: string }[];
+  code?: string;
+  message?: string;
+} | null;
+
+// Typed error so the calling page can route zod issues to the password
+// field and keep non-validation failures on a single toast surface.
+export class DeleteAccountError extends Error {
+  readonly status: number;
+  readonly envelope: DeleteAccountErrorEnvelope;
+  constructor(
+    message: string,
+    status: number,
+    envelope: DeleteAccountErrorEnvelope,
+  ) {
+    super(message);
+    this.status = status;
+    this.envelope = envelope;
+  }
+}
+
 export async function deleteAccount(password: string): Promise<void> {
   const res = await fetch(`${BACKEND_URL}/api/v1/users/me`, {
     method: "DELETE",
@@ -39,15 +66,16 @@ export async function deleteAccount(password: string): Promise<void> {
     headers: { "content-type": "application/json", ...csrfHeaders() },
     body: JSON.stringify({ password }),
   });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    let message = `Account deletion failed (${res.status})`;
-    try {
-      const parsed = JSON.parse(text);
-      message = parsed.message ?? parsed.error ?? message;
-    } catch {
-      if (text) message = text;
-    }
-    throw new Error(message);
+  if (res.ok) return;
+
+  const text = await res.text().catch(() => "");
+  let envelope: DeleteAccountErrorEnvelope = null;
+  let message = `Account deletion failed (${res.status})`;
+  try {
+    envelope = JSON.parse(text) as DeleteAccountErrorEnvelope;
+    message = envelope?.message ?? envelope?.error ?? message;
+  } catch {
+    if (text) message = text;
   }
+  throw new DeleteAccountError(message, res.status, envelope);
 }

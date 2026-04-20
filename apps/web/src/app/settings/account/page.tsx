@@ -6,6 +6,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { RequireSession } from "@/components/chat/RequireSession";
 import { Header } from "@/components/chat/Header";
@@ -20,15 +21,23 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { deleteAccount, downloadAccountExport } from "@/lib/account-api";
+import {
+  deleteAccount,
+  DeleteAccountError,
+  downloadAccountExport,
+} from "@/lib/account-api";
+import { applyAuthIssues } from "@/lib/auth-api";
+
+type DeleteFormInput = { password: string };
 
 function AccountContent() {
   const router = useRouter();
   const [exporting, setExporting] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deletePassword, setDeletePassword] = useState("");
-  const [deleting, setDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const deleteForm = useForm<DeleteFormInput>({
+    defaultValues: { password: "" },
+  });
 
   const onExport = async () => {
     setExporting(true);
@@ -43,20 +52,33 @@ function AccountContent() {
     }
   };
 
-  const onDelete = async () => {
-    setDeleteError(null);
-    setDeleting(true);
+  const onDelete = deleteForm.handleSubmit(async (values) => {
+    deleteForm.clearErrors();
     try {
-      await deleteAccount(deletePassword);
+      await deleteAccount(values.password);
+      // Show the toast first, then delay the nav so sonner has time to
+      // mount/paint before we tear down this route. router.replace
+      // immediately after toast.success was swallowing the toast because
+      // the Toaster on this page unmounts with the route. 600ms is the
+      // same beat sonner uses for its own enter animation.
       toast.success("Account deleted");
-      router.replace("/register");
+      window.setTimeout(() => router.replace("/register"), 600);
     } catch (err) {
+      if (err instanceof DeleteAccountError) {
+        // Walk the zod-envelope issues[] and attach each to the
+        // (only) "password" field for this form. Non-password issues
+        // fall through to the toast branch below.
+        const attached = applyAuthIssues(err.envelope, deleteForm, {
+          password: "password",
+        });
+        if (attached) return;
+        toast.error(err.message);
+        return;
+      }
       const message = err instanceof Error ? err.message : "Deletion failed";
-      setDeleteError(message);
-    } finally {
-      setDeleting(false);
+      toast.error(message);
     }
-  };
+  });
 
   return (
     <div className="flex min-h-dvh flex-col">
@@ -91,8 +113,7 @@ function AccountContent() {
               <Button
                 variant="destructive"
                 onClick={() => {
-                  setDeletePassword("");
-                  setDeleteError(null);
+                  deleteForm.reset({ password: "" });
                   setDeleteOpen(true);
                 }}
                 // UX(ui-pass P0-4) — dark-theme destructive fill desaturates
@@ -110,51 +131,68 @@ function AccountContent() {
       <Dialog
         open={deleteOpen}
         onOpenChange={(open) => {
-          if (!deleting) setDeleteOpen(open);
+          if (!deleteForm.formState.isSubmitting) setDeleteOpen(open);
         }}
       >
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete account?</DialogTitle>
-            <DialogDescription>
-              Enter your password to confirm. You&apos;ll be signed out on all
-              devices and your friendships, DM threads, and room memberships
-              will be removed.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            <Label htmlFor="delete-password">Password</Label>
-            <Input
-              id="delete-password"
-              type="password"
-              autoComplete="current-password"
-              value={deletePassword}
-              onChange={(e) => setDeletePassword(e.target.value)}
-              disabled={deleting}
-            />
-            {deleteError && (
-              <p className="text-sm text-destructive">{deleteError}</p>
-            )}
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setDeleteOpen(false)}
-              disabled={deleting}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={onDelete}
-              disabled={deleting || deletePassword.length === 0}
-              // UX(ui-pass P0-4) — mirror the page-level Delete button; keep
-              // the primary confirm readable while disabled (empty password).
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:bg-destructive/70 disabled:text-destructive-foreground disabled:opacity-100"
-            >
-              {deleting ? "Deleting…" : "Delete account"}
-            </Button>
-          </DialogFooter>
+          <form onSubmit={onDelete} noValidate>
+            <DialogHeader>
+              <DialogTitle>Delete account?</DialogTitle>
+              <DialogDescription>
+                Enter your password to confirm. You&apos;ll be signed out on all
+                devices and your friendships, DM threads, and room memberships
+                will be removed.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2 py-4">
+              <Label htmlFor="delete-password">Password</Label>
+              <Input
+                id="delete-password"
+                type="password"
+                autoComplete="current-password"
+                aria-invalid={Boolean(
+                  deleteForm.formState.errors.password,
+                )}
+                disabled={deleteForm.formState.isSubmitting}
+                {...deleteForm.register("password")}
+              />
+              {deleteForm.formState.errors.password && (
+                <p className="text-sm text-destructive">
+                  {deleteForm.formState.errors.password.message}
+                </p>
+              )}
+              {deleteForm.formState.errors.root && (
+                <p className="text-sm text-destructive">
+                  {deleteForm.formState.errors.root.message}
+                </p>
+              )}
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setDeleteOpen(false)}
+                disabled={deleteForm.formState.isSubmitting}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="destructive"
+                disabled={
+                  deleteForm.formState.isSubmitting ||
+                  (deleteForm.watch("password") ?? "").length === 0
+                }
+                // UX(ui-pass P0-4) — mirror the page-level Delete button; keep
+                // the primary confirm readable while disabled (empty password).
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:bg-destructive/70 disabled:text-destructive-foreground disabled:opacity-100"
+              >
+                {deleteForm.formState.isSubmitting
+                  ? "Deleting…"
+                  : "Delete account"}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>
