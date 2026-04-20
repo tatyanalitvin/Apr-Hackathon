@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import request from "supertest";
 import type { FastifyInstance } from "fastify";
 import { and, eq, inArray } from "drizzle-orm";
-import { user } from "@ai-herders/shared/schema";
+import { user, userBlock } from "@ai-herders/shared/schema";
 
 import { buildApp } from "../src/app";
 import { getTestDb } from "./db-helpers";
@@ -174,5 +174,56 @@ describe("REQ-UserSearch §2.4 ranking + self + soft-delete", () => {
     expect(res.status).toBe(200);
     const ids = (res.body.users as Array<{ userId: string }>).map((u) => u.userId);
     expect(ids).not.toContain(ghost.userId);
+  });
+});
+
+describe("REQ-UserSearch §2.4 block symmetry", () => {
+  let app: FastifyInstance;
+
+  beforeAll(async () => {
+    app = await buildApp();
+    await app.ready();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  test("REQ-UserSearch §2.4 R11 — hits blocked BY caller are excluded", async () => {
+    const me = await registerAgent(app, "usrch-blk-me@example.com", "blk_me");
+    const blockedTarget = await registerAgent(
+      app,
+      "usrch-blk-target@example.com",
+      "blk_target",
+    );
+    await getTestDb().insert(userBlock).values({
+      id: "ub-r11",
+      byId: me.userId,
+      targetId: blockedTarget.userId,
+    });
+
+    const res = await me.agent.get("/api/v1/users?q=blk_target");
+    expect(res.status).toBe(200);
+    const ids = (res.body.users as Array<{ userId: string }>).map((u) => u.userId);
+    expect(ids).not.toContain(blockedTarget.userId);
+  });
+
+  test("REQ-UserSearch §2.4 R12 — hits who have blocked caller are excluded", async () => {
+    const me = await registerAgent(app, "usrch-blk2-me@example.com", "blk2_me");
+    const blocker = await registerAgent(
+      app,
+      "usrch-blk2-blocker@example.com",
+      "blk2_blocker",
+    );
+    await getTestDb().insert(userBlock).values({
+      id: "ub-r12",
+      byId: blocker.userId,
+      targetId: me.userId,
+    });
+
+    const res = await me.agent.get("/api/v1/users?q=blk2_blocker");
+    expect(res.status).toBe(200);
+    const ids = (res.body.users as Array<{ userId: string }>).map((u) => u.userId);
+    expect(ids).not.toContain(blocker.userId);
   });
 });
