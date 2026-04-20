@@ -2,69 +2,78 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Hash } from "lucide-react";
 import { RequireSession } from "@/components/chat/RequireSession";
 import { Header } from "@/components/chat/Header";
 import { Button } from "@/components/ui/button";
 import { SakuraPetals } from "@/components/auth/SakuraPetals";
+import { InboxList } from "@/components/invitations/InboxList";
+import { RoomList, type RoomListItem } from "@/components/chat/RoomList";
 import { createChatApi } from "@/lib/socket";
+import { computeUnreadList } from "@/lib/unread";
 import type { MyRoomSummary } from "@/lib/chat-api";
 
 function RoomsContent() {
   const [rooms, setRooms] = useState<MyRoomSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [apiRef] = useState(() => createChatApi());
+
+  const refreshMyRooms = useCallback(async () => {
+    try {
+      const list = await apiRef.listMyRooms();
+      setRooms(list);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load rooms");
+    }
+  }, [apiRef]);
 
   useEffect(() => {
-    const api = createChatApi();
-    let cancelled = false;
-    void (async () => {
-      try {
-        const list = await api.listMyRooms();
-        if (!cancelled) setRooms(list);
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load rooms");
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    void refreshMyRooms();
+  }, [refreshMyRooms]);
+
+  // Re-use the same unread/muted plumbing RoomClient uses so the sidebar
+  // badges are consistent whether you're on /rooms or inside a room.
+  const displayedRooms: RoomListItem[] = useMemo(() => {
+    if (!rooms) return [];
+    const entries = computeUnreadList(rooms);
+    const byId = new Map(entries.map((e) => [e.id, e]));
+    return rooms.map((r) => {
+      const e = byId.get(r.id);
+      return {
+        id: r.id,
+        name: r.name,
+        unreadCount: e?.count ?? 0,
+        muted: e?.muted ?? false,
+      };
+    });
+  }, [rooms]);
 
   return (
     <div className="flex flex-col h-dvh">
       <Header />
       <main id="main" className="flex flex-1 min-h-0">
-        <aside className="hidden lg:flex lg:flex-col w-[256px] shrink-0 glass-panel m-3 p-4 overflow-y-auto">
-          <div className="flex items-center justify-between mb-4">
-            <span className="text-sm font-semibold">Rooms</span>
-            <Link href="/rooms/browse">
-              <Button variant="outline" size="sm">Browse</Button>
-            </Link>
-          </div>
+        <aside className="hidden lg:flex lg:flex-col w-[256px] shrink-0 glass-panel m-3 overflow-y-auto">
           {error ? (
-            <div role="alert" className="text-sm text-destructive mb-3">{error}</div>
+            <div role="alert" className="mx-3 mt-3 text-sm text-destructive">
+              {error}
+            </div>
           ) : null}
           {rooms === null ? (
-            <div className="text-sm text-muted-foreground">Loading…</div>
-          ) : rooms.length === 0 ? (
-            <div className="text-sm text-muted-foreground">
-              You&apos;re not in any rooms yet.{" "}
-              <Link className="underline" href="/rooms/browse">Browse public rooms →</Link>
-            </div>
+            <div className="px-5 pt-4 text-sm text-muted-foreground">Loading…</div>
           ) : (
-            <ul className="space-y-1">
-              {rooms.map((room) => (
-                <li key={room.id}>
-                  <Link
-                    href={`/rooms/${room.id}`}
-                    className="block rounded px-2 py-1.5 text-sm hover:bg-accent"
-                  >
-                    #{room.name}
-                  </Link>
-                </li>
-              ))}
-            </ul>
+            <>
+              <InboxList onAccepted={refreshMyRooms} />
+              {/* No active room on the index — pass an empty sentinel so
+                  nothing is highlighted; DmList + CreateRoomDialog still
+                  render their own controls. */}
+              <RoomList
+                rooms={displayedRooms}
+                currentRoomId=""
+                onRoomCreated={refreshMyRooms}
+              />
+            </>
           )}
         </aside>
         <section className="flex-1 flex flex-col min-w-0 relative">

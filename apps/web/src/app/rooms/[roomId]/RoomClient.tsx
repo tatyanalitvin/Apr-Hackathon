@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
 import type {
   MessagePayload,
   MessageNewEvent,
@@ -82,6 +83,44 @@ function RoomContent({ roomId }: { roomId: string }) {
   const [selfPresence, setSelfPresence] = useState<IdleState>("online");
   // REQ-120 — scroll-lock signal from MessageList gates debounced mark-read.
   const [atBottom, setAtBottom] = useState(true);
+  // Sidebar collapse state for the ≥1024px layout. Persisted in
+  // localStorage so a user who prefers a distraction-free chat view doesn't
+  // re-open the panels on every navigation. Defaults to open; hydrated
+  // after mount to keep SSR markup stable.
+  const [leftOpen, setLeftOpen] = useState(true);
+  const [rightOpen, setRightOpen] = useState(true);
+  useEffect(() => {
+    try {
+      const l = window.localStorage.getItem("chat.sidebar.left");
+      const r = window.localStorage.getItem("chat.sidebar.right");
+      if (l !== null) setLeftOpen(l === "1");
+      if (r !== null) setRightOpen(r === "1");
+    } catch {
+      // quota/private-mode — accept default open state.
+    }
+  }, []);
+  const toggleLeft = useCallback(() => {
+    setLeftOpen((v) => {
+      const next = !v;
+      try {
+        window.localStorage.setItem("chat.sidebar.left", next ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, []);
+  const toggleRight = useCallback(() => {
+    setRightOpen((v) => {
+      const next = !v;
+      try {
+        window.localStorage.setItem("chat.sidebar.right", next ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, []);
   // REQ-120/122 — focus state drives mark-read eligibility + title-flash
   // suppression for the focused tab.
   const [isFocused, setIsFocused] = useState(
@@ -721,7 +760,9 @@ function RoomContent({ roomId }: { roomId: string }) {
     <div className="flex flex-col h-dvh">
       <Header selfPresence={selfPresence} />
       <main id="main" className="flex flex-col lg:flex-row flex-1 min-h-0">
-        <aside className="hidden lg:flex lg:flex-col w-[256px] shrink-0 glass-panel m-3 p-4 overflow-y-auto">
+        <aside
+          className={`hidden ${leftOpen ? "lg:flex" : "lg:hidden"} lg:flex-col w-[256px] shrink-0 glass-panel m-3 p-4 overflow-y-auto`}
+        >
           <InboxList onAccepted={() => refreshMyRooms()} />
           <RoomList rooms={displayedRooms} currentRoomId={roomId} onRoomCreated={refreshMyRooms} />
         </aside>
@@ -736,8 +777,23 @@ function RoomContent({ roomId }: { roomId: string }) {
             <span className="petal" />
             <span className="petal" />
           </div>
-          <div className="relative z-10 flex items-center justify-between border-b px-4 py-2">
-            <div className="min-w-0">
+          <div className="relative z-10 flex items-center justify-between border-b px-4 py-2 gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <button
+                type="button"
+                onClick={toggleLeft}
+                aria-label={leftOpen ? "Hide rooms sidebar" : "Show rooms sidebar"}
+                aria-expanded={leftOpen}
+                className="hidden lg:inline-flex items-center justify-center h-8 w-8 rounded-full glass-panel shrink-0 hover:-translate-y-px transition-transform"
+                style={{ color: "var(--text-lo)" }}
+              >
+                {leftOpen ? (
+                  <PanelLeftClose aria-hidden className="size-4" />
+                ) : (
+                  <PanelLeftOpen aria-hidden className="size-4" />
+                )}
+              </button>
+              <div className="min-w-0">
               <h2>
                 <span className="font-display text-[28px] leading-tight" style={{ letterSpacing: "-0.01em" }}>
                   #{currentRoom?.name ?? roomId}
@@ -751,6 +807,7 @@ function RoomContent({ roomId }: { roomId: string }) {
                   {currentRoom.description}
                 </div>
               ) : null}
+              </div>
             </div>
             <div className="flex items-center gap-1">
               {/* REQ-123 — bell toggle. Optimistically flip mutedUntil so the
@@ -778,6 +835,20 @@ function RoomContent({ roomId }: { roomId: string }) {
                   onLeftOrDeleted={refreshMyRooms}
                 />
               ) : null}
+              <button
+                type="button"
+                onClick={toggleRight}
+                aria-label={rightOpen ? "Hide members sidebar" : "Show members sidebar"}
+                aria-expanded={rightOpen}
+                className="hidden min-[1100px]:inline-flex items-center justify-center h-8 w-8 rounded-full glass-panel shrink-0 hover:-translate-y-px transition-transform"
+                style={{ color: "var(--text-lo)" }}
+              >
+                {rightOpen ? (
+                  <PanelRightClose aria-hidden className="size-4" />
+                ) : (
+                  <PanelRightOpen aria-hidden className="size-4" />
+                )}
+              </button>
             </div>
           </div>
           <MessageList
@@ -815,7 +886,7 @@ function RoomContent({ roomId }: { roomId: string }) {
         */}
         <details
           open
-          className="max-lg:block lg:hidden min-[1100px]:flex min-[1100px]:flex-col w-full min-[1100px]:w-[240px] shrink-0 max-lg:border-t min-[1100px]:glass-panel min-[1100px]:m-3 min-[1100px]:p-4 overflow-y-auto"
+          className={`max-lg:block lg:hidden ${rightOpen ? "min-[1100px]:flex" : "min-[1100px]:hidden"} min-[1100px]:flex-col w-full min-[1100px]:w-[240px] shrink-0 max-lg:border-t min-[1100px]:glass-panel min-[1100px]:m-3 min-[1100px]:p-4 overflow-y-auto`}
           style={{ color: "var(--text-lo)" }}
         >
           <summary className="px-4 py-2 text-sm font-medium cursor-pointer min-[1100px]:hidden">
