@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // Task #6a (REQ-018, v3.docx §2.2.4) — GET /api/v1/sessions.
 //
 // Thin wrapper over better-auth's auth.api.listSessions({ headers }), with two
@@ -22,7 +23,7 @@ import { buildApp } from "../src/app";
 const seed = {
   email: "sessions-anna@example.com",
   username: "sessions_anna",
-  password: "password1234",
+  password: TEST_PASSWORD_OK,
   name: "Sessions Anna",
 };
 
@@ -121,7 +122,7 @@ describe("REQ-014 session expiresIn ≥ 7 days", () => {
       .send({
         email: "req014-ttl@example.com",
         username: "req014_ttl",
-        password: "password1234",
+        password: TEST_PASSWORD_OK,
         name: "TTL Anna",
       })
       .expect(200);

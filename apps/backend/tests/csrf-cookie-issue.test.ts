@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // REQ-146 — csrf_token cookie is issued on successful session establishment
 // (sign-up and sign-in). Layered next to the better-auth bridge in app.ts:
 // whenever the better-auth response sets an `auth.session_token` cookie
@@ -39,7 +40,7 @@ describe("REQ-146 csrf_token cookie on session establishment", () => {
       .send({
         email: "csrf-signup@example.com",
         username: "csrf_signup",
-        password: "password1234",
+        password: TEST_PASSWORD_OK,
         name: "CSRF Signup",
       })
       .expect(200);
@@ -67,14 +68,14 @@ describe("REQ-146 csrf_token cookie on session establishment", () => {
       .send({
         email: "csrf-signin@example.com",
         username: "csrf_signin",
-        password: "password1234",
+        password: TEST_PASSWORD_OK,
         name: "CSRF Signin",
       })
       .expect(200);
 
     const res = await request(app.server)
       .post("/api/auth/sign-in/email")
-      .send({ email: "csrf-signin@example.com", password: "password1234" })
+      .send({ email: "csrf-signin@example.com", password: TEST_PASSWORD_OK })
       .expect(200);
 
     const cookies = extractCookies(res);

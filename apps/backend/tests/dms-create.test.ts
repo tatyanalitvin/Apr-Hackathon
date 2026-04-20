@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // POST /api/v1/dms — REQ-060 precondition + REQ-061 find-or-create.
 // Binding spec: docs/specs/s2-dms.md §4 R1 happy path + idempotent re-POST,
 // plus R4 gate branches (not-friends / blocked / self / unknown user).
@@ -44,7 +45,7 @@ async function registerAgent(
   const agent = request.agent(app.server);
   await agent
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   return { agent, userId: await userIdByEmail(email) };
 }

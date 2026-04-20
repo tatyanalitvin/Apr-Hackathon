@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // REQ-005 — case-insensitive username uniqueness.
 //
 // v3.docx §2.1.2 says "Username must be unique" and — per ADR-0006 deviations
@@ -40,7 +41,7 @@ describe("REQ-005 username uniqueness is case-insensitive", () => {
       .send({
         email: "u1@example.com",
         username: "Alice",
-        password: "password1234",
+        password: TEST_PASSWORD_OK,
         name: "Alice",
       });
     expect(first.status).toBe(200);
@@ -50,7 +51,7 @@ describe("REQ-005 username uniqueness is case-insensitive", () => {
       .send({
         email: "u2@example.com",
         username: "alice",
-        password: "password1234",
+        password: TEST_PASSWORD_OK,
         name: "Alice2",
       });
     expect(second.status).toBeGreaterThanOrEqual(400);
@@ -70,7 +71,7 @@ describe("REQ-005 username uniqueness is case-insensitive", () => {
       .send({
         email: "mixed@example.com",
         username: "MiXeDcAsE",
-        password: "password1234",
+        password: TEST_PASSWORD_OK,
         name: "Mixed",
       })
       .expect(200);

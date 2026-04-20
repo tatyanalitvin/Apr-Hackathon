@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // REQ-038 — Socket.IO handshake authentication.
 //
 // The subscribe test exercises the happy path for real (cookie → ack ok);
@@ -30,7 +31,7 @@ async function signUpCookie(
 ): Promise<string> {
   const res = await request(app.server)
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   const setCookie = res.headers["set-cookie"];
   const cookies = Array.isArray(setCookie) ? setCookie : setCookie ? [setCookie] : [];

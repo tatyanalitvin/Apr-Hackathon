@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // REQ-126 (v3.docx §2.2 "GDPR export") — `POST /api/v1/users/me/export`
 // returns a JSON attachment containing every piece of content the caller
 // owns: profile, rooms joined, group messages authored, DM threads (grouped
@@ -43,7 +44,7 @@ async function registerAgent(
   const agent = request.agent(app.server);
   await agent
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   return { agent, userId: await userIdByEmail(email) };
 }

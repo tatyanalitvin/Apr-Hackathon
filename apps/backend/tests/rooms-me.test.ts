@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // R4 — GET /api/v1/rooms/me.
 // Non-v4 per ADR-0006 (see docs/specs/s2-rooms.md §7): no v4 REQ covers a
 // "rooms-I-belong-to" endpoint; closest is the v4 room data-model REQ (see
@@ -44,7 +45,7 @@ async function registerAgent(
   const agent = request.agent(app.server);
   await agent
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   return { agent, userId: await userIdByEmail(email) };
 }

@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // §2.7 R7 — DM unread parity.
 //
 // Audit-only test. GET /api/v1/rooms/me already returns `lastReadSeq` +
@@ -36,7 +37,7 @@ async function register(
   const agent = request.agent(app.server);
   await agent
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   const [row] = await getTestDb()
     .select({ id: user.id })

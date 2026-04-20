@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // Task #4 — login integration tests.
 // R7 (REQ-010): sign-in happy path + cookie authenticates get-session.
 // R8 (REQ-011): rememberMe toggles the session-cookie persistence attribute.
@@ -17,7 +18,7 @@ import { buildApp } from "../src/app";
 const seed = {
   email: "login-anna@example.com",
   username: "login_anna",
-  password: "password1234",
+  password: TEST_PASSWORD_OK,
   name: "Login Anna",
 };
 
@@ -158,7 +159,7 @@ describe("sign-in returns identical response for wrong-email vs wrong-password (
 
     const notFound = await request(app.server)
       .post("/api/auth/sign-in/email")
-      .send({ email: "nobody@example.com", password: "password1234" });
+      .send({ email: "nobody@example.com", password: TEST_PASSWORD_OK });
 
     const wrongPw = await request(app.server)
       .post("/api/auth/sign-in/email")

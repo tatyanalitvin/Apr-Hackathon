@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // REQ-018 follow-up — after account deletion a new user must be able to
 // register with the same email (and the same username). Without a tombstone
 // rename the soft-deleted row keeps holding the email / username in the
@@ -24,7 +25,7 @@ async function signUp(
   app: FastifyInstance,
   email: string,
   username: string,
-  password = "password1234",
+  password = TEST_PASSWORD_OK,
 ): Promise<request.Agent> {
   const agent = request.agent(app.server);
   await agent
@@ -52,14 +53,14 @@ describe("REQ-018 re-register after delete — tombstone frees email + username"
 
     const del = await aAgent
       .delete("/api/v1/users/me")
-      .send({ password: "password1234" });
+      .send({ password: TEST_PASSWORD_OK });
     expect(del.status).toBe(204);
 
     // Fresh sign-up with the same email — a different username so this test
     // isolates the email reusability axis.
     const res = await request(app.server)
       .post("/api/auth/sign-up/email")
-      .send({ email, username: "rereg_alpha2", password: "password1234", name: "rereg_alpha2" });
+      .send({ email, username: "rereg_alpha2", password: TEST_PASSWORD_OK, name: "rereg_alpha2" });
     expect(res.status).toBe(200);
 
     // The original row is tombstoned, the new row holds the free email.
@@ -81,7 +82,7 @@ describe("REQ-018 re-register after delete — tombstone frees email + username"
 
     const del = await aAgent
       .delete("/api/v1/users/me")
-      .send({ password: "password1234" });
+      .send({ password: TEST_PASSWORD_OK });
     expect(del.status).toBe(204);
 
     // Fresh sign-up with the same username, different email.
@@ -90,7 +91,7 @@ describe("REQ-018 re-register after delete — tombstone frees email + username"
       .send({
         email: "rereg-u-b@example.com",
         username,
-        password: "password1234",
+        password: TEST_PASSWORD_OK,
         name: username,
       });
     expect(res.status).toBe(200);
@@ -113,7 +114,7 @@ describe("REQ-018 re-register after delete — tombstone frees email + username"
 
     await aAgent
       .delete("/api/v1/users/me")
-      .send({ password: "password1234" })
+      .send({ password: TEST_PASSWORD_OK })
       .expect(204);
 
     // A lowercased variant must be free for re-registration (the LOWER()
@@ -123,7 +124,7 @@ describe("REQ-018 re-register after delete — tombstone frees email + username"
       .send({
         email: "casereuse@example.com",
         username: "case_reuse_b",
-        password: "password1234",
+        password: TEST_PASSWORD_OK,
         name: "case_reuse_b",
       });
     expect(res.status).toBe(200);

@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // REQ-019 (v3.docx §2.2) — after `DELETE /api/v1/users/me`, the same email +
 // password must not open a new session. Soft-deleted users are tombstones:
 // the row stays for message-FK integrity but the account is inert.
@@ -17,7 +18,7 @@ import { buildApp } from "../src/app";
 const seed = {
   email: "s2del-login@example.com",
   username: "s2del_login",
-  password: "password1234",
+  password: TEST_PASSWORD_OK,
   name: "Login After Delete",
 };
 

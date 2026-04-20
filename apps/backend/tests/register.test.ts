@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // Task #3 — register integration tests (R1–R4).
 // Exercises POST /api/auth/sign-up/email end-to-end against a real Postgres
 // (Testcontainers harness, see docs/adr/0005-test-db-harness.md) so the full
@@ -22,7 +23,7 @@ import { getTestDb } from "./db-helpers";
 const validRegister = {
   email: "anna@example.com",
   username: "anna_01",
-  password: "password1234",
+  password: TEST_PASSWORD_OK,
   name: "Anna Example",
 };
 

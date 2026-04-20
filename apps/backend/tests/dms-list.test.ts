@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // R11 — GET /api/v1/dms. Lists caller's DMs with counterpart, last
 // message, unread count (0 placeholder), and frozen state with reason.
 // Reason priority: user_deleted > blocked > not_friends.
@@ -20,7 +21,7 @@ async function register(
   const agent = request.agent(app.server);
   await agent
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   const [row] = await getTestDb()
     .select({ id: user.id })

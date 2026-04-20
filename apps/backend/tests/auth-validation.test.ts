@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import request from "supertest";
 import type { FastifyInstance } from "fastify";
@@ -56,7 +57,7 @@ describe("REQ-009 zod boundary guard rejects malformed username (integration)", 
       .send({
         email: "anna@example.com",
         username: "bad-name",
-        password: "password1234",
+        password: TEST_PASSWORD_OK,
         name: "Anna",
       });
     expect(res.status).toBe(400);

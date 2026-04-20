@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // REQ-077 / R7 / R8 — size-cap boundaries.
 // Binding spec: docs/specs/s2-attachments.md §4 R7 (20MB file ceiling) and R8
 // (3MB image ceiling). Two-layer enforcement:
@@ -43,7 +44,7 @@ async function registerAgent(
   const agent = request.agent(app.server);
   await agent
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   return { agent, userId: await userIdByEmail(email) };
 }

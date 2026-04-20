@@ -122,7 +122,7 @@ async function signUp(index: number): Promise<User> {
       body: JSON.stringify({
         email,
         username,
-        password: "password1234",
+        password: "Hackaton_Test_Pw_2026!",
         name: username,
       }),
     });

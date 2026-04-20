@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // Task #6b (REQ-019, v3.docx §2.2.4) — DELETE /api/v1/sessions/:id.
 //
 // We own the ownership guard. better-auth's `auth.api.revokeSession` takes a
@@ -30,13 +31,13 @@ import { buildApp } from "../src/app";
 const anna = {
   email: "revoke-anna@example.com",
   username: "revoke_anna",
-  password: "password1234",
+  password: TEST_PASSWORD_OK,
   name: "Revoke Anna",
 };
 const mallory = {
   email: "revoke-mallory@example.com",
   username: "revoke_mallory",
-  password: "password1234",
+  password: TEST_PASSWORD_OK,
   name: "Revoke Mallory",
 };
 

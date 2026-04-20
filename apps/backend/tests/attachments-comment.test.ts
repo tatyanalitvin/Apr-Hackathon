@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // REQ-E-UPLOAD-RESP — upload 201 body echoes the persisted `attachment.comment`
 // (post-NFC; `null` for the empty-string case) so the client reflects exactly
 // what was stored. Binding spec: docs/specs/s2-attachments-enhance.md §4.
@@ -38,7 +39,7 @@ async function registerAgent(
   const agent = request.agent(app.server);
   await agent
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   return { agent, userId: await userIdByEmail(email) };
 }

@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // REQ-009 — POST /api/auth/sign-up/email rate limit (5 / IP / hour).
 //
 // Contract (pinned in apps/backend/src/auth.ts):
@@ -35,7 +36,7 @@ describe("REQ-009 register rate limit (5 / IP / hour)", () => {
         .send({
           email: `req009-${i}@example.com`,
           username: `req009_${i}`,
-          password: "password1234",
+          password: TEST_PASSWORD_OK,
           name: `Req009 ${i}`,
         });
       statuses.push(res.status);
@@ -47,7 +48,7 @@ describe("REQ-009 register rate limit (5 / IP / hour)", () => {
       .send({
         email: "req009-6@example.com",
         username: "req009_6",
-        password: "password1234",
+        password: TEST_PASSWORD_OK,
         name: "Req009 6",
       });
     expect(sixth.status).toBe(429);

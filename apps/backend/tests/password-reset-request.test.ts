@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // Task #7 (v3.docx §2.1.4, REQ-017) — POST /api/auth/request-password-reset.
 //
 // Path is `/request-password-reset`, not `/forget-password`. Verified by
@@ -37,7 +38,7 @@ import { buildApp } from "../src/app";
 const seed = {
   email: "reset-anna@example.com",
   username: "reset_anna",
-  password: "password1234",
+  password: TEST_PASSWORD_OK,
   name: "Reset Anna",
 };
 

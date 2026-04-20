@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // Sign-in IP rate-limit gate (deviation from v4 REQ-012 per-email lockout,
 // see ADR-0006).
 //
@@ -30,7 +31,7 @@ import { buildApp } from "../src/app";
 const victim = {
   email: "rate-victim@example.com",
   username: "rate_victim",
-  password: "password1234",
+  password: TEST_PASSWORD_OK,
   name: "Rate Victim",
 };
 

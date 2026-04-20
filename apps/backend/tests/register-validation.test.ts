@@ -3,6 +3,7 @@ import request from "supertest";
 import type { FastifyInstance } from "fastify";
 
 import { buildApp } from "../src/app";
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 
 // Task #2a — better-auth's `additionalFields.username = { required: true }`
 // must reject a register request missing `username` BEFORE any DB write.
@@ -24,7 +25,7 @@ describe("register validation (task #2a)", () => {
       .post("/api/auth/sign-up/email")
       .send({
         email: "nouser@example.com",
-        password: "password1234",
+        password: TEST_PASSWORD_OK,
         name: "No Username",
       });
 
@@ -58,8 +59,8 @@ describe("REQ-007 passwordConfirm mismatch rejected at zod guard", () => {
       .send({
         email: "req007-mismatch@example.com",
         username: "req007_mm",
-        password: "password1234",
-        passwordConfirm: "password9999",
+        password: TEST_PASSWORD_OK,
+        passwordConfirm: "Hackaton_Other_Pw_2026!",
         name: "Mismatch User",
       });
 
@@ -78,8 +79,8 @@ describe("REQ-007 passwordConfirm mismatch rejected at zod guard", () => {
       .send({
         email: "req007-match@example.com",
         username: "req007_ok",
-        password: "password1234",
-        passwordConfirm: "password1234",
+        password: TEST_PASSWORD_OK,
+        passwordConfirm: TEST_PASSWORD_OK,
         name: "Match User",
       });
 
@@ -92,7 +93,7 @@ describe("REQ-007 passwordConfirm mismatch rejected at zod guard", () => {
       .send({
         email: "req007-noconfirm@example.com",
         username: "req007_nc",
-        password: "password1234",
+        password: TEST_PASSWORD_OK,
         name: "No Confirm User",
       });
 

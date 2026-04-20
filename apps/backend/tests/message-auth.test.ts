@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // Integration test for requireRoomMember (R14, transverse).
 // Spec §6 task 3 — verify: no cookie → 401, non-member → 403, member → { userId }.
 //
@@ -59,7 +60,7 @@ describe("R14 requireRoomMember helper (transverse auth+membership)", () => {
       .send({
         email: "r14-nonmember@example.com",
         username: "r14_nonmember",
-        password: "password1234",
+        password: TEST_PASSWORD_OK,
         name: "R14 Non-member",
       })
       .expect(200);
@@ -84,7 +85,7 @@ describe("R14 requireRoomMember helper (transverse auth+membership)", () => {
       .send({
         email,
         username: "r14_member",
-        password: "password1234",
+        password: TEST_PASSWORD_OK,
         name: "R14 Member",
       })
       .expect(200);
@@ -119,7 +120,7 @@ describe("R14 requireRoomMember helper (transverse auth+membership)", () => {
       .send({
         email: "r14-ghost@example.com",
         username: "r14_ghost",
-        password: "password1234",
+        password: TEST_PASSWORD_OK,
         name: "R14 Ghost",
       })
       .expect(200);

@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // DELETE /api/v1/rooms/:roomId/messages/:messageId — REQ-112/113/114.
 // Soft-delete only (brief §6 non-neg #4): body cleared to '', deletedAt set,
 // attachments cascade via explicit delete. Author-only. Idempotent on re-hit.
@@ -41,7 +42,7 @@ async function registerAgent(
   const agent = request.agent(app.server);
   await agent
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   return { agent, userId: await userIdByEmail(email) };
 }

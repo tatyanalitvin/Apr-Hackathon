@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // R-extra / REQ-074 — GET /api/v1/users/blocked
 // Binding spec: docs/specs/s2-friendship.md §5 (read-side listing, same
 // pattern as R1/REQ-050 GET /friends).
@@ -42,7 +43,7 @@ async function registerAgent(
   const agent = request.agent(app.server);
   await agent
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   const row = await userRowByEmail(email);
   return { agent, userId: row.id, username: row.username };

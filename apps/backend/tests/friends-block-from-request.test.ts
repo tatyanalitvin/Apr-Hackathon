@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // R10 / REQ-057 block — POST /api/v1/friends/requests/:id/block
 // Binding spec: docs/specs/s2-friendship.md §4 R10 + REQ-058 (silent).
 //
@@ -42,7 +43,7 @@ async function registerAgent(
   const agent = request.agent(app.server);
   await agent
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   return { agent, userId: await userIdByEmail(email) };
 }

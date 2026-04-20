@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // REQ-089 integration tests for DELETE /api/v1/rooms/:id.
 // Owner-only (room.ownerId === user.id). DM rooms rejected.
 // Cascades: room_member, message, message_seq via FK ON DELETE CASCADE.
@@ -56,7 +57,7 @@ async function registerAgent(
   const agent = request.agent(app.server);
   const res = await agent
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   const setCookie = res.headers["set-cookie"];
   const cookies = Array.isArray(setCookie)

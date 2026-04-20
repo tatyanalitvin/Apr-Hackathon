@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // GET /api/v1/rooms/:id/messages — REQ-035 history + gap-fill and
 // REQ-034 persistence-across-restart.
 
@@ -32,7 +33,7 @@ async function registerAgent(app: FastifyInstance, email: string, username: stri
   const agent = request.agent(app.server);
   await agent
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   return { agent, userId: await userIdByEmail(email) };
 }
@@ -230,7 +231,7 @@ describe("REQ-034 messages survive backend re-bootstrap", () => {
       const agent2 = request.agent(app2.server);
       await agent2
         .post("/api/auth/sign-in/email")
-        .send({ email: "req036-p@example.com", password: "password1234" })
+        .send({ email: "req036-p@example.com", password: TEST_PASSWORD_OK })
         .expect(200);
 
       const res = await agent2.get("/api/v1/rooms/r-req036-p/messages");

@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // R7 (REQ-066) auto-unfreeze. No explicit unfreeze endpoint — the
 // predicate is re-evaluated on every send. If the underlying
 // friendship + user_block rows flip back to "friends, no block", the
@@ -24,7 +25,7 @@ async function register(
   const agent = request.agent(app.server);
   await agent
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   const [row] = await getTestDb()
     .select({ id: user.id })

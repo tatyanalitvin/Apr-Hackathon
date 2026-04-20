@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // Task #5 — logout integration tests (R11, R12) + cookie attributes (R16).
 //
 // R11 (REQ-013): POST /api/auth/sign-out deletes the session row from Postgres
@@ -33,7 +34,7 @@ import { getTestDb } from "./db-helpers";
 const seed = {
   email: "logout-anna@example.com",
   username: "logout_anna",
-  password: "password1234",
+  password: TEST_PASSWORD_OK,
   name: "Logout Anna",
 };
 

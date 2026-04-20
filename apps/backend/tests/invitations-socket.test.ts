@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // REQ-089 socket fanout — room.invitation.* events.
 // Binding: docs/specs/s2-invitations.md §4 R3/R5/R6/R7 + §5 fanout asymmetry.
 //
@@ -50,7 +51,7 @@ async function signUpCookie(
 ): Promise<{ cookie: string; userId: string }> {
   const res = await request(app.server)
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   const setCookie = res.headers["set-cookie"];
   const cookies = Array.isArray(setCookie) ? setCookie : setCookie ? [setCookie] : [];

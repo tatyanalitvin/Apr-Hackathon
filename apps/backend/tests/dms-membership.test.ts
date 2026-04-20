@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // REQ-063 R3 + REQ-064 R10 — DM membership shape asserted in its own
 // file so `pnpm trace` sees a dedicated REQ-063 / REQ-064 test location
 // rather than relying on the incidental assertions in dms-create.test.ts.
@@ -25,7 +26,7 @@ async function register(
   const agent = request.agent(app.server);
   await agent
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   const [row] = await getTestDb()
     .select({ id: user.id })

@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 import { describe, expect, test } from "vitest";
 import { registerSchema, loginSchema, usernameSchema } from "@ai-herders/shared/dto";
 
@@ -25,7 +26,7 @@ describe("registerSchema rejects short password (deviation from v4 REQ-006 passw
     const result = registerSchema.safeParse({
       email: "anna@example.com",
       username: "anna_01",
-      password: "password1234",
+      password: TEST_PASSWORD_OK,
       name: "Anna",
     });
     expect(result.success).toBe(true);
@@ -59,7 +60,7 @@ describe("REQ-002 registerSchema rejects malformed email", () => {
     const result = registerSchema.safeParse({
       email: "not-an-email",
       username: "anna_01",
-      password: "password1234",
+      password: TEST_PASSWORD_OK,
       name: "Anna",
     });
     expect(result.success).toBe(false);
@@ -69,12 +70,12 @@ describe("REQ-002 registerSchema rejects malformed email", () => {
 describe("loginSchema basics (REQ-010 contract)", () => {
   test("REQ-010 accepts email + password; rememberMe optional", () => {
     expect(
-      loginSchema.safeParse({ email: "anna@example.com", password: "password1234" }).success,
+      loginSchema.safeParse({ email: "anna@example.com", password: TEST_PASSWORD_OK }).success,
     ).toBe(true);
     expect(
       loginSchema.safeParse({
         email: "anna@example.com",
-        password: "password1234",
+        password: TEST_PASSWORD_OK,
         rememberMe: true,
       }).success,
     ).toBe(true);

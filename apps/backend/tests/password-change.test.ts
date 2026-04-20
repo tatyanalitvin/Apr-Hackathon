@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // REQ-016 — password change via better-auth's POST /api/auth/change-password.
 // Endpoint verified in node_modules/better-auth/dist/api/routes/update-user.d.mts
 // (line 87-94): body = { currentPassword, newPassword, revokeOtherSessions? }.
@@ -19,7 +20,7 @@ import { buildApp } from "../src/app";
 const baseCreds = {
   email: "req016-ana@example.com",
   username: "req016_ana",
-  password: "password1234",
+  password: TEST_PASSWORD_OK,
   name: "REQ-016 Ana",
 };
 

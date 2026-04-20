@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // REQ-201 / REQ-202 — promote (POST /api/v1/rooms/:id/admins/:userId) and
 // demote (DELETE /api/v1/rooms/:id/admins/:userId).
 // Binding spec: docs/specs/s2-moderation.md §4 REQ-201 + REQ-202 + §6 Task 3.
@@ -57,7 +58,7 @@ async function registerAgent(
   const agent = request.agent(app.server);
   const res = await agent
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   const setCookie = res.headers["set-cookie"];
   const cookies = Array.isArray(setCookie) ? setCookie : setCookie ? [setCookie] : [];

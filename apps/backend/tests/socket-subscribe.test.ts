@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // REQ-036 + REQ-040 — Socket.IO room.subscribe/unsubscribe + message.new
 // broadcast. Task 7 per docs/specs/s1-chat.md.
 //
@@ -54,7 +55,7 @@ async function registerAgent(
   const agent = request.agent(app.server);
   const res = await agent
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   // Supertest stores cookies on the agent; for the Socket.IO handshake we need
   // them as a single `Cookie:` header string.

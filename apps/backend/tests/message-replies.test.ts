@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // REQ-110 (parent validation / history hydration / payload shape / DM parity)
 // REQ-133 (reply composer)
 // Binding spec: docs/specs/s2-replies.md.
@@ -45,7 +46,7 @@ async function registerWithCookie(
   const agent = request.agent(app.server);
   const res = await agent
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   const setCookie = res.headers["set-cookie"];
   const cookies = Array.isArray(setCookie)
@@ -87,7 +88,7 @@ async function registerAgent(
   const agent = request.agent(app.server);
   await agent
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   const [row] = await getTestDb()
     .select({ id: user.id })

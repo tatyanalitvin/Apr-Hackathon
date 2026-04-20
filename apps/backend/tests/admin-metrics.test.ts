@@ -1,3 +1,4 @@
+import { TEST_PASSWORD_OK } from "./helpers/fixtures";
 // REQ-158 — GET /api/v1/admin/metrics auth gate + shape.
 //
 // The admin dashboard must be gated on the ADMIN_USER_IDS env CSV
@@ -40,7 +41,7 @@ async function signUpCookie(
 ): Promise<{ cookie: string; userId: string }> {
   const res = await request(app.server)
     .post("/api/auth/sign-up/email")
-    .send({ email, username, password: "password1234", name: username })
+    .send({ email, username, password: TEST_PASSWORD_OK, name: username })
     .expect(200);
   const setCookie = res.headers["set-cookie"];
   const cookies = Array.isArray(setCookie) ? setCookie : setCookie ? [setCookie] : [];
