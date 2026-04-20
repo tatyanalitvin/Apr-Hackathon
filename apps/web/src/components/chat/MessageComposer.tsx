@@ -88,6 +88,13 @@ export function MessageComposer({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sendingRef = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Source-of-truth for what the user most recently typed. Decoupled from
+  // React state because under rapid burst + parent re-render (socket echo)
+  // racing with onChange, React can commit a render with stale `value=""`
+  // and reset the controlled textarea's DOM value — losing the keystroke
+  // even though onChange fired. Updating this ref synchronously in onChange
+  // means send() always reads the latest user input.
+  const latestValueRef = useRef("");
   // Rapid Enter presses while a previous send is in flight get queued here
   // and drained serially in send()'s finally. Without this, the
   // `sendingRef` guard silently dropped back-to-back messages — see
@@ -103,7 +110,9 @@ export function MessageComposer({
 
   // Hydrate draft on mount / when userId or roomId changes.
   useEffect(() => {
-    setValue(readDraft(userId, roomId));
+    const draft = readDraft(userId, roomId);
+    latestValueRef.current = draft;
+    setValue(draft);
   }, [userId, roomId]);
 
   // Pending uploads are scoped to the current room — swap rooms, drop state.
@@ -193,12 +202,14 @@ export function MessageComposer({
   );
 
   const send = useCallback(async () => {
-    // Read the textarea's current DOM value instead of React state.
-    // Under rapid Playwright fill+press cycles (and emoji-splice + Enter),
-    // state may lag by a render and a send that should carry "burst-3"
-    // ends up re-sending "" or the previous draft. The ref is the source
-    // of truth for what the user just typed.
-    const currentValue = textareaRef.current?.value ?? value;
+    // Read the latest typed value via ref, not React state or the textarea
+    // DOM. Under rapid Enter bursts, a parent re-render (e.g. a socket echo
+    // adding a message to the list) can commit with our pending setValue
+    // unflushed, briefly resetting the controlled textarea's DOM to "" —
+    // even though onChange already fired with the new text. The ref
+    // captures every keystroke synchronously, so send() never misses one.
+    const currentValue =
+      latestValueRef.current || textareaRef.current?.value || value;
     const currentTrimmed = currentValue.trim();
     const hasContentNow =
       currentTrimmed.length > 0 || readyAttachmentIds.length > 0;
@@ -220,6 +231,9 @@ export function MessageComposer({
         attachmentIds,
         replyToId: replyTo?.messageId,
       });
+      // Only clear the ref if the user hasn't typed something newer since
+      // onChange captured `body`. Otherwise we'd clobber the next keystroke.
+      if (latestValueRef.current === currentValue) latestValueRef.current = "";
       setValue("");
       setPending([]);
       setComment("");
@@ -253,6 +267,11 @@ export function MessageComposer({
         // Parent owns error surfacing; keep draft intact so user can retry.
         return;
       }
+      // Conditional clear: if the user has typed MORE text since we captured
+      // `currentValue`, leave the ref alone so the next send() can pick it up.
+      // Without this, rapid-burst onSend resolves can wipe an already-typed
+      // message before its Enter keydown runs, silently dropping it.
+      if (latestValueRef.current === currentValue) latestValueRef.current = "";
       setValue("");
       setPending([]);
       setComment("");
@@ -308,12 +327,20 @@ export function MessageComposer({
   const insertAtCaret = useCallback((emoji: string) => {
     const el = textareaRef.current;
     if (!el) {
-      setValue((v) => v + emoji);
+      setValue((v) => {
+        const next = v + emoji;
+        latestValueRef.current = next;
+        return next;
+      });
       return;
     }
     const start = el.selectionStart ?? el.value.length;
     const end = el.selectionEnd ?? el.value.length;
-    setValue((v) => v.slice(0, start) + emoji + v.slice(end));
+    setValue((v) => {
+      const next = v.slice(0, start) + emoji + v.slice(end);
+      latestValueRef.current = next;
+      return next;
+    });
     // Restore focus + place caret after the inserted emoji on the next tick,
     // once React has flushed the new value back to the DOM.
     requestAnimationFrame(() => {
@@ -472,7 +499,10 @@ export function MessageComposer({
         // after Enter". `sendingRef` still guards against double-submit on
         // the code path; the user just gets to keep typing mid-flight.
         disabled={disabled}
-        onChange={(e) => setValue(e.target.value)}
+        onChange={(e) => {
+          latestValueRef.current = e.target.value;
+          setValue(e.target.value);
+        }}
         onPaste={onPaste}
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {

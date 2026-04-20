@@ -267,7 +267,20 @@ function RoomContent({ roomId }: { roomId: string }) {
       const sorted = [...initial.messages].sort((a, b) =>
         BigInt(a.seq) < BigInt(b.seq) ? -1 : BigInt(a.seq) > BigInt(b.seq) ? 1 : 0,
       );
-      setMessages(sorted);
+      // Merge-don't-replace: live `message.new` events that arrive while the
+      // history fetch is in flight are appended via `emit`. A naive
+      // `setMessages(sorted)` clobbers them whenever the snapshot's head
+      // precedes the live event's seq — a race that shows up as a silently
+      // dropped message under rapid-send bursts right after page load.
+      setMessages((prev) => {
+        if (prev.length === 0) return sorted;
+        const byId = new Map<string, MessagePayload>();
+        for (const m of sorted) byId.set(m.id, m);
+        for (const m of prev) byId.set(m.id, m);
+        return Array.from(byId.values()).sort((a, b) =>
+          BigInt(a.seq) < BigInt(b.seq) ? -1 : BigInt(a.seq) > BigInt(b.seq) ? 1 : 0,
+        );
+      });
       setFirstItemIndex(INITIAL_FIRST_INDEX - sorted.length);
       setHasMoreOlder(sorted.length >= HISTORY_PAGE_SIZE);
     })();
