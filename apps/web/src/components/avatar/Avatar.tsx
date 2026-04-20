@@ -1,3 +1,4 @@
+import type { UserPresenceState } from "@ai-herders/shared/protocol";
 import { cn } from "@/lib/utils";
 
 export const AVATAR_BG_PALETTE = [
@@ -37,16 +38,22 @@ interface Props {
   name?: string;
   size?: number;
   className?: string;
+  // Optional — when "online" the avatar renders with a violet glass ring
+  // + a breathing glow so active users are scannable at a glance. Away /
+  // offline / undefined render the plain circle (existing behaviour).
+  presence?: UserPresenceState;
 }
 
-export function Avatar({ userId, name, size = 32, className }: Props) {
+export function Avatar({ userId, name, size = 32, className, presence }: Props) {
   const idx = hashUserIdToPalette(userId);
   const bg = AVATAR_BG_PALETTE[idx];
   const initials = getInitials(name, userId);
+  const ringClass = presence === "online" ? "avatar-ring" : "";
   return (
     <div
       className={cn(
         "inline-flex shrink-0 select-none items-center justify-center rounded-full font-semibold",
+        ringClass,
         className,
       )}
       style={{

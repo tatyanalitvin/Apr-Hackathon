@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { RequireSession } from "@/components/chat/RequireSession";
 import { Header } from "@/components/chat/Header";
+import { SettingsNav } from "@/components/settings/SettingsNav";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -128,11 +129,13 @@ function SessionsContent() {
     <div className="flex min-h-dvh flex-col">
       <Header />
       <main id="main" className="mx-auto w-full max-w-3xl px-6 py-10 space-y-6">
-        <h1 className="font-display text-4xl" style={{ color: "var(--text-hi)" }}>Active sessions</h1>
-        <div
-          className="rounded-[var(--radius)] p-6 space-y-4"
-          style={{ background: "var(--bg-elevated)", boxShadow: "inset 0 1px 0 var(--glass-border)" }}
-        >
+        <div className="hero-stagger space-y-4">
+          <h1 className="font-display text-4xl" style={{ color: "var(--text-hi)" }}>
+            Active sessions
+          </h1>
+          <SettingsNav />
+        </div>
+        <div className="glass-panel panel-reveal p-6 space-y-4">
           <p className="text-sm text-muted-foreground">
             Each row is a browser currently signed in to your account. Sign
             out any you don&apos;t recognise. Signing out this browser sends
