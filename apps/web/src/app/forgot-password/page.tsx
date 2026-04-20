@@ -4,6 +4,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -46,7 +47,7 @@ export default function ForgotPasswordPage() {
                 If an account exists for this email, a reset link has been sent.
               </p>
               <p className="text-sm text-center">
-                <a className="underline" href="/login">Back to sign in</a>
+                <Link className="underline" href="/login">Back to sign in</Link>
               </p>
             </div>
           ) : (
@@ -76,7 +77,7 @@ export default function ForgotPasswordPage() {
                 {form.formState.isSubmitting ? "Sending…" : "Send reset link"}
               </Button>
               <p className="text-sm text-center text-muted-foreground">
-                Remembered it? <a className="underline" href="/login">Sign in</a>
+                Remembered it? <Link className="underline" href="/login">Sign in</Link>
               </p>
             </form>
           )}

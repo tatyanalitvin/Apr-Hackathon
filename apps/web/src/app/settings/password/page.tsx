@@ -87,7 +87,7 @@ function PasswordContent() {
   return (
     <div className="flex min-h-dvh flex-col">
       <Header />
-      <main className="flex-1 p-6">
+      <main id="main" className="flex-1 p-6">
         <Card className="w-full max-w-md">
           <CardHeader>
             <CardTitle>Change password</CardTitle>
@@ -100,10 +100,12 @@ function PasswordContent() {
                   id="currentPassword"
                   type="password"
                   autoComplete="current-password"
+                  aria-invalid={Boolean(form.formState.errors.currentPassword)}
+                  aria-describedby={form.formState.errors.currentPassword ? "currentPassword-error" : undefined}
                   {...form.register("currentPassword")}
                 />
                 {form.formState.errors.currentPassword && (
-                  <p className="text-sm text-destructive">
+                  <p id="currentPassword-error" className="text-sm text-destructive">
                     {form.formState.errors.currentPassword.message}
                   </p>
                 )}
@@ -114,10 +116,12 @@ function PasswordContent() {
                   id="newPassword"
                   type="password"
                   autoComplete="new-password"
+                  aria-invalid={Boolean(form.formState.errors.newPassword)}
+                  aria-describedby={form.formState.errors.newPassword ? "newPassword-error" : undefined}
                   {...form.register("newPassword")}
                 />
                 {form.formState.errors.newPassword && (
-                  <p className="text-sm text-destructive">
+                  <p id="newPassword-error" className="text-sm text-destructive">
                     {form.formState.errors.newPassword.message}
                   </p>
                 )}
@@ -128,22 +132,27 @@ function PasswordContent() {
                   id="newPasswordConfirm"
                   type="password"
                   autoComplete="new-password"
+                  aria-invalid={Boolean(form.formState.errors.newPasswordConfirm)}
+                  aria-describedby={form.formState.errors.newPasswordConfirm ? "newPasswordConfirm-error" : undefined}
                   {...form.register("newPasswordConfirm")}
                 />
                 {form.formState.errors.newPasswordConfirm && (
-                  <p className="text-sm text-destructive">
+                  <p id="newPasswordConfirm-error" className="text-sm text-destructive">
                     {form.formState.errors.newPasswordConfirm.message}
                   </p>
                 )}
               </div>
-              <label className="flex items-center gap-2 text-sm">
+              <div className="flex items-center gap-2 text-sm">
                 <input
+                  id="revokeOtherSessions"
                   type="checkbox"
                   className="h-4 w-4"
                   {...form.register("revokeOtherSessions")}
                 />
-                Sign out other sessions (recommended)
-              </label>
+                <Label htmlFor="revokeOtherSessions" className="font-normal">
+                  Sign out other sessions (recommended)
+                </Label>
+              </div>
               {form.formState.errors.root && (
                 <p className="text-sm text-destructive">
                   {form.formState.errors.root.message}

@@ -2,6 +2,7 @@
 "use client";
 
 import { Suspense } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -54,30 +55,55 @@ function RegisterForm() {
           <form onSubmit={onSubmit} className="space-y-4" noValidate>
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" autoComplete="email" {...form.register("email")} />
+              <Input
+                id="email"
+                type="email"
+                autoComplete="email"
+                aria-invalid={Boolean(form.formState.errors.email)}
+                aria-describedby={form.formState.errors.email ? "email-error" : undefined}
+                {...form.register("email")}
+              />
               {form.formState.errors.email && (
-                <p className="text-sm text-destructive">{form.formState.errors.email.message}</p>
+                <p id="email-error" className="text-sm text-destructive">{form.formState.errors.email.message}</p>
               )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="username">Username</Label>
-              <Input id="username" autoComplete="username" {...form.register("username")} />
+              <Input
+                id="username"
+                autoComplete="username"
+                aria-invalid={Boolean(form.formState.errors.username)}
+                aria-describedby={form.formState.errors.username ? "username-error" : undefined}
+                {...form.register("username")}
+              />
               {form.formState.errors.username && (
-                <p className="text-sm text-destructive">{form.formState.errors.username.message}</p>
+                <p id="username-error" className="text-sm text-destructive">{form.formState.errors.username.message}</p>
               )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="name">Display name</Label>
-              <Input id="name" {...form.register("name")} />
+              <Input
+                id="name"
+                aria-invalid={Boolean(form.formState.errors.name)}
+                aria-describedby={form.formState.errors.name ? "name-error" : undefined}
+                {...form.register("name")}
+              />
               {form.formState.errors.name && (
-                <p className="text-sm text-destructive">{form.formState.errors.name.message}</p>
+                <p id="name-error" className="text-sm text-destructive">{form.formState.errors.name.message}</p>
               )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
-              <Input id="password" type="password" autoComplete="new-password" {...form.register("password")} />
+              <Input
+                id="password"
+                type="password"
+                autoComplete="new-password"
+                aria-invalid={Boolean(form.formState.errors.password)}
+                aria-describedby={form.formState.errors.password ? "password-error" : undefined}
+                {...form.register("password")}
+              />
               {form.formState.errors.password && (
-                <p className="text-sm text-destructive">{form.formState.errors.password.message}</p>
+                <p id="password-error" className="text-sm text-destructive">{form.formState.errors.password.message}</p>
               )}
             </div>
             <div className="space-y-2">
@@ -86,10 +112,12 @@ function RegisterForm() {
                 id="passwordConfirm"
                 type="password"
                 autoComplete="new-password"
+                aria-invalid={Boolean(form.formState.errors.passwordConfirm)}
+                aria-describedby={form.formState.errors.passwordConfirm ? "passwordConfirm-error" : undefined}
                 {...form.register("passwordConfirm")}
               />
               {form.formState.errors.passwordConfirm && (
-                <p className="text-sm text-destructive">
+                <p id="passwordConfirm-error" className="text-sm text-destructive">
                   {form.formState.errors.passwordConfirm.message}
                 </p>
               )}
@@ -101,7 +129,7 @@ function RegisterForm() {
               {form.formState.isSubmitting ? "Creating…" : "Create account"}
             </Button>
             <p className="text-sm text-center text-muted-foreground">
-              Already have an account? <a className="underline" href={`/login?next=${encodeURIComponent(nextTarget)}`}>Sign in</a>
+              Already have an account? <Link className="underline" href={`/login?next=${encodeURIComponent(nextTarget)}`}>Sign in</Link>
             </p>
           </form>
         </CardContent>

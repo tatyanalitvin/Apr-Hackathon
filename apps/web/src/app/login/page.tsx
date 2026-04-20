@@ -2,6 +2,7 @@
 "use client";
 
 import { Suspense } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -53,25 +54,39 @@ function LoginForm() {
           <form onSubmit={onSubmit} className="space-y-4" noValidate>
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" autoComplete="email" {...form.register("email")} />
+              <Input
+                id="email"
+                type="email"
+                autoComplete="email"
+                aria-invalid={Boolean(form.formState.errors.email)}
+                aria-describedby={form.formState.errors.email ? "email-error" : undefined}
+                {...form.register("email")}
+              />
               {form.formState.errors.email && (
-                <p className="text-sm text-destructive">{form.formState.errors.email.message}</p>
+                <p id="email-error" className="text-sm text-destructive">{form.formState.errors.email.message}</p>
               )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
-              <Input id="password" type="password" autoComplete="current-password" {...form.register("password")} />
+              <Input
+                id="password"
+                type="password"
+                autoComplete="current-password"
+                aria-invalid={Boolean(form.formState.errors.password)}
+                aria-describedby={form.formState.errors.password ? "password-error" : undefined}
+                {...form.register("password")}
+              />
               {form.formState.errors.password && (
-                <p className="text-sm text-destructive">{form.formState.errors.password.message}</p>
+                <p id="password-error" className="text-sm text-destructive">{form.formState.errors.password.message}</p>
               )}
               <p className="text-sm text-right">
-                <a className="underline text-muted-foreground" href="/forgot-password">Forgot password?</a>
+                <Link className="underline text-muted-foreground" href="/forgot-password">Forgot password?</Link>
               </p>
             </div>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" {...form.register("rememberMe")} className="h-4 w-4" />
-              <span>Keep me signed in</span>
-            </label>
+            <div className="flex items-center gap-2 text-sm">
+              <input id="rememberMe" type="checkbox" {...form.register("rememberMe")} className="h-4 w-4" />
+              <Label htmlFor="rememberMe" className="font-normal">Keep me signed in</Label>
+            </div>
             {form.formState.errors.root && (
               <p className="text-sm text-destructive">{form.formState.errors.root.message}</p>
             )}
@@ -79,7 +94,7 @@ function LoginForm() {
               {form.formState.isSubmitting ? "Signing in…" : "Sign in"}
             </Button>
             <p className="text-sm text-center text-muted-foreground">
-              No account yet? <a className="underline" href={`/register?next=${encodeURIComponent(nextTarget)}`}>Create one</a>
+              No account yet? <Link className="underline" href={`/register?next=${encodeURIComponent(nextTarget)}`}>Create one</Link>
             </p>
           </form>
         </CardContent>
