@@ -47,7 +47,23 @@ export function SettingsTab({
   const [visibility, setVisibility] = useState<Visibility>("public");
   const [initialVisibility, setInitialVisibility] = useState<Visibility>("public");
   const [submitting, setSubmitting] = useState<null | "save" | "delete" | "leave">(null);
+  // Inline field errors from the backend zod flatten() response. Cleared on
+  // edit so stale messages don't linger across retries.
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [descriptionError, setDescriptionError] = useState<string | null>(null);
   const [api] = useState(() => createChatApi());
+
+  // Save-diff gate — disable the Save button when nothing has changed so
+  // the no-op early-return path in handleSave isn't visible to the user as
+  // a silent click. Compares the trimmed form values against the initial
+  // snapshot populated from /rooms/me.
+  const trimmedName = name.trim();
+  const trimmedDesc = description.trim();
+  const nextDescription = trimmedDesc.length > 0 ? trimmedDesc : null;
+  const isDirty =
+    trimmedName !== roomName ||
+    nextDescription !== initialDescription ||
+    visibility !== initialVisibility;
 
   useEffect(() => {
     if (open) setName(roomName);
@@ -82,7 +98,8 @@ export function SettingsTab({
 
   async function handleSave(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    const trimmedName = name.trim();
+    setNameError(null);
+    setDescriptionError(null);
     if (!trimmedName) {
       toast.error("Enter a room name.");
       return;
@@ -91,8 +108,6 @@ export function SettingsTab({
     const payload: UpdateRoomInput = {};
     if (trimmedName !== roomName) payload.name = trimmedName;
 
-    const trimmedDesc = description.trim();
-    const nextDescription = trimmedDesc.length > 0 ? trimmedDesc : null;
     if (nextDescription !== initialDescription) {
       payload.description = nextDescription;
     }
@@ -102,6 +117,20 @@ export function SettingsTab({
     if (Object.keys(payload).length === 0) {
       onClose();
       return;
+    }
+
+    // REQ-088 (UX) — flipping a public room private hides it from the
+    // catalog + breaks discovery. Make the owner confirm. Private → public
+    // is additive, so no confirm.
+    if (
+      payload.visibility === "private" &&
+      initialVisibility === "public" &&
+      typeof window !== "undefined"
+    ) {
+      const confirmed = window.confirm(
+        `Switch #${roomName} to private? It will no longer appear in the public catalog.`,
+      );
+      if (!confirmed) return;
     }
 
     setSubmitting("save");
@@ -115,7 +144,12 @@ export function SettingsTab({
       onClose();
       return;
     }
-    handleMutationError(r.error, "save");
+    handleMutationError(
+      r.error,
+      "save",
+      setNameError,
+      setDescriptionError,
+    );
   }
 
   async function handleDelete() {
@@ -141,7 +175,9 @@ export function SettingsTab({
   async function handleLeave() {
     const confirmed =
       typeof window !== "undefined" &&
-      window.confirm(`Leave #${roomName}?`);
+      window.confirm(
+        `Leave #${roomName}? You'll stop receiving messages from this room.`,
+      );
     if (!confirmed) return;
     setSubmitting("leave");
     const r = await api.leaveRoom(roomId);
@@ -165,11 +201,29 @@ export function SettingsTab({
             <Input
               id="room-rename-name"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value);
+                if (nameError) setNameError(null);
+              }}
               autoComplete="off"
               maxLength={64}
               disabled={submitting !== null}
+              aria-invalid={nameError ? true : undefined}
+              aria-describedby={nameError ? "room-rename-name-error" : undefined}
             />
+            {nameError ? (
+              <p
+                id="room-rename-name-error"
+                className="text-sm text-destructive"
+                role="alert"
+              >
+                {nameError}
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Letters, numbers, spaces, _, -. 3–64 characters.
+              </p>
+            )}
           </div>
 
           <div className="space-y-1.5">
@@ -179,12 +233,28 @@ export function SettingsTab({
             <Textarea
               id="room-description"
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={(e) => {
+                setDescription(e.target.value);
+                if (descriptionError) setDescriptionError(null);
+              }}
               placeholder="What's this room for?"
               rows={3}
               maxLength={500}
               disabled={submitting !== null}
+              aria-invalid={descriptionError ? true : undefined}
+              aria-describedby={
+                descriptionError ? "room-description-error" : undefined
+              }
             />
+            {descriptionError ? (
+              <p
+                id="room-description-error"
+                className="text-sm text-destructive"
+                role="alert"
+              >
+                {descriptionError}
+              </p>
+            ) : null}
           </div>
 
           <fieldset
@@ -231,7 +301,7 @@ export function SettingsTab({
             <Button
               type="submit"
               size="sm"
-              disabled={submitting !== null}
+              disabled={submitting !== null || !isDirty}
               // UX(ui-pass P1-8) — primary submit ghosts out via opacity-50
               // while the PATCH is in flight, so users think the button has
               // vanished. Hold the primary fill + light text at a softened
@@ -288,11 +358,30 @@ export function SettingsTab({
 function handleMutationError(
   err: RoomMutationError,
   verb: "save" | "delete" | "leave",
+  setNameError?: (msg: string | null) => void,
+  setDescriptionError?: (msg: string | null) => void,
 ): void {
   switch (err.code) {
-    case "validation":
-      toast.error("Name must be 3–64 chars of letters, numbers, space, _ or -; description must be ≤500 chars.");
+    case "validation": {
+      const fe = err.fieldErrors;
+      const nameMsg = fe?.name?.[0];
+      const descMsg = fe?.description?.[0];
+      if (nameMsg || descMsg) {
+        if (nameMsg) {
+          setNameError?.(nameMsg);
+          toast.error(nameMsg);
+        }
+        if (descMsg) {
+          setDescriptionError?.(descMsg);
+          if (!nameMsg) toast.error(descMsg);
+        }
+      } else {
+        toast.error(
+          "Name must be 3–64 chars of letters, numbers, space, _ or -; description must be ≤500 chars.",
+        );
+      }
       break;
+    }
     case "name_taken":
       toast.error("That room name is taken.");
       break;

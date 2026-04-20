@@ -39,6 +39,9 @@ export function InvitationsTab({ roomId }: InvitationsTabProps) {
   const [cancelling, setCancelling] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Inline field error under the username input for the zod `inviteeUsername`
+  // miss. Cleared on edit so stale copy doesn't linger across retries.
+  const [usernameError, setUsernameError] = useState<string | null>(null);
 
   const refetch = useCallback(async () => {
     try {
