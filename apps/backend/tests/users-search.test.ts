@@ -40,18 +40,21 @@ async function registerAgent(
   return { agent, userId: await userIdByEmail(email) };
 }
 
+// One shared buildApp() per file — parallel describe-scoped buildApp() calls
+// race better-auth init and can silently drop sign-ups (200, no user row).
+// See docs/specs/s3-gc-and-moderation-rl.md R10.
+let app: FastifyInstance;
+
+beforeAll(async () => {
+  app = await buildApp();
+  await app.ready();
+});
+
+afterAll(async () => {
+  await app.close();
+});
+
 describe("REQ-UserSearch §2.4 query-shape + auth", () => {
-  let app: FastifyInstance;
-
-  beforeAll(async () => {
-    app = await buildApp();
-    await app.ready();
-  });
-
-  afterAll(async () => {
-    await app.close();
-  });
-
   test("REQ-UserSearch §2.4 R3 — unauthenticated → 401", async () => {
     const res = await request(app.server).get("/api/v1/users?q=bob");
     expect(res.status).toBe(401);
@@ -88,17 +91,6 @@ describe("REQ-UserSearch §2.4 query-shape + auth", () => {
 });
 
 describe("REQ-UserSearch §2.4 ranking + self + soft-delete", () => {
-  let app: FastifyInstance;
-
-  beforeAll(async () => {
-    app = await buildApp();
-    await app.ready();
-  });
-
-  afterAll(async () => {
-    await app.close();
-  });
-
   test("REQ-UserSearch §2.4 R4/R5/R6/R7/R8 — tier order + tiebreak", async () => {
     // Caller
     const me = await registerAgent(app, "usrch-rank-me@example.com", "rank_me");
@@ -178,17 +170,6 @@ describe("REQ-UserSearch §2.4 ranking + self + soft-delete", () => {
 });
 
 describe("REQ-UserSearch §2.4 block symmetry", () => {
-  let app: FastifyInstance;
-
-  beforeAll(async () => {
-    app = await buildApp();
-    await app.ready();
-  });
-
-  afterAll(async () => {
-    await app.close();
-  });
-
   test("REQ-UserSearch §2.4 R11 — hits blocked BY caller are excluded", async () => {
     const me = await registerAgent(app, "usrch-blk-me@example.com", "blk_me");
     const blockedTarget = await registerAgent(
@@ -229,17 +210,6 @@ describe("REQ-UserSearch §2.4 block symmetry", () => {
 });
 
 describe("REQ-UserSearch §2.4 relationship enrichment + cap", () => {
-  let app: FastifyInstance;
-
-  beforeAll(async () => {
-    app = await buildApp();
-    await app.ready();
-  });
-
-  afterAll(async () => {
-    await app.close();
-  });
-
   test("REQ-UserSearch §2.4 R13 — friend row → relationship: 'friend'", async () => {
     const me = await registerAgent(app, "usrch-fr13-me@example.com", "fr13_me");
     const buddy = await registerAgent(app, "usrch-fr13-buddy@example.com", "fr13_buddy");
@@ -352,17 +322,6 @@ describe("REQ-UserSearch §2.4 relationship enrichment + cap", () => {
 });
 
 describe("REQ-UserSearch §2.4 rate limit", () => {
-  let app: FastifyInstance;
-
-  beforeAll(async () => {
-    app = await buildApp();
-    await app.ready();
-  });
-
-  afterAll(async () => {
-    await app.close();
-  });
-
   test("REQ-UserSearch §2.4 R18 — 61st request in 60s → 429 rate_limited", async () => {
     const alice = await registerAgent(app, "usrch-rl@example.com", "usrch_rl");
 
