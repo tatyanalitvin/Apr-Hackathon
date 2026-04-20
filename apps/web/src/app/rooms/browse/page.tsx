@@ -103,14 +103,14 @@ function BrowseContent() {
     <div className="flex min-h-dvh flex-col">
       <Header />
       <main id="main" className="flex-1 p-6">
-        <div className="flex items-center justify-between mb-4 max-w-2xl">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <h1 className="font-display text-4xl" style={{ color: "var(--text-hi)" }}>Browse rooms</h1>
           <Link href="/rooms">
             <Button variant="ghost" size="sm">← Your rooms</Button>
           </Link>
         </div>
 
-        <div className="mb-3 max-w-2xl">
+        <div className="mb-4 max-w-md">
           <Input
             type="search"
             aria-label="Search rooms"
