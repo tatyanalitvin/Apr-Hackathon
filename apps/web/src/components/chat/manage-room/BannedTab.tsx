@@ -192,6 +192,7 @@ export function BannedTab({ roomId, roomName, viewerRole }: BannedTabProps) {
       <UnbanConfirmDialog
         target={unbanTarget}
         roomName={roomName}
+        submitting={unbanTarget !== null && busy === unbanTarget.userId}
         onCancel={() => setUnbanTarget(null)}
         onConfirm={submitUnban}
       />
@@ -202,11 +203,13 @@ export function BannedTab({ roomId, roomName, viewerRole }: BannedTabProps) {
 function UnbanConfirmDialog({
   target,
   roomName,
+  submitting,
   onCancel,
   onConfirm,
 }: {
   target: UnbanTarget;
   roomName?: string;
+  submitting: boolean;
   onCancel: () => void;
   onConfirm: () => void | Promise<void>;
 }) {
@@ -228,6 +231,7 @@ function UnbanConfirmDialog({
           <Button
             variant="default"
             onClick={() => void onConfirm()}
+            disabled={submitting}
             // UX — unban is a constructive moderation action. Keep the submit
             // as default variant (primary fill) so it reads as "restore
             // access", distinct from the destructive submits in ban/kick.

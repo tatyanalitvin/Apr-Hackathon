@@ -220,12 +220,14 @@ export function MembersTab({ roomId, roomName, viewerRole }: MembersTabProps) {
       <BanReasonDialog
         target={banTarget}
         roomName={roomName}
+        submitting={banTarget !== null && busy === banTarget.userId}
         onCancel={() => setBanTarget(null)}
         onSubmit={submitBan}
       />
       <KickConfirmDialog
         target={kickTarget}
         roomName={roomName}
+        submitting={kickTarget !== null && busy === kickTarget.userId}
         onCancel={() => setKickTarget(null)}
         onConfirm={submitKick}
       />
@@ -236,11 +238,13 @@ export function MembersTab({ roomId, roomName, viewerRole }: MembersTabProps) {
 function KickConfirmDialog({
   target,
   roomName,
+  submitting,
   onCancel,
   onConfirm,
 }: {
   target: KickTarget;
   roomName: string;
+  submitting: boolean;
   onCancel: () => void;
   onConfirm: () => void | Promise<void>;
 }) {
@@ -251,7 +255,7 @@ function KickConfirmDialog({
           <DialogTitle>Remove @{target?.username ?? ""}</DialogTitle>
           <DialogDescription>
             Remove @{target?.username ?? ""} from #{roomName}? They will be
-            banned and cannot rejoin until unbanned.
+            removed but can rejoin.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
@@ -261,6 +265,7 @@ function KickConfirmDialog({
           <Button
             variant="destructive"
             onClick={() => void onConfirm()}
+            disabled={submitting}
             // UX — confirmation-dialog submit stays filled destructive to match
             // BanReasonDialog's submit: the user has already committed by
             // opening this dialog.
@@ -278,11 +283,13 @@ function KickConfirmDialog({
 function BanReasonDialog({
   target,
   roomName,
+  submitting,
   onCancel,
   onSubmit,
 }: {
   target: BanTarget;
   roomName: string;
+  submitting: boolean;
   onCancel: () => void;
   onSubmit: (reason: string) => void | Promise<void>;
 }) {
@@ -317,6 +324,7 @@ function BanReasonDialog({
           <Button
             variant="destructive"
             onClick={() => void onSubmit(reason)}
+            disabled={submitting}
             // UX — confirmation-dialog submit stays filled: the user has
             // already committed to the destructive action by opening this
             // dialog, so the final step reads stronger than the in-row
