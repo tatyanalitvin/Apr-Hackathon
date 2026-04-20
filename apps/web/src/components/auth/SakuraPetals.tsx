@@ -10,7 +10,7 @@ const PETALS = [
 
 export function SakuraPetals() {
   return (
-    <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+    <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
       {PETALS.map((p, i) => (
         <svg
           key={i}

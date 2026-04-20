@@ -13,7 +13,7 @@ export function AuthSplitLayout({ headline, tagline, children }: AuthSplitLayout
       <section className="relative flex flex-1 items-center justify-center overflow-hidden px-8 py-16 md:py-0 md:min-h-dvh">
         <SakuraPetals />
         <div className="relative z-10 max-w-md">
-          <h1 className="font-display text-5xl leading-[0.95] tracking-[-0.03em] text-text-hi md:text-7xl" style={{ color: "var(--text-hi)" }}>
+          <h1 className="font-display text-5xl leading-[0.95] tracking-[-0.03em] md:text-7xl" style={{ color: "var(--text-hi)" }}>
             AI Herders Jam
           </h1>
           <p className="mt-4 font-display italic text-2xl" style={{ color: "var(--text-lo)" }}>
