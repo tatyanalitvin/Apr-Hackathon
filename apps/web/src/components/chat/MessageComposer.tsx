@@ -193,15 +193,27 @@ export function MessageComposer({
   );
 
   const send = useCallback(async () => {
+    // Read the textarea's current DOM value instead of React state.
+    // Under rapid Playwright fill+press cycles (and emoji-splice + Enter),
+    // state may lag by a render and a send that should carry "burst-3"
+    // ends up re-sending "" or the previous draft. The ref is the source
+    // of truth for what the user just typed.
+    const currentValue = textareaRef.current?.value ?? value;
+    const currentTrimmed = currentValue.trim();
+    const hasContentNow =
+      currentTrimmed.length > 0 || readyAttachmentIds.length > 0;
+    const canEnqueueNow =
+      !disabled && !anyUploading && hasContentNow && !overLimit;
+
     // If a previous send is still in flight, snapshot THIS message onto
     // the queue and clear the composer so the user can keep typing. The
     // in-flight send's finally drains the queue serially.
     if (sendingRef.current) {
-      if (!canEnqueue) return;
+      if (!canEnqueueNow) return;
       const attachmentIds = readyAttachmentIds;
-      const body = (trimmed.length === 0 && attachmentIds.length > 0
+      const body = (currentTrimmed.length === 0 && attachmentIds.length > 0
         ? "📎"
-        : trimmed
+        : currentTrimmed
       ).normalize("NFC");
       queueRef.current.push({
         body,
@@ -216,16 +228,16 @@ export function MessageComposer({
       if (replyTo && onClearReply) onClearReply();
       return;
     }
-    if (!canSend) return;
+    if (!canEnqueueNow || sending) return;
     sendingRef.current = true;
     setSending(true);
     try {
       const attachmentIds = readyAttachmentIds;
       // Backend messageBodySchema requires body.min(1); when the user drags a
       // file without typing, we fall back to a glyph so the send isn't rejected.
-      const body = (trimmed.length === 0 && attachmentIds.length > 0
+      const body = (currentTrimmed.length === 0 && attachmentIds.length > 0
         ? "📎"
-        : trimmed
+        : currentTrimmed
       ).normalize("NFC");
       try {
         // REQ-133 R12 — replyToId flows through as the 3rd positional arg.
@@ -272,9 +284,11 @@ export function MessageComposer({
       setSending(false);
     }
   }, [
-    canSend,
-    canEnqueue,
-    trimmed,
+    value,
+    sending,
+    disabled,
+    anyUploading,
+    overLimit,
     readyAttachmentIds,
     onSend,
     userId,
