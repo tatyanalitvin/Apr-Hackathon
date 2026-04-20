@@ -48,7 +48,7 @@ function RegisterForm() {
   });
 
   return (
-    <AuthSplitLayout headline="Start herding ideas.">
+    <AuthSplitLayout headline="Start herding ideas." variant="v1">
       <form onSubmit={onSubmit} className="space-y-4" noValidate>
         <div className="space-y-2">
           <Label htmlFor="email">Email</Label>

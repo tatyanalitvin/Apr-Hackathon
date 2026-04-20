@@ -67,7 +67,7 @@ function ResetPasswordForm() {
   const tokenMissing = !token;
 
   return (
-    <AuthSplitLayout headline="Set a new key.">
+    <AuthSplitLayout headline="Set a new key." variant="v4">
       {tokenMissing ? (
         <div className="space-y-4">
           <p className="text-sm text-destructive">
