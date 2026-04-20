@@ -32,6 +32,13 @@ function presenceSuffix(state: UserPresenceState): string | null {
 }
 
 function MemberRow({ member, isSelf }: { member: MemberListItem; isSelf: boolean }) {
+  // TODO(ui-pass): reconcile presence source with Header pill. usePresence()
+  // falls back to "offline" when the presenceStore hasn't yet received a
+  // `presence.changed` for this user, so the roster can read "Alice (offline)"
+  // while Alice is actively online per the Header self-pill. A correct fix
+  // needs either a full-room presence snapshot on join (server side) or a
+  // client-side bootstrap that seeds the store from the room-members API
+  // response -- out of scope for this UI pass.
   const presence = usePresence(member.id);
   const suffix = presenceSuffix(presence);
   return (
@@ -54,6 +61,10 @@ function MemberRow({ member, isSelf }: { member: MemberListItem; isSelf: boolean
           targetUserId={member.id}
           targetUsername={member.username}
           size="sm"
+          // UX(ui-pass P1-5) — icon-only in the roster so five non-friend rows
+          // don't outweigh five 24px avatars. Full label still used on the
+          // Contacts page where the affordance is the primary CTA.
+          compact
         />
       ) : null}
     </li>

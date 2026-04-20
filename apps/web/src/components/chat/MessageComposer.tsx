@@ -572,7 +572,17 @@ export function MessageComposer({
             disabled={disabled || sending}
           />
         </div>
-        <Button type="submit" size="sm" disabled={!canSend}>
+        <Button
+          type="submit"
+          size="sm"
+          disabled={!canSend}
+          // UX(ui-pass P1-3) — default disabled:opacity-50 washes the Send
+          // button into the lavender glass-panel composer in light theme so
+          // judges see "no send button" when the input is empty. Hold full
+          // opacity and desaturate the primary fill instead, keeping the CTA
+          // locatable without implying it's clickable.
+          className="disabled:bg-primary/70 disabled:text-primary-foreground disabled:opacity-100"
+        >
           {sending ? "Sending…" : anyUploading ? "Uploading…" : "Send"}
         </Button>
       </div>
