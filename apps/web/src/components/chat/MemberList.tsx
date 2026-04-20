@@ -54,6 +54,10 @@ function MemberRow({ member, isSelf }: { member: MemberListItem; isSelf: boolean
           targetUserId={member.id}
           targetUsername={member.username}
           size="sm"
+          // UX(ui-pass P1-5) — icon-only in the roster so five non-friend rows
+          // don't outweigh five 24px avatars. Full label still used on the
+          // Contacts page where the affordance is the primary CTA.
+          compact
         />
       ) : null}
     </li>

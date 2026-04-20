@@ -28,6 +28,13 @@ export interface AddFriendButtonProps {
   state?: AddFriendButtonState;
   size?: "sm" | "default";
   onSent?: () => void;
+  /**
+   * UX(ui-pass P1-5) — render the idle state as an icon-only 28px button so a
+   * row of non-friends doesn't overshadow 24px avatars in the MemberList.
+   * "Friends"/"Pending" pills still render full-width because they communicate
+   * explicit state that belongs in text.
+   */
+  compact?: boolean;
 }
 
 export function AddFriendButton({
@@ -36,6 +43,7 @@ export function AddFriendButton({
   state = "idle",
   size = "sm",
   onSent,
+  compact = false,
 }: AddFriendButtonProps) {
   const [busy, setBusy] = useState(false);
 
@@ -71,6 +79,23 @@ export function AddFriendButton({
     }
     toastForSendError(r.error);
   };
+
+  if (compact) {
+    return (
+      <Button
+        type="button"
+        size="icon"
+        variant="ghost"
+        onClick={handleClick}
+        disabled={busy}
+        aria-label={`Add ${targetUsername} as friend`}
+        title={`Add ${targetUsername} as friend`}
+        className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+      >
+        {busy ? <Loader2 className="animate-spin" /> : <UserPlus />}
+      </Button>
+    );
+  }
 
   return (
     <Button
