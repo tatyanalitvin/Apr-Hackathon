@@ -1,7 +1,8 @@
 // REQ-211 — Banned list tab. Owner/admin viewer only; plain member (should
 // never reach here given the ManageRoomModal gate) sees a placeholder. Rows
-// carry the banner + reason + date; [Unban] fires REQ-205. Live updates: when
-// another admin unbans (or when the bannedBy-emit feedback arrives), the
+// carry the banner + reason + date; [Unban] opens a styled shadcn Dialog
+// confirm (UnbanConfirmDialog) that fires REQ-205. Live updates: when another
+// admin unbans (or when the bannedBy-emit feedback arrives), the
 // room.member.unbanned socket event removes the matching row optimistically.
 
 "use client";
@@ -9,6 +10,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { createChatApi, createChatSocket } from "@/lib/socket";
 import type {
   BanListItem,
@@ -20,13 +29,18 @@ import type { RoomMemberUnbannedEvent } from "@ai-herders/shared/protocol";
 
 interface BannedTabProps {
   roomId: string;
+  roomName?: string;
   viewerRole: RoomRole;
 }
 
-export function BannedTab({ roomId, viewerRole }: BannedTabProps) {
+type UnbanTarget = { userId: string; username: string } | null;
+
+export function BannedTab({ roomId, roomName, viewerRole }: BannedTabProps) {
   const [api] = useState<ChatAPI>(() => createChatApi());
   const [bans, setBans] = useState<BanListItem[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [unbanTarget, setUnbanTarget] = useState<UnbanTarget>(null);
 
   const canView = useMemo(
     () => viewerRole === "owner" || viewerRole === "admin",
@@ -34,11 +48,15 @@ export function BannedTab({ roomId, viewerRole }: BannedTabProps) {
   );
 
   async function refresh() {
+    setError(null);
     try {
       const rows = await api.listRoomBans(roomId);
       setBans(rows);
     } catch (err) {
       console.error("[BannedTab] listRoomBans failed", err);
+      const message =
+        err instanceof Error ? err.message : "Couldn't load ban list.";
+      setError(message);
       toast.error("Couldn't load ban list.");
     }
   }
@@ -70,19 +88,18 @@ export function BannedTab({ roomId, viewerRole }: BannedTabProps) {
     };
   }, [roomId, canView]);
 
-  async function handleUnban(ban: BanListItem) {
-    const confirmed =
-      typeof window !== "undefined" &&
-      window.confirm(
-        `Unban @${ban.username}? They will be able to rejoin this room.`,
-      );
-    if (!confirmed) return;
-    setBusy(ban.userId);
-    const r = await api.unbanMember(roomId, ban.userId);
+  async function submitUnban() {
+    if (!unbanTarget) return;
+    const target = unbanTarget;
+    setBusy(target.userId);
+    const r = await api.unbanMember(roomId, target.userId);
     setBusy(null);
     if (r.ok) {
-      toast.success(`Unbanned @${ban.username}.`);
-      setBans((prev) => (prev ? prev.filter((b) => b.userId !== ban.userId) : prev));
+      toast.success(`Unbanned @${target.username}.`);
+      setUnbanTarget(null);
+      setBans((prev) =>
+        prev ? prev.filter((b) => b.userId !== target.userId) : prev,
+      );
       return;
     }
     surfaceErr(r.error);
@@ -92,6 +109,26 @@ export function BannedTab({ roomId, viewerRole }: BannedTabProps) {
     return (
       <div className="text-sm text-muted-foreground">
         Only admins can view the ban list.
+      </div>
+    );
+  }
+  // Error state takes precedence over the loading placeholder so a transient
+  // listRoomBans failure doesn't leave the tab stuck at "Loading ban list…".
+  if (error !== null && bans === null) {
+    return (
+      <div
+        className="space-y-2 text-sm text-muted-foreground"
+        data-testid="banned-tab-error"
+      >
+        <p>Couldn't load ban list.</p>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => void refresh()}
+          data-testid="banned-tab-retry"
+        >
+          Retry
+        </Button>
       </div>
     );
   }
@@ -105,50 +142,102 @@ export function BannedTab({ roomId, viewerRole }: BannedTabProps) {
   }
 
   return (
-    <div className="overflow-hidden rounded border">
-      <table className="w-full text-sm">
-        <thead className="bg-muted/50 text-xs uppercase text-muted-foreground">
-          <tr>
-            <th className="px-3 py-2 text-left font-medium">Username</th>
-            <th className="px-3 py-2 text-left font-medium">Banned by</th>
-            <th className="px-3 py-2 text-left font-medium">Date</th>
-            <th className="px-3 py-2 text-left font-medium">Reason</th>
-            <th className="px-3 py-2 text-right font-medium">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {bans.map((b) => {
-            const busyRow = busy === b.userId;
-            const when = new Date(b.bannedAt);
-            return (
-              <tr key={b.userId} className="border-t" data-testid={`ban-row-${b.username}`}>
-                <td className="px-3 py-2 align-middle">@{b.username}</td>
-                <td className="px-3 py-2 align-middle text-muted-foreground">
-                  @{b.bannedByUsername}
-                </td>
-                <td className="px-3 py-2 align-middle text-xs text-muted-foreground">
-                  {when.toLocaleString()}
-                </td>
-                <td className="px-3 py-2 align-middle text-muted-foreground">
-                  {b.reason ?? "—"}
-                </td>
-                <td className="px-3 py-2 align-middle text-right">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => void handleUnban(b)}
-                    disabled={busyRow}
-                    data-testid={`unban-${b.username}`}
-                  >
-                    Unban
-                  </Button>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+    <>
+      <div className="overflow-hidden rounded border">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50 text-xs uppercase text-muted-foreground">
+            <tr>
+              <th className="px-3 py-2 text-left font-medium">Username</th>
+              <th className="px-3 py-2 text-left font-medium">Banned by</th>
+              <th className="px-3 py-2 text-left font-medium">Date</th>
+              <th className="px-3 py-2 text-left font-medium">Reason</th>
+              <th className="px-3 py-2 text-right font-medium">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {bans.map((b) => {
+              const busyRow = busy === b.userId;
+              const when = new Date(b.bannedAt);
+              return (
+                <tr key={b.userId} className="border-t" data-testid={`ban-row-${b.username}`}>
+                  <td className="px-3 py-2 align-middle">@{b.username}</td>
+                  <td className="px-3 py-2 align-middle text-muted-foreground">
+                    @{b.bannedByUsername}
+                  </td>
+                  <td className="px-3 py-2 align-middle text-xs text-muted-foreground">
+                    {when.toLocaleString()}
+                  </td>
+                  <td className="px-3 py-2 align-middle text-muted-foreground">
+                    {b.reason ?? "—"}
+                  </td>
+                  <td className="px-3 py-2 align-middle text-right">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                        setUnbanTarget({ userId: b.userId, username: b.username })
+                      }
+                      disabled={busyRow}
+                      data-testid={`unban-${b.username}`}
+                    >
+                      Unban
+                    </Button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <UnbanConfirmDialog
+        target={unbanTarget}
+        roomName={roomName}
+        onCancel={() => setUnbanTarget(null)}
+        onConfirm={submitUnban}
+      />
+    </>
+  );
+}
+
+function UnbanConfirmDialog({
+  target,
+  roomName,
+  onCancel,
+  onConfirm,
+}: {
+  target: UnbanTarget;
+  roomName?: string;
+  onCancel: () => void;
+  onConfirm: () => void | Promise<void>;
+}) {
+  return (
+    <Dialog open={target !== null} onOpenChange={(o) => (o ? null : onCancel())}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Unban @{target?.username ?? ""}</DialogTitle>
+          <DialogDescription>
+            {roomName
+              ? `Unban @${target?.username ?? ""} from #${roomName}? They'll be able to rejoin.`
+              : `Unban @${target?.username ?? ""}? They'll be able to rejoin.`}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button
+            variant="default"
+            onClick={() => void onConfirm()}
+            // UX — unban is a constructive moderation action. Keep the submit
+            // as default variant (primary fill) so it reads as "restore
+            // access", distinct from the destructive submits in ban/kick.
+            data-testid={`unban-confirm-${target?.username ?? ""}`}
+          >
+            Unban
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
