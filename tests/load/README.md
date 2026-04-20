@@ -51,7 +51,11 @@ SUBSCRIBERS=300 ROOM_SIZE=100 MESSAGES=10 \
 Exit code is 1 if **p95 ≥ 3000ms** (§3.2) or **delivery rate < 99%**. Knobs
 (all env-var): `BASE_URL`, `SUBSCRIBERS`, `MESSAGES`, `ROOM_SIZE`,
 `RAMP_CONCURRENCY`, `SOCKET_CONCURRENCY`, `SLO_MS`, `MIN_DELIVERY_RATE`,
-`SEND_STAGGER_MS`, `RUN_TAG`. See the file header for defaults.
+`SEND_STAGGER_MS`, `RUN_TAG`, `FORWARDED_FOR_BASE`, `ORIGIN`. See the file
+header for defaults.
+
+Results from the last full sweep are in [`RESULTS.md`](./RESULTS.md) (300
+default, 1000-per-room ceiling, 3×100 fan-out — all PASS, worst p95=25ms).
 
 Targets:
 
