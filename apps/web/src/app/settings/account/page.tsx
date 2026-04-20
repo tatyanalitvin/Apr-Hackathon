@@ -61,13 +61,13 @@ function AccountContent() {
   return (
     <div className="flex min-h-dvh flex-col">
       <Header />
-      <main id="main" className="mx-auto w-full max-w-[880px] px-6 py-10 space-y-6">
+      <main id="main" className="mx-auto w-full max-w-2xl px-6 py-10 space-y-6">
         <h1 className="font-display text-4xl" style={{ color: "var(--text-hi)" }}>Account</h1>
         <div
           className="rounded-[var(--radius)] p-6 space-y-6"
           style={{ background: "var(--bg-elevated)", boxShadow: "inset 0 1px 0 var(--glass-border)" }}
         >
-          <section className="max-w-md">
+          <section>
             <h2 className="font-semibold text-lg" style={{ color: "var(--text-hi)" }}>Export account data</h2>
             <div className="mt-4 space-y-4">
               <p className="text-sm text-muted-foreground">
@@ -80,7 +80,7 @@ function AccountContent() {
             </div>
           </section>
 
-          <section className="max-w-md">
+          <section>
             <h2 className="font-semibold text-lg text-destructive">Delete account</h2>
             <div className="mt-4 space-y-4">
               <p className="text-sm text-muted-foreground">
