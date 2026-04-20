@@ -35,6 +35,8 @@ import {
 } from "@/lib/reply-reducers";
 import { toast } from "sonner";
 import type { MyRoomSummary } from "@/lib/chat-api";
+import { listDms } from "@/lib/dms-api";
+import type { DmFrozenReason } from "@ai-herders/shared/protocol";
 import { useIdleDetector, type IdleState } from "@/lib/use-idle-detector";
 import { MuteToggle } from "@/components/chat/MuteToggle";
 import { computeUnreadList } from "@/lib/unread";
@@ -84,6 +86,24 @@ function RoomContent({ roomId }: { roomId: string }) {
   // suppression for the focused tab.
   const [isFocused, setIsFocused] = useState(
     typeof document === "undefined" ? true : document.visibilityState === "visible",
+  );
+
+  // REQ-066 — DM-specific UI state.
+  //   `dmPeer` populates the header + composer placeholder with the
+  //   counterpart's display-name/username so DM threads never render the raw
+  //   roomId (UUID). Fetched from GET /api/v1/dms.
+  //   `dmFrozenReason` drives the composer banner + disable; we prefer the
+  //   proactive flag from /dms, but also flip it on a 409 `dialog_frozen`
+  //   from send so a friendship revoked mid-session surfaces without waiting
+  //   for the /dms polling cadence.
+  const [dmPeer, setDmPeer] = useState<{
+    userId: string;
+    username: string;
+    name: string;
+    deleted: boolean;
+  } | null>(null);
+  const [dmFrozenReason, setDmFrozenReason] = useState<DmFrozenReason | null>(
+    null,
   );
 
   const apiRef = useRef(createChatApi());
@@ -152,6 +172,31 @@ function RoomContent({ roomId }: { roomId: string }) {
     void refreshRoomMembers();
   }, [refreshRoomMembers]);
 
+  // REQ-066 — pull DM metadata (counterpart + frozen flag) from /api/v1/dms.
+  // Cheap enough for the demo (<1 KB/row) and keeps the freeze banner reactive
+  // to friendship revocations without wiring a bespoke /dms/:id endpoint.
+  // Reset on roomId change so navigating group → DM or DM → group never leaves
+  // stale peer/frozen state on screen.
+  const refreshDmMeta = useCallback(async () => {
+    const r = await listDms();
+    if (!r.ok) return;
+    const hit = r.data.find((d) => d.roomId === roomId);
+    if (!hit) {
+      // Not a DM (or not one we're party to) — clear any stale state.
+      setDmPeer(null);
+      setDmFrozenReason(null);
+      return;
+    }
+    setDmPeer(hit.other);
+    setDmFrozenReason(hit.frozen ? hit.frozenReason : null);
+  }, [roomId]);
+
+  useEffect(() => {
+    setDmPeer(null);
+    setDmFrozenReason(null);
+    void refreshDmMeta();
+  }, [refreshDmMeta]);
+
   // REQ-110 R12 — reply target is room-scoped: swap rooms, drop the chip so
   // the user doesn't accidentally post an ack into a different channel.
   useEffect(() => {
@@ -172,11 +217,31 @@ function RoomContent({ roomId }: { roomId: string }) {
     [],
   );
 
-  const watermarkRef = useRef(createWatermark(roomId, fetchHistoryForWm, emit));
+  // REQ-110/112 — edit/delete reducer application routed through the
+  // watermark queue so it never applies ahead of a still-draining backfill.
+  const applyMutation = useCallback(
+    (evt: MessageEditedEvent | MessageDeletedEvent) => {
+      if (evt.type === "message.edited") {
+        setMessages((prev) => applyMessageEditedReducer(prev, evt));
+      } else {
+        setMessages((prev) => applyMessageDeletedReducer(prev, evt));
+      }
+    },
+    [],
+  );
+
+  const watermarkRef = useRef(
+    createWatermark(roomId, fetchHistoryForWm, emit, applyMutation),
+  );
 
   useEffect(() => {
-    watermarkRef.current = createWatermark(roomId, fetchHistoryForWm, emit);
-  }, [roomId, fetchHistoryForWm, emit]);
+    watermarkRef.current = createWatermark(
+      roomId,
+      fetchHistoryForWm,
+      emit,
+      applyMutation,
+    );
+  }, [roomId, fetchHistoryForWm, emit, applyMutation]);
 
   useEffect(() => {
     const socket = createChatSocket();
@@ -192,14 +257,15 @@ function RoomContent({ roomId }: { roomId: string }) {
     };
     socket.on("message.new", onMessageNew);
 
-    // REQ-110/111 — live reconcile on author edit. The event carries the new
-    // body + editedAt only; seq is unchanged (brief §6 non-neg #5), so we
-    // don't feed it through the watermark — we just patch the local row.
-    // Messages that have been scrolled out of the window and evicted simply
-    // no-op here (brief §1e "skip silently").
+    // REQ-110/111 — live reconcile on author edit. We route through the
+    // watermark queue so a mutation that arrives while a backfill is still
+    // in flight can't patch a row that hasn't been emitted yet. The edit
+    // event's own seq equals the target message's seq and doesn't advance
+    // the allocator; `roomHeadSeq` drives gap-detection for any new-message
+    // events that may have raced ahead.
     const onMessageEdited = (evt: MessageEditedEvent) => {
       if (evt.roomId !== roomId) return;
-      setMessages((prev) => applyMessageEditedReducer(prev, evt));
+      void watermarkRef.current.ingestMutation(evt);
     };
     socket.on("message.edited", onMessageEdited);
 
@@ -208,9 +274,11 @@ function RoomContent({ roomId }: { roomId: string }) {
     // seq continuity holds and the scroll position doesn't jump.
     // REQ-110 R11 — same reducer also flips replyTo on every reply whose
     // parent is this messageId, so quoted-blocks switch to `[deleted]` live.
+    // Same watermark routing as edits — keeps edit+delete+new strictly
+    // ordered by arrival with no race against in-flight backfills.
     const onMessageDeleted = (evt: MessageDeletedEvent) => {
       if (evt.roomId !== roomId) return;
-      setMessages((prev) => applyMessageDeletedReducer(prev, evt));
+      void watermarkRef.current.ingestMutation(evt);
     };
     socket.on("message.deleted", onMessageDeleted);
 
@@ -254,6 +322,46 @@ function RoomContent({ roomId }: { roomId: string }) {
     };
     socket.on("room.updated", onRoomUpdated);
 
+    // After a transient disconnect Socket.IO auto-reconnects, but the server
+    // drops the room subscription on disconnect — any `message.new` fired
+    // while we were offline is gone. Re-emit `room.subscribe` to rejoin the
+    // fanout room, then let the watermark backfill the gap by feeding
+    // the returned head seq through primeFromAck and fetching history for
+    // any seqs we missed (lastSeen+1 .. newHead). Mirrors InboxList + Contacts.
+    const onReconnect = () => {
+      socket.emit("room.subscribe", roomId, (ack) => {
+        const head = BigInt(ack.roomHeadSeq);
+        const lastSeen = watermarkRef.current.getLastSeenSeq();
+        if (head > lastSeen) {
+          // Use the same gap-fill path as a live message.new arriving at the
+          // current head — fetchHistory covers lastSeen+1..head, emit patches
+          // the list, and primeFromAck advances the watermark if the slice
+          // came back empty.
+          void (async () => {
+            const fromSeq = lastSeen + 1n;
+            try {
+              const slice = await fetchHistoryForWm(roomId, fromSeq, head);
+              const sorted = [...slice.messages].sort((a, b) => {
+                const av = BigInt(a.seq);
+                const bv = BigInt(b.seq);
+                return av < bv ? -1 : av > bv ? 1 : 0;
+              });
+              for (const m of sorted) emit(m);
+            } finally {
+              watermarkRef.current.primeFromAck(ack.roomHeadSeq);
+            }
+          })();
+        } else {
+          watermarkRef.current.primeFromAck(ack.roomHeadSeq);
+        }
+      });
+      // DM peer/frozen state may have shifted while offline — refresh so the
+      // composer banner/placeholder reflect current friendship state.
+      void refreshDmMeta();
+      void refreshRoomMembers();
+    };
+    socket.io.on("reconnect", onReconnect);
+
     let cancelled = false;
     void (async () => {
       await new Promise<void>((resolve) => {
@@ -296,11 +404,20 @@ function RoomContent({ roomId }: { roomId: string }) {
       socket.off("room.member.joined", onMemberJoined);
       socket.off("room.deleted", onRoomDeleted);
       socket.off("room.updated", onRoomUpdated);
+      socket.io.off("reconnect", onReconnect);
       socket.emit("room.unsubscribe", roomId);
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [roomId, refreshMyRooms, refreshRoomMembers, router]);
+  }, [
+    roomId,
+    refreshMyRooms,
+    refreshRoomMembers,
+    refreshDmMeta,
+    router,
+    emit,
+    fetchHistoryForWm,
+  ]);
 
   // REQ-103 — local idle detector. Transitions go both to local state (so
   // the Header self-pill flips instantly) and out through the socket as
@@ -361,6 +478,17 @@ function RoomContent({ roomId }: { roomId: string }) {
           toast.error("Slow down — message rate limit reached. Try again in a few seconds.");
         } else if (status === 413) {
           toast.error("Message too large to send.");
+        } else if (status === 409 && /dialog_frozen/.test(msg)) {
+          // REQ-066 — DM freeze enforcement. The proactive /dms fetch
+          // usually catches this upfront, but if a friendship is revoked
+          // while a thread is open the first send is what reveals it.
+          // Parse the reason off the error body; fall back to not_friends
+          // (the only reason we disable-but-allow-preview today).
+          const reasonMatch = /"reason"\s*:\s*"([^"]+)"/.exec(msg);
+          const reason = (reasonMatch?.[1] as DmFrozenReason | undefined) ??
+            "not_friends";
+          setDmFrozenReason(reason);
+          toast.error("This conversation is frozen.");
         } else {
           toast.error("Couldn't send message. Check your connection and try again.");
         }
@@ -412,14 +540,40 @@ function RoomContent({ roomId }: { roomId: string }) {
   // so the edit lands in the UI before the server round-trip; the socket
   // `message.edited` broadcast will overwrite with the canonical row anyway,
   // so there's no risk of divergence. On error (auth, rate limit, 410) we
-  // toast and rethrow so the form surfaces the failure.
+  // revert to the captured pre-edit snapshot so the "(edited)" pill doesn't
+  // stick on a row whose edit never landed.
   const handleEditMessage = useCallback(
     async (messageId: string, body: string) => {
-      setMessages((prev) =>
-        prev.map((m) => (m.id === messageId ? { ...m, body } : m)),
-      );
+      // Capture the pre-edit snapshot BEFORE the optimistic setter so a
+      // failure can restore the original body + editedAt. Without this the
+      // user sees a persistent "(edited)" pill on a row that in fact still
+      // holds the pre-edit body (the server rejected the mutation).
+      let snapshot: MessagePayload | null = null;
+      setMessages((prev) => {
+        const next = prev.map((m) => {
+          if (m.id !== messageId) return m;
+          snapshot = m;
+          // REQ-110 — stamp editedAt locally so the "(edited)" pill flips
+          // on immediately. The server broadcast overwrites with the
+          // canonical value; until then the local ISO is close enough.
+          return {
+            ...m,
+            body,
+            editedAt: new Date().toISOString(),
+          };
+        });
+        return next;
+      });
       const res = await apiRef.current.editMessage(roomId, messageId, body);
       if (!res.ok) {
+        // Revert to snapshot — restore original body + editedAt (may be null
+        // for a first-ever edit).
+        if (snapshot) {
+          const original: MessagePayload = snapshot;
+          setMessages((prev) =>
+            prev.map((m) => (m.id === messageId ? original : m)),
+          );
+        }
         const msg =
           res.error.code === "gone"
             ? "Message was deleted."

@@ -1,4 +1,10 @@
-import type { MessageNewEvent, MessagePayload, HistorySliceResponse } from "@ai-herders/shared/protocol";
+import type {
+  MessageNewEvent,
+  MessageEditedEvent,
+  MessageDeletedEvent,
+  MessagePayload,
+  HistorySliceResponse,
+} from "@ai-herders/shared/protocol";
 
 export type FetchHistoryFn = (
   roomId: string,
@@ -8,9 +14,23 @@ export type FetchHistoryFn = (
 
 export type WatermarkEmit = (message: MessagePayload) => void;
 
+// REQ-110/112 — edit/delete events carry the target message's own seq (they
+// don't advance the allocator), but the event payload exposes `roomHeadSeq`
+// so we can still gap-detect new messages landing alongside. A single
+// reducer-application callback keeps the watermark ignorant of React shape.
+export type WatermarkMutationApply = (
+  evt: MessageEditedEvent | MessageDeletedEvent,
+) => void;
+
 export interface Watermark {
   primeFromAck(headSeq: string): void;
   ingest(evt: MessageNewEvent): Promise<void>;
+  // REQ-110/112 — route edit/delete through the same serial queue as new
+  // messages so reducer application never races a backfill or an earlier
+  // new-message still in flight. Server fans edits/deletes alongside the
+  // message.new for the originating message; the watermark drains them in
+  // order of arrival.
+  ingestMutation(evt: MessageEditedEvent | MessageDeletedEvent): Promise<void>;
   reset(): void;
   getLastSeenSeq(): bigint;
 }
@@ -29,11 +49,15 @@ export function createWatermark(
   roomId: string,
   fetchHistory: FetchHistoryFn,
   emit: WatermarkEmit,
+  applyMutation?: WatermarkMutationApply,
 ): Watermark {
   let lastSeenSeq = 0n;
   let busy = false;
   let generation = 0; // bumped on reset; in-flight backfills become no-ops
-  const queue: MessageNewEvent[] = [];
+  type QueueItem =
+    | { kind: "new"; evt: MessageNewEvent }
+    | { kind: "mutation"; evt: MessageEditedEvent | MessageDeletedEvent };
+  const queue: QueueItem[] = [];
 
   async function processEvent(evt: MessageNewEvent): Promise<void> {
     const gen = generation;
@@ -75,10 +99,48 @@ export function createWatermark(
     }
   }
 
+  // REQ-110/112 — edit/delete events don't advance the allocator (evt.seq is
+  // the original message's seq), but `roomHeadSeq` tells us whether we've
+  // seen every new message that precedes this mutation. If not, we backfill
+  // up to roomHeadSeq BEFORE applying the reducer so the tombstone/body
+  // patch lands on the already-emitted row (or the just-backfilled row).
+  async function processMutation(
+    evt: MessageEditedEvent | MessageDeletedEvent,
+  ): Promise<void> {
+    const gen = generation;
+    const head = BigInt(evt.roomHeadSeq);
+    if (head > lastSeenSeq) {
+      const fromSeq = lastSeenSeq + 1n;
+      const toSeq = head;
+      const slice = await fetchHistory(roomId, fromSeq, toSeq);
+      if (generation !== gen) return;
+      const sorted = [...slice.messages].sort((a, b) => {
+        const av = BigInt(a.seq);
+        const bv = BigInt(b.seq);
+        return av < bv ? -1 : av > bv ? 1 : 0;
+      });
+      for (const m of sorted) {
+        const ms = BigInt(m.seq);
+        if (ms <= lastSeenSeq) continue;
+        if (ms > head) continue;
+        emit(m);
+        lastSeenSeq = ms;
+      }
+      // Even if the history slice came back short, advance to head so we
+      // don't loop on the same gap.
+      if (head > lastSeenSeq) lastSeenSeq = head;
+    }
+    if (applyMutation) applyMutation(evt);
+  }
+
   async function drain(): Promise<void> {
     while (queue.length > 0) {
       const next = queue.shift()!;
-      await processEvent(next);
+      if (next.kind === "new") {
+        await processEvent(next.evt);
+      } else {
+        await processMutation(next.evt);
+      }
     }
   }
 
@@ -86,7 +148,7 @@ export function createWatermark(
     // Drop events mis-routed from other rooms.
     if (evt.roomId !== roomId) return;
     if (busy) {
-      queue.push(evt);
+      queue.push({ kind: "new", evt });
       return;
     }
     busy = true;
@@ -101,6 +163,24 @@ export function createWatermark(
     }
   }
 
+  async function ingestMutation(
+    evt: MessageEditedEvent | MessageDeletedEvent,
+  ): Promise<void> {
+    if (evt.roomId !== roomId) return;
+    if (busy) {
+      queue.push({ kind: "mutation", evt });
+      return;
+    }
+    busy = true;
+    try {
+      await processMutation(evt);
+      await drain();
+    } finally {
+      queue.length = 0;
+      busy = false;
+    }
+  }
+
   return {
     primeFromAck(headSeq: string) {
       // Monotonic: prime only advances the watermark forward.
@@ -108,6 +188,7 @@ export function createWatermark(
       if (head > lastSeenSeq) lastSeenSeq = head;
     },
     ingest,
+    ingestMutation,
     reset() {
       // Caller must ensure no in-flight fetches — reset abandons any pending backfill.
       lastSeenSeq = 0n;
