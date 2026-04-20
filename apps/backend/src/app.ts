@@ -37,6 +37,7 @@ import { createSocketIO, type ChatIOServer } from "./socket";
 import { installSocketAuth } from "./socket-auth";
 import { registerSocketHandlers } from "./socket-handlers";
 import { attachPresenceIO } from "./lib/presence";
+import { startAttachmentGc } from "./lib/attachment-gc";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -242,6 +243,11 @@ export async function buildApp(): Promise<FastifyInstance> {
     url: "/api/auth/*",
     handler: proxyToBetterAuth,
   });
+
+  // R5/R6 — attachment GC setInterval lives in this module so its onClose
+  // hook registers ahead of the socket teardown (hooks fire in registration
+  // order). Spec: docs/specs/s3-gc-and-moderation-rl.md §4 R5–R8.
+  startAttachmentGc(app);
 
   // Socket.IO is attached to Fastify's underlying HTTP server. Decorating
   // `app.io` lets routes fan out via `request.server.io.to(roomId).emit(...)`

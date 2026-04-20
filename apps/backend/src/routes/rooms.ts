@@ -24,6 +24,7 @@ import { db } from "../db";
 import { env } from "../env";
 import { isUniqueViolation } from "../lib/pg-error";
 import { checkRoomCreateRateLimit } from "../lib/room-create-rate-limit";
+import { checkModerationRateLimit } from "../lib/room-moderation-rate-limit";
 import { requireFriendshipAuth } from "./friendship";
 
 // REQ-028 — per-room membership cap (v3.docx §3.1, docs/specs/s2-rooms.md R5).
@@ -690,9 +691,10 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
   // owner target is 409 already_owner (v3.docx §2.4.7 "owner cannot lose
   // admin rights" — you can't re-promote an owner). Fanout on real promotions.
   //
-  // Ordering (mirrors PATCH/DELETE above minus rate-limit — moderation RL is
-  // punted to S3 per docs/FOLLOWUPS.md): auth → resolve room → authz
+  // Ordering: auth → moderation RL (dual-tier per-room per-user;
+  // docs/specs/s3-gc-and-moderation-rl.md §4 R1-R2) → resolve room → authz
   // (owner?) → resolve target membership → state branch → UPDATE → emit.
+  // RL sits BEFORE DB reads so a spamming admin can't burn CPU.
   app.post<{ Params: { id: string; userId: string } }>(
     "/rooms/:id/admins/:userId",
     async (request, reply) => {
@@ -700,6 +702,17 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
       if (!ctx) return;
 
       const { id: roomId, userId: targetUserId } = request.params;
+
+      const rl = await checkModerationRateLimit(ctx.userId, roomId);
+      if (!rl.allowed) {
+        request.log.warn(
+          { userId: ctx.userId, roomId, endpoint: "promote" },
+          "moderation rate-limited",
+        );
+        return reply
+          .status(429)
+          .send({ error: "rate_limited", retryAfterSec: rl.retryAfterSec });
+      }
 
       const [target] = await db
         .select({ id: room.id, ownerId: room.ownerId })
@@ -768,6 +781,17 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
       if (!ctx) return;
 
       const { id: roomId, userId: targetUserId } = request.params;
+
+      const rl = await checkModerationRateLimit(ctx.userId, roomId);
+      if (!rl.allowed) {
+        request.log.warn(
+          { userId: ctx.userId, roomId, endpoint: "demote" },
+          "moderation rate-limited",
+        );
+        return reply
+          .status(429)
+          .send({ error: "rate_limited", retryAfterSec: rl.retryAfterSec });
+      }
 
       const [target] = await db
         .select({ id: room.id, ownerId: room.ownerId })
@@ -845,6 +869,17 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
       if (!ctx) return;
 
       const { id: roomId, userId: targetUserId } = request.params;
+
+      const rl = await checkModerationRateLimit(ctx.userId, roomId);
+      if (!rl.allowed) {
+        request.log.warn(
+          { userId: ctx.userId, roomId, endpoint: "kick" },
+          "moderation rate-limited",
+        );
+        return reply
+          .status(429)
+          .send({ error: "rate_limited", retryAfterSec: rl.retryAfterSec });
+      }
 
       const [target] = await db
         .select({ id: room.id, ownerId: room.ownerId })
@@ -945,6 +980,19 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
       const ctx = await requireFriendshipAuth(request, reply);
       if (!ctx) return;
 
+      const { id: roomId } = request.params;
+
+      const rl = await checkModerationRateLimit(ctx.userId, roomId);
+      if (!rl.allowed) {
+        request.log.warn(
+          { userId: ctx.userId, roomId, endpoint: "ban" },
+          "moderation rate-limited",
+        );
+        return reply
+          .status(429)
+          .send({ error: "rate_limited", retryAfterSec: rl.retryAfterSec });
+      }
+
       const parsed = createBanSchema.safeParse(request.body);
       if (!parsed.success) {
         return reply
@@ -953,8 +1001,6 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
       }
       const { userId: targetUserId, reason: reasonInput } = parsed.data;
       const reason = reasonInput ?? null;
-
-      const { id: roomId } = request.params;
 
       const [target] = await db
         .select({ id: room.id })
@@ -1068,6 +1114,17 @@ export async function roomsRoutes(app: FastifyInstance): Promise<void> {
       if (!ctx) return;
 
       const { id: roomId, userId: targetUserId } = request.params;
+
+      const rl = await checkModerationRateLimit(ctx.userId, roomId);
+      if (!rl.allowed) {
+        request.log.warn(
+          { userId: ctx.userId, roomId, endpoint: "unban" },
+          "moderation rate-limited",
+        );
+        return reply
+          .status(429)
+          .send({ error: "rate_limited", retryAfterSec: rl.retryAfterSec });
+      }
 
       const [target] = await db
         .select({ id: room.id })

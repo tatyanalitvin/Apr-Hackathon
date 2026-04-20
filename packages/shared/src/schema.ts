@@ -366,9 +366,8 @@ export const attachment = pgTable(
   "attachment",
   {
     id: text("id").primaryKey(),
-    // Null during upload (step 1), set on send (step 2).
-    // TODO(S3-GC): sweep rows with messageId IS NULL older than 1h + delete
-    // the orphaned file under UPLOAD_DIR. Tracked in docs/FOLLOWUPS.md (S3).
+    // Null during upload (step 1), set on send (step 2). Orphan rows older
+    // than 1h are swept by apps/backend/src/lib/attachment-gc.ts (R4.1).
     messageId: text("message_id").references(() => message.id, { onDelete: "cascade" }),
     roomId: text("room_id")
       .notNull()
