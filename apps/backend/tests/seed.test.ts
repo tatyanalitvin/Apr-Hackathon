@@ -79,6 +79,21 @@ describe("REQ-049 seed script creates demo fixture idempotently", () => {
       expect(memberUserIds.has(byUsername.get(uname)!)).toBe(true);
     }
 
+    // REQ-212 — alice must be seeded as room_member.role='owner' so the
+    // admin-delete gate (routes/messages.ts) and the frontend settingsRole
+    // selector (RoomClient.tsx) both resolve her as an admin on #general.
+    // Without this, the seeded demo cannot exercise §2.5.5 (admin-delete) on
+    // bob/carol messages end-to-end.
+    const rolesByUsername = new Map(
+      members.map((m) => {
+        const row = users.find((u) => u.id === m.userId);
+        return [row?.username ?? "?", m.role] as const;
+      }),
+    );
+    expect(rolesByUsername.get("alice")).toBe("owner");
+    expect(rolesByUsername.get("bob")).toBe("member");
+    expect(rolesByUsername.get("carol")).toBe("member");
+
     const msgs = await db
       .select()
       .from(message)

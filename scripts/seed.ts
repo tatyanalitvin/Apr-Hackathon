@@ -12,7 +12,7 @@
 // A raw INSERT would leave sign-in broken and the S1 demo unable to log in.
 
 import { randomUUID } from "node:crypto";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import { auth } from "../apps/backend/src/auth";
 import { db, pool } from "../apps/backend/src/db";
@@ -195,12 +195,18 @@ export async function runSeed(): Promise<SeedReport> {
     .onConflictDoNothing({ target: messageSeq.roomId });
 
   for (const u of USERS) {
+    // REQ-212 — alice owns #general; without role='owner' on her room_member
+    // row the admin-delete gate (apps/backend/src/routes/messages.ts:698 and
+    // RoomClient settingsRole) treats her as a plain member in the seeded
+    // demo, and the ⋯ menu never reveals Delete on bob/carol's messages.
+    const role = u.username === "alice" ? "owner" : "member";
     const memberRows = await db
       .insert(roomMember)
       .values({
         id: randomUUID(),
         userId: userIds[u.username]!,
         roomId: ROOM_ID,
+        role,
       })
       .onConflictDoNothing({
         target: [roomMember.userId, roomMember.roomId],
@@ -208,6 +214,15 @@ export async function runSeed(): Promise<SeedReport> {
       .returning({ id: roomMember.id });
     if (memberRows.length > 0) report.createdMembers += 1;
   }
+
+  // Correct stale seed data where alice's row predates the REQ-212 fix
+  // (her row was inserted with the schema default role='member'). Unconditional
+  // UPDATE — no-op when already 'owner' and adds no new rows, so the REQ-049
+  // idempotency contract (createdMembers === 0 on re-run) still holds.
+  await db
+    .update(roomMember)
+    .set({ role: "owner" })
+    .where(and(eq(roomMember.roomId, ROOM_ID), eq(roomMember.userId, aliceId)));
 
   const [existingCount] = await db
     .select({ count: sql<number>`count(*)::int` })
