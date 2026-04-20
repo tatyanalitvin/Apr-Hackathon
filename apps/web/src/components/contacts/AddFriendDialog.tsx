@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { sendFriendRequest } from "@/lib/friendship-api";
+import { useSession } from "@/lib/auth-client";
 import { toastForSendError } from "./AddFriendButton";
 
 const USERNAME_RE = /^[a-zA-Z0-9_]+$/;
@@ -31,6 +32,15 @@ export function AddFriendDialog({ onSent }: { onSent?: () => void }) {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Self-request guard — server rejects with `self_request` but we can catch
+  // the obvious case client-side to avoid a wasted RTT. The session shape
+  // doesn't type `username` strictly, so narrow the same way Header/RoomClient
+  // do. Missing username (older session) falls through to server validation.
+  const { data: sessionData } = useSession();
+  const selfUsername =
+    sessionData?.user && "username" in sessionData.user
+      ? (sessionData.user as { username: string }).username
+      : undefined;
 
   const reset = () => {
     setUsername("");
@@ -56,6 +66,15 @@ export function AddFriendDialog({ onSent }: { onSent?: () => void }) {
       setError(validationError);
       return;
     }
+    // Client-side self-request guard — skips the server round-trip for the
+    // obvious case. Case-insensitive since usernames are stored lowercase.
+    if (
+      selfUsername &&
+      trimmed.toLowerCase() === selfUsername.toLowerCase()
+    ) {
+      setError("You can't send a friend request to yourself.");
+      return;
+    }
     setBusy(true);
     const r = await sendFriendRequest({
       toUsername: trimmed,
@@ -72,13 +91,17 @@ export function AddFriendDialog({ onSent }: { onSent?: () => void }) {
     }
     toastForSendError(r.error);
     // Keep the dialog open on validation errors so the user can correct; close
-    // on 404/429/duplicate branches because re-submitting won't help.
+    // on 404/duplicate branches because re-submitting won't help. For
+    // rate_limited we keep the dialog OPEN and preserve the draft so the user
+    // can retry once the cooldown lifts.
     if (r.error.code === "validation" || r.error.code === "user_not_found") {
       setError(
         r.error.code === "user_not_found"
           ? "No user with that username."
           : "Check the username format.",
       );
+    } else if (r.error.code === "rate_limited") {
+      // Intentional no-op — leave dialog open, username + message intact.
     } else {
       setOpen(false);
       reset();

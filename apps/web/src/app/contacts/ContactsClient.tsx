@@ -171,13 +171,28 @@ export function ContactsClient() {
             </TabsTrigger>
             <TabsTrigger value="blocked" className="gap-2">
               <ShieldOff className="h-4 w-4" aria-hidden /> Blocked
+              {blocked.length > 0 ? (
+                <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs tabular-nums">
+                  {blocked.length}
+                </Badge>
+              ) : null}
             </TabsTrigger>
           </TabsList>
           <TabsContent value="friends" className="pt-4">
             <FriendsTab
               friends={friends}
               loading={loadingFriends}
-              onMutate={refetchFriends}
+              onMutate={(kind) => {
+                void refetchFriends();
+                // Block from FriendsTab also mutates the Blocked list — refetch
+                // so a subsequent Blocked-tab view sees the row on first open.
+                // (Blocked is lazy on mount, but once its tab has been opened
+                // once, blockedFetchedOnce is set and further refetches are
+                // driven by this callback.)
+                if (kind === "block") {
+                  void refetchBlocked();
+                }
+              }}
             />
           </TabsContent>
           <TabsContent value="incoming" className="pt-4">

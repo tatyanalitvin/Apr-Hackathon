@@ -3,9 +3,10 @@
 //
 // Row-action switch:
 //   friend            → Start DM (createDm → /rooms/:roomId)
-//   none              → Send friend request (POST /api/v1/friends/requests)
+//   none              → Send friend request (typed sendFriendRequest helper)
 //   request_outgoing  → "Request sent" (disabled)
-//   request_incoming  → Accept → /contacts (deep-link, no inline accept)
+//   request_incoming  → Accept inline, then show Start-DM affordance
+//                       (no deep-link to /contacts — keeps the user in-flow).
 
 "use client";
 
@@ -23,13 +24,45 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { createDm, searchUsers } from "@/lib/dms-api";
-import { BACKEND_URL, csrfHeaders } from "@/lib/backend";
+import { createDm, searchUsers, type DmError } from "@/lib/dms-api";
+import {
+  acceptFriendRequest,
+  listIncomingRequests,
+  sendFriendRequest,
+} from "@/lib/friendship-api";
+import { toastForSendError } from "@/components/contacts/AddFriendButton";
 
 const DEBOUNCE_MS = 300;
 const MIN_QUERY = 2;
 
-type RowStatus = "idle" | "sending" | "sent" | "dmming";
+type RowStatus = "idle" | "sending" | "sent" | "accepting" | "dmming";
+
+function toastForDmStartError(error: DmError, username: string): void {
+  switch (error.code) {
+    case "dm_not_allowed":
+      // Surfaces on the unfriended branch (remove-friend → DM no longer
+      // allowed) — distinguished from the generic "try again" fallback.
+      toast.error(`You can't DM @${username} right now — you're no longer friends.`);
+      return;
+    case "user_not_found":
+      toast.error("User not found.");
+      return;
+    case "self_dm":
+      toast.error("You can't DM yourself.");
+      return;
+    case "rate_limited":
+      toast.error("Too many DM requests — try again in a moment.");
+      return;
+    case "unauthorized":
+      toast.error("You need to sign in first.");
+      return;
+    case "network":
+      toast.error("Network error — check your connection.");
+      return;
+    default:
+      toast.error("Couldn't start DM — try again.");
+  }
+}
 
 export function NewDmDialog() {
   const router = useRouter();
@@ -42,6 +75,9 @@ export function NewDmDialog() {
   // Track the q that fired the last request so a stale 300ms timer
   // doesn't clobber fresher results.
   const inFlightRef = useRef<string>("");
+  // Refreshes after an inline accept need to re-read the directory so the
+  // accepted row flips from request_incoming → friend.
+  const refreshRef = useRef<() => Promise<void>>(async () => {});
 
   useEffect(() => {
     const trimmed = query.trim();
@@ -51,7 +87,7 @@ export function NewDmDialog() {
       setError(null);
       return;
     }
-    const handle = setTimeout(async () => {
+    const runSearch = async () => {
       inFlightRef.current = trimmed;
       setLoading(true);
       setError(null);
@@ -64,6 +100,10 @@ export function NewDmDialog() {
         setHits(null);
         setError("Search failed — try again in a moment.");
       }
+    };
+    refreshRef.current = runSearch;
+    const handle = setTimeout(() => {
+      void runSearch();
     }, DEBOUNCE_MS);
     return () => clearTimeout(handle);
   }, [query]);
@@ -88,33 +128,63 @@ export function NewDmDialog() {
       return;
     }
     setRowStatus((s) => ({ ...s, [hit.userId]: "idle" }));
-    toast.error("Couldn't start DM — try again.");
+    toastForDmStartError(r.error, hit.username);
   }
 
   async function onSendFriendRequest(hit: UserSearchHit) {
     setRowStatus((s) => ({ ...s, [hit.userId]: "sending" }));
-    try {
-      const res = await fetch(`${BACKEND_URL}/api/v1/friends/requests`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "content-type": "application/json", ...csrfHeaders() },
-        body: JSON.stringify({ toUserId: hit.userId }),
-      });
-      if (res.status === 201 || res.status === 200) {
-        setRowStatus((s) => ({ ...s, [hit.userId]: "sent" }));
-      } else {
-        setRowStatus((s) => ({ ...s, [hit.userId]: "idle" }));
-        toast.error("Couldn't send friend request.");
-      }
-    } catch {
-      setRowStatus((s) => ({ ...s, [hit.userId]: "idle" }));
-      toast.error("Network error.");
+    const r = await sendFriendRequest({ toUserId: hit.userId });
+    if (r.ok) {
+      setRowStatus((s) => ({ ...s, [hit.userId]: "sent" }));
+      return;
     }
+    setRowStatus((s) => ({ ...s, [hit.userId]: "idle" }));
+    toastForSendError(r.error);
   }
 
-  function onAccept() {
-    setOpen(false);
-    router.push("/contacts");
+  // Accept inline so the user can continue starting a DM without leaving the
+  // dialog. UserSearchHit doesn't carry the incoming-request id, so we resolve
+  // it via listIncomingRequests() before calling accept — a small extra RTT,
+  // but it keeps the directory payload narrow and avoids a protocol change.
+  async function onAcceptInline(hit: UserSearchHit) {
+    setRowStatus((s) => ({ ...s, [hit.userId]: "accepting" }));
+    const incoming = await listIncomingRequests();
+    if (!incoming.ok) {
+      setRowStatus((s) => ({ ...s, [hit.userId]: "idle" }));
+      toast.error("Couldn't accept — try again.");
+      return;
+    }
+    const match = incoming.data.find((req) => req.from.userId === hit.userId);
+    if (!match) {
+      // The request disappeared between the search and the click (accepted in
+      // another tab, cancelled by sender, etc.). Refresh the directory so the
+      // stale row is replaced.
+      setRowStatus((s) => ({ ...s, [hit.userId]: "idle" }));
+      toast.info("This request is no longer available — refreshing.");
+      await refreshRef.current();
+      return;
+    }
+    const r = await acceptFriendRequest(match.id);
+    if (r.ok) {
+      toast.success(`You and @${hit.username} are now friends`);
+      // Keep the dialog + query intact per the brief; refetch so relationship
+      // flips and the Start-DM affordance renders on the next paint.
+      await refreshRef.current();
+      setRowStatus((s) => ({ ...s, [hit.userId]: "idle" }));
+      return;
+    }
+    setRowStatus((s) => ({ ...s, [hit.userId]: "idle" }));
+    if (r.error.code === "already_friends") {
+      toast.info("Already friends — refreshing.");
+      await refreshRef.current();
+    } else if (r.error.code === "request_declined" || r.error.code === "not_found") {
+      toast.info("This request is no longer available.");
+      await refreshRef.current();
+    } else if (r.error.code === "rate_limited") {
+      toast.error("Too many requests — try again in a moment.");
+    } else {
+      toast.error("Couldn't accept — try again.");
+    }
   }
 
   function renderAction(hit: UserSearchHit) {
@@ -155,9 +225,15 @@ export function NewDmDialog() {
         </Button>
       );
     }
-    // request_incoming
+    // request_incoming — accept inline; stay in the dialog so the user can
+    // continue starting the DM once the row flips to "friend".
     return (
-      <Button size="sm" variant="secondary" onClick={onAccept}>
+      <Button
+        size="sm"
+        variant="secondary"
+        disabled={status === "accepting"}
+        onClick={() => onAcceptInline(hit)}
+      >
         Accept
       </Button>
     );
