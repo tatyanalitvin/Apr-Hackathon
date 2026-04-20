@@ -113,7 +113,7 @@ function SessionsContent() {
   return (
     <div className="flex min-h-dvh flex-col">
       <Header />
-      <main id="main" className="mx-auto w-full max-w-[880px] px-6 py-10 space-y-6">
+      <main id="main" className="mx-auto w-full max-w-3xl px-6 py-10 space-y-6">
         <h1 className="font-display text-4xl" style={{ color: "var(--text-hi)" }}>Active sessions</h1>
         <div
           className="rounded-[var(--radius)] p-6 space-y-4"
