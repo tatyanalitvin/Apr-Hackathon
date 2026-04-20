@@ -10,20 +10,34 @@
 // Runs in its own file so tests/setup.ts flushRedis() wipes the counter at
 // the start. Six distinct signups (different emails/usernames) from the same
 // IP: first 5 succeed; 6th is 429.
+//
+// In test mode the default `/sign-up/email` ceiling is relaxed to 10000 so
+// unrelated test files (600+ sign-ups across the suite) don't bleed into
+// each other's buckets — see auth.ts and docs/FOLLOWUPS.md "Backend sign-up
+// rate-limit bleed". This file is the ONE place that needs the prod
+// 5-per-hour contract, so it installs `__setTestSignUpMaxOverride(5)` before
+// its own `buildApp()` to flip the rule back to the spec value, then clears
+// the override on teardown so later test files see the 10000 ceiling again.
 
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import request from "supertest";
 import type { FastifyInstance } from "fastify";
 
 import { buildApp } from "../src/app";
+import { __setTestSignUpMaxOverride } from "../src/auth";
 
 describe("REQ-009 register rate limit (5 / IP / hour)", () => {
   let app: FastifyInstance;
   beforeAll(async () => {
+    __setTestSignUpMaxOverride(5);
     app = await buildApp();
     await app.ready();
   });
   afterAll(async () => {
+    // Clear BEFORE app.close(); if close throws, the next file in the suite
+    // would otherwise inherit our 5-req override and fail with 401s. See
+    // docs/FOLLOWUPS.md "Backend sign-up rate-limit bleed".
+    __setTestSignUpMaxOverride(undefined);
     await app.close();
   });
 
