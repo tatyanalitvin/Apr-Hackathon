@@ -31,19 +31,30 @@ function presenceSuffix(state: UserPresenceState): string | null {
   return null;
 }
 
-function MemberRow({ member, isSelf }: { member: MemberListItem; isSelf: boolean }) {
-  // TODO(ui-pass): reconcile presence source with Header pill. usePresence()
-  // falls back to "offline" when the presenceStore hasn't yet received a
-  // `presence.changed` for this user, so the roster can read "Alice (offline)"
-  // while Alice is actively online per the Header self-pill. A correct fix
-  // needs either a full-room presence snapshot on join (server side) or a
-  // client-side bootstrap that seeds the store from the room-members API
-  // response -- out of scope for this UI pass.
-  const presence = usePresence(member.id);
+function MemberRow({
+  member,
+  isSelf,
+  selfPresence,
+}: {
+  member: MemberListItem;
+  isSelf: boolean;
+  // UX-03 / round-2 P2-10 — the self-row pulls presence from the same live
+  // idle-state RoomClient feeds to the Header pill. The presenceStore never
+  // receives a `presence.changed` for the caller's own id (the server only
+  // fans out transitions for *other* users), so without this override the
+  // self-row would read "Alice (offline)" while the Header says "online".
+  // Non-self rows keep using the presenceStore, identical to before.
+  selfPresence?: UserPresenceState;
+}) {
+  const storePresence = usePresence(member.id);
+  const presence = isSelf && selfPresence ? selfPresence : storePresence;
   const suffix = presenceSuffix(presence);
   return (
     <li className="flex items-center gap-2 rounded px-2 py-1 hover:bg-accent/40">
-      <PresencePill userId={member.id} />
+      <PresencePill
+        userId={member.id}
+        state={isSelf && selfPresence ? selfPresence : undefined}
+      />
       <Avatar userId={member.id} name={member.displayName} size={24} />
       <div className="min-w-0 flex-1 text-sm leading-tight">
         <div className="flex items-center gap-1 truncate">
@@ -71,7 +82,18 @@ function MemberRow({ member, isSelf }: { member: MemberListItem; isSelf: boolean
   );
 }
 
-export function MemberList({ members }: { members: MemberListItem[] }) {
+export function MemberList({
+  members,
+  selfPresence,
+}: {
+  members: MemberListItem[];
+  // Optional — when provided (and a row matches the current user's id) this
+  // state drives that row's pill + suffix instead of the presence-store.
+  // Mirrors the Header's `selfPresence` override so both surfaces stay in
+  // lockstep. Callers outside the room view can omit it and rows behave as
+  // they did before.
+  selfPresence?: UserPresenceState;
+}) {
   // REQ-052 light-duty: we show the Add-friend affordance next to every
   // non-self member and let the click react to server 409/429s via toast.
   // The richer cross-reference path (fetch /friends + /friends/requests here
@@ -94,7 +116,12 @@ export function MemberList({ members }: { members: MemberListItem[] }) {
       </div>
       <ul className="space-y-1">
         {visible.map((m) => (
-          <MemberRow key={m.id} member={m} isSelf={currentUserId === m.id} />
+          <MemberRow
+            key={m.id}
+            member={m}
+            isSelf={currentUserId === m.id}
+            selfPresence={selfPresence}
+          />
         ))}
       </ul>
       {remaining > 0 ? (
