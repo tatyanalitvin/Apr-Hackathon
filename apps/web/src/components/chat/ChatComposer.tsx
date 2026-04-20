@@ -6,7 +6,7 @@ interface ChatComposerProps {
 
 export function ChatComposer({ children }: ChatComposerProps) {
   return (
-    <div className="pointer-events-none sticky bottom-0 px-3 pb-3 pt-10">
+    <div className="pointer-events-none relative px-3 pb-3 pt-10">
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-x-0 -top-4 h-10"

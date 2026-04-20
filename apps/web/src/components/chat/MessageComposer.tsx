@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { EmojiPickerButton } from "@/components/emoji/EmojiPickerButton";
@@ -116,6 +116,16 @@ export function MessageComposer({
     latestValueRef.current = draft;
     setValue(draft);
   }, [userId, roomId]);
+
+  // Resize the textarea whenever value changes programmatically (draft
+  // hydration, insertAtCaret, setValue("") on send). Covers insertAtCaret too
+  // so a separate post-RAF resize is not needed.
+  useLayoutEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 144)}px`;
+  }, [value]);
 
   // Pending uploads are scoped to the current room — swap rooms, drop state.
   useEffect(() => {
@@ -394,6 +404,7 @@ export function MessageComposer({
 
   return (
     <form
+      aria-label="Message composer"
       className={`space-y-1 relative ${dragging ? "bg-accent/40 rounded-md" : ""}`}
       onSubmit={(e) => { e.preventDefault(); void send(); }}
       onDrop={onDrop}
@@ -492,7 +503,7 @@ export function MessageComposer({
       <Textarea
         ref={textareaRef}
         aria-label="Message"
-        placeholder={`Write to #${roomName ?? roomId}…`}
+        placeholder={`Write to #${roomName || roomId}…`}
         rows={1}
         className="font-display italic resize-none max-h-[9rem] overflow-y-auto min-h-0"
         value={value}
