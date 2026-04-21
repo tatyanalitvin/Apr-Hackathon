@@ -12,7 +12,7 @@
 
 const CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
 const INVISIBLE_FORMAT_CHARS =
-  /[\u200B\u200E\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/g;
+  /[\u200B\u200E\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/g;
 
 export function normalizeBody(input: string): string {
   return input
