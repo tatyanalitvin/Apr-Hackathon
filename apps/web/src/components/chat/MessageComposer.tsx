@@ -326,13 +326,28 @@ export function MessageComposer({
             await onSend(next.body, undefined, next.replyToId);
           }
         } catch {
-          // Parent already toasted (see RoomClient.handleSend). Restore
-          // the failed body into the composer only when the user hasn't
-          // typed something newer — don't clobber fresh keystrokes.
-          if (latestValueRef.current.length === 0) {
-            latestValueRef.current = next.body;
-            setValue(next.body);
-          }
+          // Parent already toasted the first failure (see RoomClient.handleSend).
+          // Stop draining: re-unshift the failed message at the head, then fold
+          // the entire remaining queue into the composer so the user sees every
+          // lost body and can retry. Without this, only message #1 was restored
+          // (because latestValueRef.current.length stopped being 0 after the
+          // first restore), and bursts behind a rate-limit silently dropped
+          // messages 2+ with no UI feedback beyond the first toast.
+          queueRef.current.unshift(next);
+          const failedBodies = queueRef.current.map((q) => q.body);
+          queueRef.current = [];
+          // Preserve any text the user typed since the burst by prepending it,
+          // joined by newlines. Newlines are valid in the composer (Shift+Enter)
+          // and the combined byte length is allowed to exceed MAX_BYTES — the
+          // overLimit guard then forces the user to edit before resending,
+          // which is the right UX for "your messages came back, fix and retry".
+          const existing = latestValueRef.current;
+          const restored = existing.length > 0
+            ? [existing, ...failedBodies].join("\n")
+            : failedBodies.join("\n");
+          latestValueRef.current = restored;
+          setValue(restored);
+          break;
         }
       }
       sendingRef.current = false;
