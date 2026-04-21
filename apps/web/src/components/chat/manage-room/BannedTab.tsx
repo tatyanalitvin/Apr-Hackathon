@@ -92,17 +92,23 @@ export function BannedTab({ roomId, roomName, viewerRole }: BannedTabProps) {
     if (!unbanTarget) return;
     const target = unbanTarget;
     setBusy(target.userId);
-    const r = await api.unbanMember(roomId, target.userId);
-    setBusy(null);
-    if (r.ok) {
-      toast.success(`Unbanned @${target.username}.`);
+    try {
+      const r = await api.unbanMember(roomId, target.userId);
+      if (r.ok) {
+        toast.success(`Unbanned @${target.username}.`);
+        setBans((prev) =>
+          prev ? prev.filter((b) => b.userId !== target.userId) : prev,
+        );
+        return;
+      }
+      surfaceErr(r.error);
+    } finally {
+      setBusy(null);
+      // Close the dialog on both success and failure so a frustrated user
+      // can't double-submit the same unban while a retryable-looking error
+      // is on screen — they must reopen to retry.
       setUnbanTarget(null);
-      setBans((prev) =>
-        prev ? prev.filter((b) => b.userId !== target.userId) : prev,
-      );
-      return;
     }
-    surfaceErr(r.error);
   }
 
   if (!canView) {
