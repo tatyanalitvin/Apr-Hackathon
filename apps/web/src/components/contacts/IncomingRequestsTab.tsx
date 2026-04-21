@@ -113,7 +113,18 @@ function IncomingRow({
   };
 
   return (
-    <li className="flex flex-col gap-2 rounded-md border border-border/60 p-3">
+    <li
+      // Optimistic-removal visual (see parent's removingIds comment): dim the
+      // row and disable pointer events the moment a mutation starts so the
+      // user sees feedback before the network call returns. aria-busy keeps
+      // assistive tech in sync. The row disappears entirely when the parent
+      // refetches; this is the in-between state.
+      className={
+        "flex flex-col gap-2 rounded-md border border-border/60 p-3" +
+        (isRemoving ? " pointer-events-none opacity-60" : "")
+      }
+      aria-busy={isRemoving}
+    >
       <div className="flex items-center gap-3">
         <Avatar userId={request.from.userId} name={request.from.name} size={40} />
         <div className="min-w-0 flex-1 leading-tight">
