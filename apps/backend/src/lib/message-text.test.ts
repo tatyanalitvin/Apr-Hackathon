@@ -66,4 +66,15 @@ describe("REQ-031 unicode hygiene", () => {
     expect(normalizeBody("\u202e\u202d")).toBe("");
     expect(normalizeBody("\ufeff\u2060\u200e")).toBe("");
   });
+
+  // B2 follow-up: the four invisible math operators U+2061..U+2064
+  // (FUNCTION APPLICATION, INVISIBLE TIMES, INVISIBLE SEPARATOR, INVISIBLE
+  // PLUS) are zero-width Cf controls and were missing from the original
+  // INVISIBLE_FORMAT_CHARS range, letting an attacker post a body that
+  // looked empty but survived `trim().length > 0`.
+  it("strips invisible math operators U+2061..U+2064 (B2 gap)", () => {
+    expect(normalizeBody("a\u2061b\u2062c\u2063d\u2064e")).toBe("abcde");
+    expect(normalizeBody("\u2061\u2062")).toBe("");
+    expect(normalizeBody("\u2061\u2062\u2063\u2064")).toBe("");
+  });
 });
