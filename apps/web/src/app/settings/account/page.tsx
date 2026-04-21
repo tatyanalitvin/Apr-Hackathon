@@ -57,11 +57,14 @@ function AccountContent() {
     deleteForm.clearErrors();
     try {
       await deleteAccount(values.password);
-      // Show the toast first, then delay the nav so sonner has time to
-      // mount/paint before we tear down this route. router.replace
-      // immediately after toast.success was swallowing the toast because
-      // the Toaster on this page unmounts with the route. 600ms is the
-      // same beat sonner uses for its own enter animation.
+      // Close the dialog before the redirect-delay so the user doesn't see
+      // a "Deleting…" spinner on a confirm modal for an already-deleted
+      // account. The Toaster lives on the page (not in the dialog), so the
+      // toast still has a 600ms window to paint before router.replace
+      // tears the route down — that delay was the original reason for the
+      // setTimeout (immediate replace was swallowing the toast because the
+      // Toaster unmounts with the route).
+      setDeleteOpen(false);
       toast.success("Account deleted");
       window.setTimeout(() => router.replace("/register"), 600);
     } catch (err) {
