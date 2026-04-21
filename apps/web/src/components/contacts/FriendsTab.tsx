@@ -123,6 +123,13 @@ function FriendRow({
   };
 
   const handleBlock = async () => {
+    // Symmetric block: tears down DM, friendship, and invitations in one
+    // shot with no undo. Gate behind confirm so a misclick doesn't nuke
+    // the relationship (mirrors handleRemove's confirm flow).
+    const confirmed = window.confirm(
+      `Block @${friend.username}? This removes the friendship, ends your DM thread, and cancels any pending invitations — there's no undo.`,
+    );
+    if (!confirmed) return;
     setBusy("block");
     const r = await blockUser(friend.userId);
     setBusy(null);
