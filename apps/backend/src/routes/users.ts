@@ -20,12 +20,34 @@ interface UserSearchAuthContext {
   userId: string;
 }
 
+// Cache better-auth session lookups per-request so the rate-limit keyGenerator
+// (runs in onRequest) and requireUserSearchAuth (runs in preHandler) share a
+// single DB hit instead of two. WeakMap auto-collects when the request ends.
+// Null is cached too so a 401'd request doesn't pay the lookup twice.
+type CachedSession = Awaited<ReturnType<typeof auth.api.getSession>>;
+const sessionCache = new WeakMap<FastifyRequest, CachedSession | null>();
+
+async function getRequestSession(
+  request: FastifyRequest,
+): Promise<CachedSession | null> {
+  const cached = sessionCache.get(request);
+  if (cached !== undefined) return cached;
+  try {
+    const headers = toFetchHeaders(request);
+    const session = await auth.api.getSession({ headers });
+    sessionCache.set(request, session ?? null);
+    return session ?? null;
+  } catch {
+    sessionCache.set(request, null);
+    return null;
+  }
+}
+
 async function requireUserSearchAuth(
   request: FastifyRequest,
   reply: FastifyReply,
 ): Promise<UserSearchAuthContext | null> {
-  const headers = toFetchHeaders(request);
-  const session = await auth.api.getSession({ headers });
+  const session = await getRequestSession(request);
   if (!session) {
     reply.status(401).send({ error: "unauthorized" });
     return null;
@@ -159,14 +181,11 @@ export async function usersRoutes(app: FastifyInstance): Promise<void> {
           // keyGenerator before requireUserSearchAuth runs (preHandlers
           // fire after the limiter); fall back to IP so 401s can't be
           // weaponised to burn a user's bucket from a stolen cookie.
+          // The session lookup is memoised on the request so the
+          // preHandler reads the same value without a second DB hit.
           keyGenerator: async (request) => {
-            try {
-              const headers = toFetchHeaders(request);
-              const session = await auth.api.getSession({ headers });
-              if (session?.user?.id) return `us:${session.user.id}`;
-            } catch {
-              // fall through to IP
-            }
+            const session = await getRequestSession(request);
+            if (session?.user?.id) return `us:${session.user.id}`;
             return `us-ip:${request.ip}`;
           },
         },
