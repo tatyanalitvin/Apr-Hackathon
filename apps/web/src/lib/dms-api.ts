@@ -53,11 +53,22 @@ async function parseError(res: Response): Promise<DmError> {
   return { code, status: res.status };
 }
 
-export async function listDms(): Promise<DmResult<DmListItem[]>> {
+export async function listDms(
+  signal?: AbortSignal,
+): Promise<DmResult<DmListItem[]>> {
   let res: Response;
   try {
-    res = await fetch(`${BACKEND_URL}/api/v1/dms`, { credentials: "include" });
-  } catch {
+    res = await fetch(`${BACKEND_URL}/api/v1/dms`, {
+      credentials: "include",
+      signal,
+    });
+  } catch (err) {
+    // AbortError is a normal "newer call superseded this one" — surface it
+    // as `network` and let the caller drop it; DmList ignores aborted
+    // results so the older response can't overwrite a newer one.
+    if (err instanceof DOMException && err.name === "AbortError") {
+      return { ok: false, error: { code: "network" } };
+    }
     return { ok: false, error: { code: "network" } };
   }
   if (!res.ok) return { ok: false, error: await parseError(res) };
