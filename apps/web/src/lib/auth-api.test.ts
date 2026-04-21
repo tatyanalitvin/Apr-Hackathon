@@ -93,13 +93,29 @@ describe("applyAuthIssues (REQ-006/007/018)", () => {
     expect(setError).not.toHaveBeenCalled();
   });
 
-  it("skips issues whose path is not an array", () => {
+  it("routes issues whose path is a flat string (better-auth non-zod envelope)", () => {
     const { form, setError } = makeForm();
     expect(
       applyAuthIssues(
         {
           error: "validation",
           issues: [{ path: "password", message: "boom" }],
+        },
+        form,
+        { password: "password" },
+      ),
+    ).toBe(true);
+    expect(setError).toHaveBeenCalledTimes(1);
+    expect(setError).toHaveBeenCalledWith("password", { message: "boom" });
+  });
+
+  it("returns false when path is neither a string nor an array", () => {
+    const { form, setError } = makeForm();
+    expect(
+      applyAuthIssues(
+        {
+          error: "validation",
+          issues: [{ path: { wat: 1 }, message: "boom" }],
         },
         form,
         { password: "password" },
