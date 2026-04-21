@@ -69,17 +69,29 @@ test.describe("REQ-057 — IncomingRow optimistic dim during accept", () => {
       await registerAndEnterRooms(aliceP, alice);
       await registerAndEnterRooms(bobP, bob);
 
-      // Alice sends Bob a friend request from /contacts.
+      // Alice sends Bob a friend request via the AddFriend dialog. Wait for
+      // the dialog to confirm "Request sent" so the POST resolves before we
+      // Escape — otherwise the request can lose the race and Bob sees no row.
       await aliceP.goto("/contacts");
-      await aliceP.getByLabel(/username/i).fill(bob.username);
-      await aliceP.getByRole("button", { name: /send request/i }).click();
+      await aliceP.getByRole("button", { name: /^add friend$/i }).click();
+      await aliceP
+        .getByRole("searchbox", { name: /search users/i })
+        .fill(bob.username);
+      await aliceP
+        .getByRole("button", { name: /^send request$/i })
+        .first()
+        .click();
       await expect(
-        aliceP.getByText(/request.*sent|pending/i),
+        aliceP.getByRole("button", { name: /^request sent$/i }).first(),
       ).toBeVisible({ timeout: 10_000 });
+      await aliceP.keyboard.press("Escape");
 
-      // Bob opens /contacts; the incoming request row is rendered inside
-      // the "Incoming friend requests" list.
+      // Bob opens /contacts; /contacts defaults to the "Friends" tab, so we
+      // click the "Incoming" tab trigger to mount IncomingRequestsTab before
+      // looking for the row. The incoming request row is rendered inside the
+      // "Incoming friend requests" list.
       await bobP.goto("/contacts");
+      await bobP.getByRole("tab", { name: /^incoming/i }).click();
       const requestsList = bobP.getByRole("list", {
         name: /incoming friend requests/i,
       });
