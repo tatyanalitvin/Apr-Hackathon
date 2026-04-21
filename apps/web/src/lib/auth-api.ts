@@ -46,7 +46,15 @@ export function applyAuthIssues<TForm extends FieldValues>(
   }
   let attached = false;
   for (const issue of body.issues) {
-    const key = Array.isArray(issue.path) ? String(issue.path[0] ?? "") : "";
+    // Zod issues expose path as an array, but some better-auth internals
+    // forward flat string paths for non-zod validation errors — handle both
+    // so those don't silently fall through to the toast.
+    const key =
+      typeof issue.path === "string"
+        ? issue.path
+        : Array.isArray(issue.path)
+          ? String(issue.path[0] ?? "")
+          : "";
     const target = fieldMap[key];
     if (!target) continue;
     const raw = issue.message ?? "Invalid input";
